@@ -34,6 +34,7 @@
 技能文件（按角色）：
 11. .agents/backend.skill.md    ← 后端开发
 12. .agents/testing.skill.md    ← 测试任务
+13. .agents/ci.skill.md         ← CI 检查、提交前预检、GitHub Actions
 ```
 
 ---
