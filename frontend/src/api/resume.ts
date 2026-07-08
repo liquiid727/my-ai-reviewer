@@ -1,5 +1,5 @@
 import { apiRequest } from './client'
-import type { APIResponse, ResumeStatusData, ResumeUploadData } from '@/types/resume'
+import type { APIResponse, ResumeDetailData, ResumeStatusData, ResumeUploadData } from '@/types/resume'
 
 export async function uploadResume(file: File): Promise<APIResponse<ResumeUploadData>> {
   const formData = new FormData()
@@ -22,4 +22,8 @@ export async function getResumeStatus(resumeId: string): Promise<APIResponse<Res
 
 export async function retryResume(resumeId: string): Promise<APIResponse<ResumeStatusData>> {
   return apiRequest(`/resume/${resumeId}/retry`, { method: 'POST' })
+}
+
+export async function getResumeDetail(resumeId: string): Promise<APIResponse<ResumeDetailData>> {
+  return apiRequest(`/resume/${resumeId}`)
 }

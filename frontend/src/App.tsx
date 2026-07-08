@@ -4,6 +4,7 @@ import { Layout } from '@/components/Layout'
 import { UploadPage } from '@/pages/UploadPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { ResumePage } from '@/pages/ResumePage'
+import { EvaluationPage } from '@/pages/EvaluationPage'
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
           <Route path="/upload" element={<UploadPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/resume/:id" element={<ResumePage />} />
+          <Route path="/resume/:id/evaluation" element={<EvaluationPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
