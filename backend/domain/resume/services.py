@@ -12,6 +12,7 @@ from backend.domain.resume.schemas import CandidateProfile
 from backend.infrastructure.classifiers.rule_classifier import RuleBasedResumeClassifier
 from backend.infrastructure.db.models import FileModel, ResumeEvaluationModel, ResumeModel
 from backend.infrastructure.evaluators.llm_evaluator import LLMResumeEvaluator
+from backend.infrastructure.extractors.llm_extractor import LLMResumeExtractor
 from backend.infrastructure.llm.gateway import LLMGateway
 from backend.infrastructure.parsers import get_parser
 from backend.infrastructure.storage.minio_client import download_file
@@ -62,6 +63,25 @@ async def extract_text(session: AsyncSession, resume_id: uuid.UUID) -> ResumeMod
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+    return resume
+
+
+async def extract_facts(session: AsyncSession, resume_id: uuid.UUID) -> ResumeModel:
+    resume = await session.get(ResumeModel, resume_id)
+    if resume is None:
+        raise ValueError(f"Resume not found: {resume_id}")
+
+    if not resume.raw_text:
+        raise ValueError(f"No raw text for resume: {resume_id}")
+
+    gateway = LLMGateway.from_settings()
+    extractor = LLMResumeExtractor(gateway)
+    result = await extractor.extract(resume.raw_text)
+
+    resume.parsed_result = result
+    resume.status = ResumeStatus.FACT_EXTRACTED
+    await session.commit()
 
     return resume
 

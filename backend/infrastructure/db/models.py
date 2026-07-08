@@ -55,7 +55,9 @@ class ResumeModel(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     user: Mapped["UserModel | None"] = relationship(back_populates="resumes", lazy="selectin")
-    evaluations: Mapped[list["ResumeEvaluationModel"]] = relationship(back_populates="resume", lazy="selectin")
+    evaluations: Mapped[list["ResumeEvaluationModel"]] = relationship(
+        back_populates="resume", lazy="selectin", order_by="ResumeEvaluationModel.created_at",
+    )
 
 
 class ResumeEvaluationModel(Base):

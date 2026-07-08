@@ -12,6 +12,9 @@ from backend.domain.resume.exceptions import (
 )
 from backend.infrastructure.db.models import FileModel, ResumeModel
 from backend.infrastructure.storage.minio_client import upload_file
+import asyncio
+
+from backend.tasks.resume_tasks import process_resume_pipeline
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
@@ -93,6 +96,9 @@ async def upload_resume(
     session.add(resume_record)
     await session.flush()
     await session.commit()
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, process_resume_pipeline, str(resume_record.id))
 
     return {
         "resume_id": str(resume_record.id),

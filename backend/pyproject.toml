@@ -16,6 +16,7 @@ dependencies = [
     "minio>=7.2.0",
     "python-multipart>=0.0.12",
     "httpx>=0.28.0",
+    "cryptography>=49.0.0",
 ]
 
 [project.optional-dependencies]

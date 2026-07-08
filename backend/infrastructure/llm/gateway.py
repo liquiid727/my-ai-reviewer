@@ -23,8 +23,10 @@ class LLMGateway:
 
     @classmethod
     def from_config(cls, llm_config: LLMConfigModel) -> LLMGateway:
+        from backend.infrastructure.crypto.encryption import get_encryptor
+
         provider_name = llm_config.provider.lower()
-        api_key = llm_config.api_key_encrypted
+        api_key = get_encryptor().decrypt(llm_config.api_key_encrypted)
         model = llm_config.model_name
 
         provider = _build_provider(
