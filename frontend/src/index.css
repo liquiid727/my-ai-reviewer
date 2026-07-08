@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-main: #88aaee;
+  --color-main-foreground: #000;
+  --color-secondary-background: #e0e0e0;
+  --color-background: #fff;
+  --color-foreground: #000;
+  --color-border: #000;
+  --color-ring: #000;
+  --color-overlay: rgba(0, 0, 0, 0.8);
+
+  --radius-base: 5px;
+
+  --shadow-shadow: 4px 4px 0px 0px #000;
+
+  --translate-boxShadowX: 4px;
+  --translate-boxShadowY: 4px;
+  --translate-reverseBoxShadowX: -4px;
+  --translate-reverseBoxShadowY: -4px;
+
+  --font-weight-base: 500;
+  --font-weight-heading: 700;
+}
