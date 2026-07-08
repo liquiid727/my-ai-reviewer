@@ -178,7 +178,7 @@ otlp/
 uploads/
 uploads/*
 !uploads/.gitkeep
-storage/
+/storage/
 data/
 !data/.gitkeep
 
