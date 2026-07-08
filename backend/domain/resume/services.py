@@ -8,7 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
 from backend.domain.resume.enums import ResumeStatus
-from backend.infrastructure.db.models import FileModel, ResumeModel
+from backend.domain.resume.schemas import CandidateProfile
+from backend.infrastructure.classifiers.rule_classifier import RuleBasedResumeClassifier
+from backend.infrastructure.db.models import FileModel, ResumeEvaluationModel, ResumeModel
+from backend.infrastructure.evaluators.llm_evaluator import LLMResumeEvaluator
+from backend.infrastructure.llm.gateway import LLMGateway
 from backend.infrastructure.parsers import get_parser
 from backend.infrastructure.storage.minio_client import download_file
 
@@ -58,5 +62,75 @@ async def extract_text(session: AsyncSession, resume_id: uuid.UUID) -> ResumeMod
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+    return resume
+
+
+async def classify_resume(session: AsyncSession, resume_id: uuid.UUID) -> ResumeModel:
+    resume = await session.get(ResumeModel, resume_id)
+    if resume is None:
+        raise ValueError(f"Resume not found: {resume_id}")
+
+    parsed_result: dict = resume.parsed_result or {}
+    profile_data = parsed_result.get("profile")
+    if profile_data is None:
+        raise ValueError(f"No parsed profile for resume: {resume_id}")
+
+    profile = CandidateProfile.model_validate(profile_data)
+
+    classifier = RuleBasedResumeClassifier()
+    result = classifier.classify(profile)
+
+    profile.ability_tags = [
+        *result.tech_direction_tags,
+        result.experience_level,
+        *result.industry_tags,
+    ]
+
+    parsed_result["profile"] = profile.model_dump(mode="json")
+    parsed_result["classification"] = {
+        "tech_direction_tags": result.tech_direction_tags,
+        "experience_level": result.experience_level,
+        "industry_tags": result.industry_tags,
+        "stats": result.stats,
+        "classifier_version": classifier.version,
+    }
+
+    resume.parsed_result = parsed_result
+    resume.status = ResumeStatus.CLASSIFIED
+    await session.commit()
+
+    return resume
+
+
+async def evaluate_resume(session: AsyncSession, resume_id: uuid.UUID) -> ResumeModel:
+    resume = await session.get(ResumeModel, resume_id)
+    if resume is None:
+        raise ValueError(f"Resume not found: {resume_id}")
+
+    parsed_result: dict = resume.parsed_result or {}
+    if not parsed_result:
+        raise ValueError(f"No parsed result for resume: {resume_id}")
+
+    gateway = LLMGateway.from_settings()
+    evaluator = LLMResumeEvaluator(gateway)
+    evaluation = await evaluator.evaluate(parsed_result)
+
+    meta = evaluation.pop("_meta", {})
+
+    eval_record = ResumeEvaluationModel(
+        resume_id=resume_id,
+        overall_score=evaluation["overall_score"],
+        dimension_scores=evaluation.get("dimension_scores", []),
+        strengths=evaluation.get("strengths", []),
+        risks=evaluation.get("risks", []),
+        interview_suggestions=evaluation.get("interview_suggestions", {}),
+        summary=evaluation.get("summary"),
+        llm_model=meta.get("model"),
+    )
+    session.add(eval_record)
+
+    resume.status = ResumeStatus.EVALUATED
+    await session.commit()
 
     return resume
