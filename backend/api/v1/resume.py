@@ -1,3 +1,5 @@
+"""简历相关 API 端点 —— 上传、查询状态、查看详情、重试和获取评估结果。"""
+
 import asyncio
 import uuid
 
@@ -19,8 +21,10 @@ from backend.tasks.resume_tasks import process_resume_pipeline
 
 router = APIRouter(prefix="/resume", tags=["resume"])
 
+# 处理流水线的四个步骤（按顺序执行）
 PIPELINE_STEPS = ["text_extract", "llm_parse", "classify", "evaluate"]
 
+# 状态 → 已完成到第几步的映射（-1 表示还没开始）
 STATUS_TO_STEP_INDEX: dict[str, int] = {
     ResumeStatus.UPLOADED.value: -1,
     ResumeStatus.TEXT_PARSED.value: 0,
@@ -31,11 +35,13 @@ STATUS_TO_STEP_INDEX: dict[str, int] = {
 
 
 def _completed_steps(status: str) -> list[str]:
+    """根据状态值推算已完成的步骤列表。"""
     idx = STATUS_TO_STEP_INDEX.get(status, -1)
     return PIPELINE_STEPS[: idx + 1]
 
 
 def _completed_steps_from_data(resume: ResumeModel) -> list[str]:
+    """失败状态下，根据实际数据判断已完成的步骤（比单纯看状态更准确）。"""
     steps: list[str] = []
     if resume.raw_text:
         steps.append("text_extract")
@@ -49,6 +55,7 @@ def _completed_steps_from_data(resume: ResumeModel) -> list[str]:
 
 
 def _current_step(status: str) -> str:
+    """推算当前正在执行（或下一步将执行）的步骤名。"""
     if status == ResumeStatus.FAILED.value:
         return "failed"
     idx = STATUS_TO_STEP_INDEX.get(status, -1)
@@ -62,6 +69,7 @@ async def upload_resume_endpoint(
     file: UploadFile,
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:
+    """上传简历文件，自动触发处理流水线。"""
     file_data = await file.read()
     result = await upload_resume(
         session=session,
@@ -76,11 +84,13 @@ async def get_resume_status(
     resume_id: uuid.UUID,
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:
+    """查询简历的处理状态和进度。"""
     resume = await session.get(ResumeModel, resume_id)
     if resume is None:
         return APIResponse(code=404, message="Resume not found")
 
     status = resume.status
+    # 失败状态下从实际数据推断已完成步骤，避免状态不一致
     if status == ResumeStatus.FAILED.value:
         completed = _completed_steps_from_data(resume)
     else:
@@ -99,6 +109,7 @@ async def get_resume_detail(
     resume_id: uuid.UUID,
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:
+    """获取简历详情（含原始文本和 LLM 解析结果）。"""
     resume = await session.get(ResumeModel, resume_id)
     if resume is None:
         return APIResponse(code=404, message="Resume not found")
@@ -119,6 +130,7 @@ async def retry_resume(
     resume_id: uuid.UUID,
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:
+    """重试失败的简历处理流水线。"""
     resume = await session.get(ResumeModel, resume_id)
     if resume is None:
         return APIResponse(code=404, message="Resume not found")
@@ -126,10 +138,12 @@ async def retry_resume(
     if resume.status != ResumeStatus.FAILED.value:
         return APIResponse(code=400, message="Resume is not in failed state")
 
+    # 重置状态，清除错误信息
     resume.parse_error = None
     resume.status = ResumeStatus.UPLOADED.value
     await session.commit()
 
+    # 重新派发处理流水线任务到 Celery
     try:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, process_resume_pipeline, str(resume.id))
@@ -154,6 +168,7 @@ async def get_evaluation(
     resume_id: uuid.UUID,
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:
+    """获取简历的 LLM 评估结果（取最新一次评估）。"""
     resume = await session.get(ResumeModel, resume_id)
     if resume is None:
         return APIResponse(code=404, message="Resume not found")
@@ -161,6 +176,7 @@ async def get_evaluation(
     if not resume.evaluations:
         return APIResponse(code=404, message="No evaluation found for this resume")
 
+    # 取最新一条评估记录
     eval_record = resume.evaluations[-1]
     data = EvaluationData(
         evaluation_id=str(eval_record.id),

@@ -1,3 +1,9 @@
+"""简历信息提取提示词 —— 定义 LLM 从原始文本中提取结构化信息时使用的提示词。
+
+提取内容包括：区块分割、事实列表、候选人画像（身份信息、教育背景、
+工作经历、项目经历、技能、证书、面试线索和风险点）。
+"""
+
 RESUME_EXTRACTION_SYSTEM_PROMPT = """\
 You are a structured resume extraction engine. Given raw resume text, extract all information into the JSON schema below.
 

@@ -1,0 +1,22 @@
+id: default-fullstack
+name: Default Fullstack
+inputs:
+  - spec-draft
+outputs:
+  - design
+  - roadmap
+  - spec
+  - implementation
+  - reviews
+  - tests
+gates:
+  - draft accepted by human
+  - design updated or confirmed
+  - roadmap updated
+  - feature spec normalized by agent
+  - implementation handoff prepared
+  - test plan reviewed by human
+  - tests generated
+  - tests executed
+  - report reviewed
+  - ci gate passed

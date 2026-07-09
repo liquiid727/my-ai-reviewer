@@ -1,9 +1,16 @@
+"""OpenAI 兼容提供商 —— 支持 OpenAI、DeepSeek 等 OpenAI 接口兼容的模型服务。"""
+
 from openai import AsyncOpenAI
 
 from backend.infrastructure.llm.providers.base import BaseLLMProvider, LLMResponse
 
 
 class OpenAIProvider(BaseLLMProvider):
+    """OpenAI 兼容的 LLM 提供商实现。
+
+    通过 base_url 参数支持 DeepSeek、自部署等 OpenAI API 兼容服务。
+    """
+
     def __init__(self, api_key: str, model: str, base_url: str | None = None) -> None:
         self._model = model
         self._client = AsyncOpenAI(
@@ -16,6 +23,7 @@ class OpenAIProvider(BaseLLMProvider):
         messages: list[dict],
         response_format: dict | None = None,
     ) -> LLMResponse:
+        """调用 OpenAI Chat Completions API。"""
         kwargs: dict = {
             "model": self._model,
             "messages": messages,

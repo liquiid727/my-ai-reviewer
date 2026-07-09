@@ -1,0 +1,21 @@
+meta {
+  name: <feature-request>
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/<domain>/<feature>/<action>
+  body: json
+  auth: inherit
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "<field>": "<value>"
+  }
+}

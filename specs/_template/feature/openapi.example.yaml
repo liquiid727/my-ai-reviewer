@@ -1,0 +1,22 @@
+openapi: 3.1.0
+info:
+  title: <domain>-<feature>
+  version: 0.1.0
+paths:
+  /<domain>/<feature>/<action>:
+    <method>:
+      summary: <summary>
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                <field>:
+                  type: string
+      responses:
+        "200":
+          description: <success-response>
+        "400":
+          description: <error-response>

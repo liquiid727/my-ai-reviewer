@@ -1,3 +1,5 @@
+"""简历上传服务 —— 负责文件校验、去重、对象存储上传和数据库记录创建。"""
+
 import hashlib
 import uuid
 from pathlib import PurePosixPath
@@ -16,9 +18,12 @@ import asyncio
 
 from backend.tasks.resume_tasks import process_resume_pipeline
 
+# 允许上传的文件扩展名
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+# 文件大小上限：10MB
+MAX_FILE_SIZE = 10 * 1024 * 1024
 
+# 扩展名 → MIME 类型映射
 CONTENT_TYPE_MAP = {
     ".pdf": "application/pdf",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -28,6 +33,7 @@ CONTENT_TYPE_MAP = {
 
 
 def _validate_file(filename: str, size: int) -> str:
+    """校验文件格式和大小，返回小写扩展名。"""
     ext = PurePosixPath(filename).suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise UnsupportedFileFormatError(ext)
@@ -37,6 +43,7 @@ def _validate_file(filename: str, size: int) -> str:
 
 
 def _compute_sha256(data: bytes) -> str:
+    """计算文件内容的 SHA-256 哈希值，用于去重检测。"""
     return hashlib.sha256(data).hexdigest()
 
 
@@ -46,9 +53,11 @@ async def upload_resume(
     file_data: bytes,
     user_id: uuid.UUID | None = None,
 ) -> dict[str, str]:
+    """上传简历的完整流程：校验 → 去重 → 存储 → 建记录 → 触发流水线。"""
     ext = _validate_file(filename, len(file_data))
     sha256_hash = _compute_sha256(file_data)
 
+    # ── 去重检测：如果相同文件已上传过，直接返回已有记录 ──
     stmt = select(FileModel).where(FileModel.sha256_hash == sha256_hash)
     result = await session.execute(stmt)
     existing_file = result.scalar_one_or_none()
@@ -64,6 +73,7 @@ async def upload_resume(
                 "status": str(existing_resume.status),
             }
 
+    # ── 上传文件到 MinIO 对象存储 ──
     settings = get_settings()
     owner_id = user_id or uuid.uuid4()
     object_name = f"{owner_id}/{uuid.uuid4()}{ext}"
@@ -76,6 +86,7 @@ async def upload_resume(
         content_type=content_type,
     )
 
+    # ── 创建文件记录和简历记录 ──
     file_record = FileModel(
         original_name=filename,
         storage_path=object_name,
@@ -97,6 +108,7 @@ async def upload_resume(
     await session.flush()
     await session.commit()
 
+    # ── 异步触发简历处理流水线（Celery） ──
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, process_resume_pipeline, str(resume_record.id))
 

@@ -1,3 +1,5 @@
+"""LLM 配置服务层 —— 提供 LLM 配置的增删改查和连通性测试。"""
+
 import asyncio
 import uuid
 
@@ -15,6 +17,7 @@ async def create_config(
     model_name: str,
     base_url: str | None = None,
 ) -> LLMConfigModel:
+    """创建新的 LLM 配置，API Key 加密后存储。"""
     config = LLMConfigModel(
         provider=provider,
         api_key_encrypted=get_encryptor().encrypt(api_key),
@@ -28,6 +31,7 @@ async def create_config(
 
 
 async def list_configs(session: AsyncSession) -> list[LLMConfigModel]:
+    """查询所有 LLM 配置，按创建时间倒序排列。"""
     stmt = select(LLMConfigModel).order_by(LLMConfigModel.created_at.desc())
     result = await session.execute(stmt)
     return list(result.scalars().all())
@@ -41,7 +45,10 @@ async def update_config(
     model_name: str | None = None,
     base_url: str | None = ...,  # type: ignore[assignment]
 ) -> LLMConfigModel | None:
-    # base_url default is ... (sentinel) to distinguish "not provided" from "set to None"
+    """更新指定的 LLM 配置，只修改传入的字段。
+
+    base_url 默认值为 ... (哨兵值)，用于区分"未传入"和"显式设为 None"。
+    """
     config = await session.get(LLMConfigModel, config_id)
     if config is None:
         return None
@@ -59,6 +66,7 @@ async def update_config(
 
 
 async def delete_config(session: AsyncSession, config_id: uuid.UUID) -> bool:
+    """删除指定的 LLM 配置，返回是否成功。"""
     config = await session.get(LLMConfigModel, config_id)
     if config is None:
         return False
@@ -73,12 +81,13 @@ async def test_connection(
     model_name: str,
     base_url: str | None = None,
 ) -> dict[str, object]:
-    """Test LLM provider connection by listing models or sending a minimal request."""
+    """测试 LLM 提供商连通性：发送最小请求或列出可用模型。"""
     if provider == "anthropic":
         from anthropic import AsyncAnthropic
 
         anthropic_client = AsyncAnthropic(api_key=api_key)
         try:
+            # 发送一条最小消息来验证 API Key 和模型是否有效
             await asyncio.wait_for(
                 anthropic_client.messages.create(
                     model=model_name,
@@ -95,6 +104,7 @@ async def test_connection(
 
         openai_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         try:
+            # 通过列出可用模型来验证连通性
             models_response = await asyncio.wait_for(
                 openai_client.models.list(),
                 timeout=15,

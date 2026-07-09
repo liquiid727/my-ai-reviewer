@@ -40,7 +40,7 @@ const PROVIDER_LABELS: Record<string, string> = {
 }
 
 const PROVIDER_MODELS: Record<string, string[]> = {
-  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o3-mini'],
+  openai: ['gpt-5.5', 'gpt-5.4', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o3-mini'],
   anthropic: [
     'claude-sonnet-4-20250514',
     'claude-haiku-4-5-20251001',
@@ -59,7 +59,7 @@ interface FormState {
 const EMPTY_FORM: FormState = {
   provider: 'openai',
   api_key: '',
-  model_name: 'gpt-4o',
+  model_name: 'gpt-5.5',
   base_url: '',
 }
 
@@ -294,36 +294,40 @@ export function SettingsPage() {
             <Label htmlFor="model" className="font-bold">
               Model
             </Label>
-            {isCustomProvider ? (
-              <Input
-                id="model"
-                placeholder="e.g. my-custom-model"
-                value={form.model_name}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    model_name: e.target.value,
-                  }))
-                }
-              />
-            ) : (
-              <Select
-                value={form.model_name}
-                onValueChange={(val) =>
-                  setForm((prev) => ({ ...prev, model_name: val }))
-                }
-              >
-                <SelectTrigger id="model">
-                  <SelectValue placeholder="Select a model" />
-                </SelectTrigger>
-                <SelectContent>
-                  {modelOptions?.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {m}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <Input
+              id="model"
+              placeholder={
+                isCustomProvider
+                  ? 'e.g. my-custom-model'
+                  : 'Type a model name or pick one below'
+              }
+              value={form.model_name}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  model_name: e.target.value,
+                }))
+              }
+            />
+            {modelOptions && modelOptions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {modelOptions.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() =>
+                      setForm((prev) => ({ ...prev, model_name: m }))
+                    }
+                    className={`rounded-base border-2 px-2.5 py-1 text-xs font-bold transition-colors ${
+                      form.model_name === m
+                        ? 'border-border bg-main text-main-foreground'
+                        : 'border-border bg-secondary-background hover:bg-main/20'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
 

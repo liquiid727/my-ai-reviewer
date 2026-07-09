@@ -1,3 +1,5 @@
+"""MinIO 对象存储客户端 —— 封装文件上传和下载操作。"""
+
 import io
 from functools import lru_cache
 
@@ -8,6 +10,7 @@ from backend.config import get_settings
 
 @lru_cache
 def get_minio_client() -> Minio:
+    """获取全局 MinIO 客户端单例。"""
     settings = get_settings()
     return Minio(
         endpoint=settings.MINIO_ENDPOINT,
@@ -23,6 +26,7 @@ def upload_file(
     data: bytes,
     content_type: str,
 ) -> str:
+    """上传文件到 MinIO，返回对象路径。"""
     client = get_minio_client()
     client.put_object(
         bucket_name=bucket,
@@ -35,6 +39,7 @@ def upload_file(
 
 
 def download_file(bucket: str, object_name: str) -> bytes:
+    """从 MinIO 下载文件，返回文件内容字节。"""
     client = get_minio_client()
     response = client.get_object(bucket_name=bucket, object_name=object_name)
     try:

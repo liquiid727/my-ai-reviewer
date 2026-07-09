@@ -1,3 +1,9 @@
+"""简历评估提示词 —— 定义 LLM 评估简历时使用的 system prompt 和 user prompt。
+
+评估维度包含 8 项：技术能力、项目质量、工程能力、架构能力、
+业务复杂度、影响力、成长性、AI能力。
+"""
+
 RESUME_EVALUATION_SYSTEM_PROMPT = """\
 You are a senior technical interviewer with 10+ years of experience in hiring for top-tier technology companies. \
 You evaluate resumes with precision, balancing technical depth with practical impact.
