@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import {
   RadarChart,
@@ -22,7 +22,7 @@ import {
 } from 'lucide-react'
 
 import { getEvaluation } from '@/api/evaluation'
-import type { EvaluationData, DimensionScore, InterviewSuggestion } from '@/types/evaluation'
+import type { EvaluationData, DimensionScore } from '@/types/evaluation'
 import { ScoreGauge } from '@/components/ScoreGauge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -74,15 +74,13 @@ function DimensionTooltip({ active, payload }: DimensionTooltipProps) {
   return (
     <div className="rounded-base border-2 border-border bg-white p-3 shadow-shadow max-w-xs">
       <p className="font-heading text-sm">
-        {dim.dimension}: {dim.score}/10
+        {dim.name}: {dim.score}
       </p>
       <p className="mt-1 text-xs text-gray-700">{dim.reason}</p>
-      {dim.evidence.length > 0 && (
-        <ul className="mt-1 list-disc pl-4 text-xs text-gray-600">
-          {dim.evidence.map((e, i) => (
-            <li key={i}>{e}</li>
-          ))}
-        </ul>
+      {dim.evidence && (
+        <p className="mt-1 text-xs text-gray-600 italic">
+          &ldquo;{dim.evidence}&rdquo;
+        </p>
       )}
     </div>
   )
@@ -110,13 +108,7 @@ function LoadingSkeleton() {
   )
 }
 
-function SuggestionList({
-  items,
-  type,
-}: {
-  items: InterviewSuggestion[]
-  type: string
-}) {
+function SuggestionList({ items }: { items: string[] }) {
   if (items.length === 0) {
     return <p className="text-sm text-gray-500">暂无内容</p>
   }
@@ -127,38 +119,7 @@ function SuggestionList({
           key={i}
           className="rounded-base border-2 border-border bg-white p-3"
         >
-          {type === 'worth_asking' && (
-            <>
-              <p className="font-heading text-sm">{item.question}</p>
-              {item.reason && (
-                <p className="mt-1 text-xs text-gray-600">{item.reason}</p>
-              )}
-            </>
-          )}
-          {type === 'likely_exaggerated' && (
-            <>
-              <p className="font-heading text-sm">{item.claim}</p>
-              {item.evidence && (
-                <p className="mt-1 text-xs text-gray-600">{item.evidence}</p>
-              )}
-            </>
-          )}
-          {type === 'verify_directions' && (
-            <>
-              <p className="font-heading text-sm">{item.direction}</p>
-              {item.method && (
-                <p className="mt-1 text-xs text-gray-600">{item.method}</p>
-              )}
-            </>
-          )}
-          {type === 'skip_topics' && (
-            <>
-              <p className="font-heading text-sm">{item.topic}</p>
-              {item.reason && (
-                <p className="mt-1 text-xs text-gray-600">{item.reason}</p>
-              )}
-            </>
-          )}
+          <p className="text-sm">{item}</p>
         </li>
       ))}
     </ul>
@@ -192,6 +153,14 @@ export function EvaluationPage() {
       .finally(() => setLoading(false))
   }, [id])
 
+  const radarData = useMemo(() => {
+    if (!data) return []
+    return data.dimension_scores.map((d) => ({
+      ...d,
+      fullMark: 100,
+    }))
+  }, [data])
+
   if (loading) {
     return (
       <div className="mx-auto max-w-4xl">
@@ -222,11 +191,6 @@ export function EvaluationPage() {
     )
   }
 
-  const radarData = data.dimension_scores.map((d) => ({
-    ...d,
-    fullMark: 10,
-  }))
-
   return (
     <div className="mx-auto max-w-4xl space-y-8">
       {/* Header with back button */}
@@ -249,11 +213,11 @@ export function EvaluationPage() {
             <div className="mt-4 flex flex-wrap gap-2">
               {data.dimension_scores.map((d) => (
                 <Badge
-                  key={d.dimension}
+                  key={d.name}
                   variant="neutral"
                   className="text-xs"
                 >
-                  {d.dimension}: {d.score}
+                  {d.name}: {d.score}
                 </Badge>
               ))}
             </div>
@@ -277,12 +241,12 @@ export function EvaluationPage() {
               >
                 <PolarGrid stroke="#000" strokeWidth={1} />
                 <PolarAngleAxis
-                  dataKey="dimension"
+                  dataKey="name"
                   tick={{ fontSize: 12, fontWeight: 700, fill: '#000' }}
                 />
                 <PolarRadiusAxis
                   angle={90}
-                  domain={[0, 10]}
+                  domain={[0, 100]}
                   tick={{ fontSize: 10, fill: '#666' }}
                 />
                 <Radar
@@ -385,61 +349,57 @@ export function EvaluationPage() {
               <AccordionContent>
                 <SuggestionList
                   items={data.interview_suggestions.worth_asking}
-                  type="worth_asking"
                 />
               </AccordionContent>
             </AccordionItem>
 
-            <AccordionItem value="likely_exaggerated">
+            <AccordionItem value="suspicious">
               <AccordionTrigger>
                 <span className="flex items-center gap-2">
                   <AlertCircle className="h-4 w-4" />
                   疑似夸大
                   <Badge variant="neutral">
-                    {data.interview_suggestions.likely_exaggerated.length}
+                    {data.interview_suggestions.suspicious.length}
                   </Badge>
                 </span>
               </AccordionTrigger>
               <AccordionContent>
                 <SuggestionList
-                  items={data.interview_suggestions.likely_exaggerated}
-                  type="likely_exaggerated"
+                  items={data.interview_suggestions.suspicious}
                 />
               </AccordionContent>
             </AccordionItem>
 
-            <AccordionItem value="verify_directions">
+            <AccordionItem value="verify_direction">
               <AccordionTrigger>
                 <span className="flex items-center gap-2">
                   <Search className="h-4 w-4" />
                   验证方向
                   <Badge variant="neutral">
-                    {data.interview_suggestions.verify_directions.length}
+                    {data.interview_suggestions.verify_direction.length}
                   </Badge>
                 </span>
               </AccordionTrigger>
               <AccordionContent>
                 <SuggestionList
-                  items={data.interview_suggestions.verify_directions}
-                  type="verify_directions"
+                  items={data.interview_suggestions.verify_direction}
                 />
               </AccordionContent>
             </AccordionItem>
 
-            <AccordionItem value="skip_topics">
+            <AccordionItem value="skip">
               <AccordionTrigger>
                 <span className="flex items-center gap-2">
                   <SkipForward className="h-4 w-4" />
                   建议跳过
                   <Badge variant="neutral">
-                    {data.interview_suggestions.skip_topics.length}
+                    {data.interview_suggestions.skip.length}
                   </Badge>
                 </span>
               </AccordionTrigger>
               <AccordionContent>
                 <SuggestionList
-                  items={data.interview_suggestions.skip_topics}
-                  type="skip_topics"
+                  items={data.interview_suggestions.skip}
                 />
               </AccordionContent>
             </AccordionItem>

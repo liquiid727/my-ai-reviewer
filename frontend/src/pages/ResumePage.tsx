@@ -35,6 +35,15 @@ import {
   Loader2,
 } from 'lucide-react'
 
+function isSafeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url, 'https://placeholder.com')
+    return ['http:', 'https:', 'mailto:'].includes(parsed.protocol)
+  } catch {
+    return false
+  }
+}
+
 function ConfidenceBadge({ confidence }: { confidence?: number }) {
   if (confidence == null) return null
   const pct = Math.round(confidence * 100)
@@ -284,7 +293,11 @@ export function ResumePage() {
     setError(null)
     getResumeDetail(id)
       .then((res) => {
-        setResume(res.data)
+        if (res.code !== 0) {
+          setError(res.message || 'Failed to load resume')
+        } else {
+          setResume(res.data)
+        }
       })
       .catch((err: Error) => {
         setError(err.message ?? 'Failed to load resume')
@@ -384,7 +397,7 @@ export function ResumePage() {
           {/* Links */}
           {profile?.links && profile.links.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-4">
-              {profile.links.map((link, i) => (
+              {profile.links.filter(isSafeUrl).map((link, i) => (
                 <a
                   key={i}
                   href={link}

@@ -18,6 +18,8 @@ const STEP_LABELS: Record<string, string> = {
   failed: 'Failed',
 }
 
+const MAX_POLL_DURATION = 10 * 60 * 1000
+
 export function UploadPage() {
   const navigate = useNavigate()
   const {
@@ -28,6 +30,7 @@ export function UploadPage() {
   const [uploadProgress, setUploadProgress] = useState(0)
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const startTimeRef = useRef<number>(0)
+  const mountedRef = useRef(true)
 
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current) {
@@ -38,9 +41,17 @@ export function UploadPage() {
   }, [setPolling])
 
   const pollStatus = useCallback(async (id: string) => {
+    if (!mountedRef.current) return
+
     try {
       const res = await getResumeStatus(id)
-      if (res.code !== 0) return
+      if (!mountedRef.current) return
+
+      if (res.code !== 0) {
+        stopPolling()
+        toast.error(res.message || 'Failed to check status')
+        return
+      }
 
       const { status: s, current_step, completed_steps, error: err } = res.data
       setStatus(s, current_step, completed_steps, err)
@@ -58,10 +69,24 @@ export function UploadPage() {
       }
 
       const elapsed = Date.now() - startTimeRef.current
+      if (elapsed > MAX_POLL_DURATION) {
+        stopPolling()
+        toast.error('Processing timed out. Please try again later.')
+        return
+      }
+
       const interval = elapsed > 3 * 60 * 1000 ? 5000 : 2000
       pollTimerRef.current = setTimeout(() => pollStatus(id), interval)
     } catch {
+      if (!mountedRef.current) return
+
       const elapsed = Date.now() - startTimeRef.current
+      if (elapsed > MAX_POLL_DURATION) {
+        stopPolling()
+        toast.error('Processing timed out. Please try again later.')
+        return
+      }
+
       const interval = elapsed > 3 * 60 * 1000 ? 5000 : 2000
       pollTimerRef.current = setTimeout(() => pollStatus(id), interval)
     }
@@ -96,7 +121,11 @@ export function UploadPage() {
   const handleRetry = useCallback(async () => {
     if (!resumeId) return
     try {
-      await retryResume(resumeId)
+      const res = await retryResume(resumeId)
+      if (res.code !== 0) {
+        toast.error(res.message || 'Retry failed')
+        return
+      }
       setStatus('uploaded', 'text_extract', [], null)
       setPolling(true)
       startTimeRef.current = Date.now()
@@ -108,7 +137,9 @@ export function UploadPage() {
   }, [resumeId, setStatus, setPolling, pollStatus])
 
   useEffect(() => {
+    mountedRef.current = true
     return () => {
+      mountedRef.current = false
       if (pollTimerRef.current) clearTimeout(pollTimerRef.current)
     }
   }, [])

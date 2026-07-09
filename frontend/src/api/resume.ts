@@ -10,8 +10,14 @@ export async function uploadResume(file: File): Promise<APIResponse<ResumeUpload
     body: formData,
   })
   if (!res.ok) {
-    const err = await res.json()
-    throw new Error(err.message || 'Upload failed')
+    let message = `Upload failed (${res.status})`
+    try {
+      const err = await res.json()
+      message = err.message || message
+    } catch {
+      // Response body is not JSON (e.g., HTML error from proxy)
+    }
+    throw new Error(message)
   }
   return res.json()
 }

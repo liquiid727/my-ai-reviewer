@@ -1,8 +1,8 @@
 export interface DimensionScore {
-  dimension: string
+  name: string
   score: number
   reason: string
-  evidence: string[]
+  evidence: string
 }
 
 export interface StrengthItem {
@@ -16,21 +16,11 @@ export interface RiskItem {
   severity: 'high' | 'medium' | 'low'
 }
 
-export interface InterviewSuggestion {
-  question?: string
-  claim?: string
-  direction?: string
-  topic?: string
-  reason?: string
-  evidence?: string
-  method?: string
-}
-
 export interface InterviewSuggestions {
-  worth_asking: InterviewSuggestion[]
-  likely_exaggerated: InterviewSuggestion[]
-  verify_directions: InterviewSuggestion[]
-  skip_topics: InterviewSuggestion[]
+  worth_asking: string[]
+  suspicious: string[]
+  verify_direction: string[]
+  skip: string[]
 }
 
 export interface EvaluationData {
