@@ -2,9 +2,11 @@
 
 from fastapi import APIRouter
 
+from backend.api.v1.interview import router as interview_router
 from backend.api.v1.resume import router as resume_router
 from backend.api.v1.settings import router as settings_router
 
 api_router = APIRouter(prefix="/api/v1")
-api_router.include_router(resume_router)   # 简历相关接口
+api_router.include_router(resume_router)  # 简历相关接口
 api_router.include_router(settings_router)  # LLM 配置相关接口
+api_router.include_router(interview_router)  # 面试相关接口

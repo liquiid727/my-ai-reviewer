@@ -1,10 +1,13 @@
-.PHONY: help infra infra-down db-migrate \
+.PHONY: help setup infra infra-down db-migrate \
        backend backend-worker frontend \
        dev dev-stop install lint test clean
 
 help: ## 显示所有可用命令
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+
+setup: ## 一键初始化项目 (新机器首次运行)
+	bash scripts/setup.sh
 
 # ── 基础设施 ─────────────────────────────────────
 
@@ -32,20 +35,22 @@ frontend: ## 启动 Vite 前端 (port 5173)
 
 # ── 组合命令 ─────────────────────────────────────
 
-dev: ## 启动全部服务 (infra + backend + frontend)
+dev: ## 启动全部服务 (infra + backend + worker + frontend)
 	@echo "启动基础设施..."
 	docker compose up -d
 	@echo "等待服务就绪..."
 	@sleep 3
-	@echo "启动后端和前端 (Ctrl+C 停止)..."
+	@echo "启动后端、Worker 和前端 (Ctrl+C 停止)..."
 	@trap 'kill 0' INT; \
 		(cd backend && uv run uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000) & \
+		(cd backend && uv run celery -A backend.celery_app:celery worker --loglevel=info) & \
 		(cd frontend && pnpm dev) & \
 		wait
 
 dev-stop: ## 停止所有服务
 	docker compose down
 	@-pkill -f "uvicorn backend.main:app" 2>/dev/null || true
+	@-pkill -f "celery.*backend" 2>/dev/null || true
 	@-pkill -f "vite" 2>/dev/null || true
 
 # ── 开发工具 ─────────────────────────────────────

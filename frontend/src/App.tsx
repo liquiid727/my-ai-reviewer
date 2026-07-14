@@ -5,6 +5,9 @@ import { UploadPage } from '@/pages/UploadPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { ResumePage } from '@/pages/ResumePage'
 import { EvaluationPage } from '@/pages/EvaluationPage'
+import { InterviewPage } from '@/pages/InterviewPage'
+import { InterviewReportPage } from '@/pages/InterviewReportPage'
+import { InterviewListPage } from '@/pages/InterviewListPage'
 
 export default function App() {
   return (
@@ -17,6 +20,9 @@ export default function App() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/resume/:id" element={<ResumePage />} />
           <Route path="/resume/:id/evaluation" element={<EvaluationPage />} />
+          <Route path="/interview/:id" element={<InterviewPage />} />
+          <Route path="/interview/:id/report" element={<InterviewReportPage />} />
+          <Route path="/interviews" element={<InterviewListPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

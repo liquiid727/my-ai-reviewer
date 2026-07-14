@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -83,6 +83,111 @@ class ResumeEvaluationModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     resume: Mapped["ResumeModel"] = relationship(back_populates="evaluations", lazy="selectin")
+
+
+class InterviewModel(Base):
+    """面试会话表 —— 存储面试会话的状态和配置。"""
+    __tablename__ = "interviews"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    resume_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("resumes.id"), nullable=False)
+    jd_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
+    question_count: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    graph_thread_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
+    )
+
+    resume: Mapped["ResumeModel"] = relationship(lazy="selectin")
+    questions: Mapped[list["InterviewQuestionModel"]] = relationship(
+        back_populates="interview", lazy="selectin", order_by="InterviewQuestionModel.sequence_num",
+    )
+    report: Mapped["InterviewReportModel | None"] = relationship(
+        back_populates="interview", uselist=False, lazy="selectin",
+    )
+
+    __table_args__ = (
+        Index("ix_interviews_resume", "resume_id"),
+        Index("ix_interviews_status", "status"),
+    )
+
+
+class InterviewQuestionModel(Base):
+    """面试题目表 —— 存储 LLM 生成的面试题目及预期答案要点。"""
+    __tablename__ = "interview_questions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    interview_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("interviews.id", ondelete="CASCADE"), nullable=False,
+    )
+    sequence_num: Mapped[int] = mapped_column(Integer, nullable=False)
+    question_text: Mapped[str] = mapped_column(Text, nullable=False)
+    stage: Mapped[str] = mapped_column(String(30), nullable=False)
+    difficulty: Mapped[str] = mapped_column(String(20), nullable=False)
+    expected_points: Mapped[dict] = mapped_column(JSONB, nullable=False, default=list)
+    jd_relevance: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    interview: Mapped["InterviewModel"] = relationship(back_populates="questions")
+    answers: Mapped[list["QuestionAnswerModel"]] = relationship(
+        back_populates="question", lazy="selectin", order_by="QuestionAnswerModel.followup_round",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("interview_id", "sequence_num", name="uq_interview_question_seq"),
+    )
+
+
+class QuestionAnswerModel(Base):
+    """回答记录表 —— 存储候选人每轮回答的文本、评分和追问信息。"""
+    __tablename__ = "question_answers"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    question_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("interview_questions.id", ondelete="CASCADE"), nullable=False,
+    )
+    answer_text: Mapped[str] = mapped_column(Text, nullable=False)
+    is_followup: Mapped[bool] = mapped_column(default=False)
+    followup_round: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    followup_question: Mapped[str | None] = mapped_column(Text, nullable=True)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    key_points_hit: Mapped[dict] = mapped_column(JSONB, nullable=False, default=list)
+    key_points_missed: Mapped[dict] = mapped_column(JSONB, nullable=False, default=list)
+    weight: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    needs_followup: Mapped[bool] = mapped_column(default=False)
+    raw_llm_response: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    question: Mapped["InterviewQuestionModel"] = relationship(back_populates="answers")
+
+    __table_args__ = (
+        Index("ix_answers_question", "question_id"),
+    )
+
+
+class InterviewReportModel(Base):
+    """面试报告表 —— 存储 LLM 生成的综合面试评估报告。"""
+    __tablename__ = "interview_reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    interview_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("interviews.id", ondelete="CASCADE"), nullable=False, unique=True,
+    )
+    overall_score: Mapped[float] = mapped_column(Float, nullable=False)
+    dimension_scores: Mapped[dict] = mapped_column(JSONB, nullable=False, default=list)
+    per_question_summary: Mapped[dict] = mapped_column(JSONB, nullable=False, default=list)
+    strengths: Mapped[dict] = mapped_column(JSONB, nullable=False, default=list)
+    weaknesses: Mapped[dict] = mapped_column(JSONB, nullable=False, default=list)
+    recommendation: Mapped[str] = mapped_column(String(20), nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    llm_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    interview: Mapped["InterviewModel"] = relationship(back_populates="report")
 
 
 class LLMConfigModel(Base):

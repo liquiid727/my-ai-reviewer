@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router'
+import { useParams, Link, useNavigate } from 'react-router'
+import { toast } from 'sonner'
 import { getResumeDetail } from '@/api/resume'
+import { createInterview } from '@/api/interview'
 import type {
   ResumeDetailData,
   Evidence,
@@ -33,6 +35,8 @@ import {
   Award,
   ArrowRight,
   Loader2,
+  MessageSquare,
+  X,
 } from 'lucide-react'
 
 function isSafeUrl(url: string): boolean {
@@ -283,9 +287,33 @@ function ProfileSkeleton() {
 
 export function ResumePage() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const [resume, setResume] = useState<ResumeDetailData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showInterviewDialog, setShowInterviewDialog] = useState(false)
+  const [jdText, setJdText] = useState('')
+  const [questionCount, setQuestionCount] = useState(5)
+  const [creatingInterview, setCreatingInterview] = useState(false)
+
+  const handleCreateInterview = async () => {
+    if (!id) return
+    setCreatingInterview(true)
+    try {
+      const res = await createInterview(id, jdText || undefined, questionCount)
+      if (res.code !== 0) {
+        toast.error(res.message || '创建面试失败')
+        return
+      }
+      toast.success('面试创建成功')
+      setShowInterviewDialog(false)
+      navigate(`/interview/${res.data.interview_id}`)
+    } catch (err) {
+      toast.error((err as Error).message || '创建面试失败')
+    } finally {
+      setCreatingInterview(false)
+    }
+  }
 
   useEffect(() => {
     if (!id) return
@@ -538,14 +566,87 @@ export function ResumePage() {
       </Tabs>
 
       {/* Bottom navigation */}
-      <div className="flex justify-center pt-4">
+      <div className="flex justify-center gap-4 pt-4">
         <Button asChild size="lg">
           <Link to={`/resume/${id}/evaluation`}>
             View AI Evaluation Report
             <ArrowRight className="size-4" />
           </Link>
         </Button>
+        <Button size="lg" onClick={() => setShowInterviewDialog(true)}>
+          <MessageSquare className="size-4" />
+          开始面试
+        </Button>
       </div>
+
+      {/* Create Interview Dialog */}
+      {showInterviewDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setShowInterviewDialog(false)}
+          />
+          <div className="relative z-10 w-full max-w-md mx-4 bg-bg border-2 border-border rounded-base shadow-shadow p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-heading">创建面试</h2>
+              <button
+                onClick={() => setShowInterviewDialog(false)}
+                className="p-1 hover:bg-main/20 rounded-base"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-heading">
+                职位描述 JD（选填）
+              </label>
+              <textarea
+                value={jdText}
+                onChange={(e) => setJdText(e.target.value)}
+                placeholder="粘贴职位描述，AI 将根据 JD 生成针对性问题..."
+                rows={5}
+                className="w-full rounded-base border-2 border-border bg-white px-3 py-2 text-sm shadow-shadow focus:outline-none focus:ring-2 focus:ring-main resize-none"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-heading">
+                题目数量
+              </label>
+              <select
+                value={questionCount}
+                onChange={(e) => setQuestionCount(Number(e.target.value))}
+                className="w-full rounded-base border-2 border-border bg-white px-3 py-2 text-sm shadow-shadow focus:outline-none focus:ring-2 focus:ring-main"
+              >
+                {[3, 5, 8, 10].map((n) => (
+                  <option key={n} value={n}>
+                    {n} 题
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <Button
+                variant="neutral"
+                onClick={() => setShowInterviewDialog(false)}
+              >
+                取消
+              </Button>
+              <Button
+                onClick={handleCreateInterview}
+                disabled={creatingInterview}
+              >
+                {creatingInterview && (
+                  <Loader2 className="size-4 animate-spin" />
+                )}
+                确认开始
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
