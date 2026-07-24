@@ -1,5 +1,7 @@
 """OpenAI 兼容提供商 —— 支持 OpenAI、DeepSeek 等 OpenAI 接口兼容的模型服务。"""
 
+from typing import Any
+
 from openai import AsyncOpenAI
 
 from backend.infrastructure.llm.providers.base import BaseLLMProvider, LLMResponse
@@ -20,11 +22,11 @@ class OpenAIProvider(BaseLLMProvider):
 
     async def complete(
         self,
-        messages: list[dict],
-        response_format: dict | None = None,
+        messages: list[dict[str, Any]],
+        response_format: dict[str, Any] | None = None,
     ) -> LLMResponse:
         """调用 OpenAI Chat Completions API。"""
-        kwargs: dict = {
+        kwargs: dict[str, Any] = {
             "model": self._model,
             "messages": messages,
         }

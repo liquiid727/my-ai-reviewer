@@ -1,6 +1,7 @@
 """decide_next 及辅助节点 —— 条件路由 + 追问生成 + 下一题 + 结束。"""
 
 import logging
+from typing import Any
 
 from sqlalchemy import update
 
@@ -31,7 +32,7 @@ def decide_next(state: InterviewState) -> str:
         return "finish"
 
 
-async def generate_followup(state: InterviewState) -> dict:
+async def generate_followup(state: InterviewState) -> dict[str, Any]:
     """调用 LLM 生成追问题目。"""
     idx = state["current_question_index"]
     question = state["questions"][idx]
@@ -58,7 +59,7 @@ async def generate_followup(state: InterviewState) -> dict:
     }
 
 
-def next_question(state: InterviewState) -> dict:
+def next_question(state: InterviewState) -> dict[str, Any]:
     """推进到下一题。"""
     return {
         "current_question_index": state["current_question_index"] + 1,
@@ -67,7 +68,7 @@ def next_question(state: InterviewState) -> dict:
     }
 
 
-async def finish_interview(state: InterviewState) -> dict:
+async def finish_interview(state: InterviewState) -> dict[str, Any]:
     """面试结束，更新状态并触发 Celery 报告生成。"""
     import uuid
 

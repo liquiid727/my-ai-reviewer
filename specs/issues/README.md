@@ -6,7 +6,9 @@ Each entry should stay small enough for a single `/goal` run to finish end to en
 
 | Issue | Spec ID | Status | Depends on |
 | --- | --- | --- | --- |
-| | | open / in-progress / in-review / shipped | |
+| RIP-001 | specs/RIP-001-resume-multiformat-parsers | shipped | — |
+| RIP-002 | specs/RIP-002-resume-fact-profile-persistence | shipped | RIP-001 |
+| RIP-003 | specs/RIP-003-jd-matching | shipped | RIP-002 |
 
 Status transitions map to the six-step loop:
 

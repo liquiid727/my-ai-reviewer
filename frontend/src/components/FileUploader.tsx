@@ -1,5 +1,6 @@
 import { useCallback, useState, useRef } from 'react'
 import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 import { Upload } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 
@@ -12,19 +13,20 @@ interface FileUploaderProps {
 }
 
 export function FileUploader({ onFileSelect, disabled }: FileUploaderProps) {
+  const { t } = useTranslation()
   const [isDragging, setIsDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const validateFile = useCallback((file: File): string | null => {
     const ext = '.' + file.name.split('.').pop()?.toLowerCase()
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
-      return `Unsupported format: ${ext}. Supported: PDF, DOCX, TXT, MD`
+      return t('fileUploader.unsupported', { ext })
     }
     if (file.size > MAX_SIZE) {
-      return `File too large: ${(file.size / 1024 / 1024).toFixed(1)}MB. Max: 10MB`
+      return t('fileUploader.tooLarge', { size: (file.size / 1024 / 1024).toFixed(1) })
     }
     return null
-  }, [])
+  }, [t])
 
   const handleFile = useCallback((file: File) => {
     const error = validateFile(file)
@@ -60,13 +62,13 @@ export function FileUploader({ onFileSelect, disabled }: FileUploaderProps) {
     >
       <Upload className="mx-auto mb-4 h-12 w-12 text-gray-500" />
       <p className="mb-2 text-lg font-bold">
-        Drag & drop your resume here
+        {t('fileUploader.dragDrop')}
       </p>
       <p className="text-sm text-gray-600">
-        or click to select a file
+        {t('fileUploader.clickSelect')}
       </p>
       <p className="mt-2 text-xs text-gray-400">
-        Supported: PDF, DOCX, TXT, MD (max 10MB)
+        {t('fileUploader.supported')}
       </p>
       <input
         ref={inputRef}

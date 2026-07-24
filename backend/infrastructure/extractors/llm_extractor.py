@@ -2,6 +2,7 @@
 
 import json
 import logging
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -31,10 +32,10 @@ class LLMResumeExtractor(ResumeExtractor):
 
     def __init__(self, gateway: LLMGateway) -> None:
         self._gateway = gateway
-        self.token_usage: dict = {}   # 本次调用的 token 用量
+        self.token_usage: dict[str, Any] = {}   # 本次调用的 token 用量
         self.model_info: str = ""     # 使用的模型名称
 
-    async def extract(self, raw_text: str) -> dict:
+    async def extract(self, raw_text: str) -> dict[str, Any]:
         """从原始文本中提取结构化信息。"""
         # 截断过长的文本，防止超出模型上下文窗口
         if len(raw_text) > MAX_TEXT_LENGTH:
@@ -80,9 +81,9 @@ class LLMResumeExtractor(ResumeExtractor):
         raise ValueError(f"Failed to extract valid data after {MAX_RETRIES + 1} attempts: {last_error}")
 
 
-def _parse_and_validate(content: str) -> dict:
+def _parse_and_validate(content: str) -> dict[str, Any]:
     """解析 JSON 并用 Pydantic 模型校验数据结构。"""
-    data = json.loads(content)
+    data: dict[str, Any] = json.loads(content)
 
     # 校验候选人画像结构
     if "profile" in data:

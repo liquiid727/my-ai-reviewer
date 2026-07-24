@@ -37,6 +37,7 @@ class LLMConfigTestRequest(BaseModel):
     api_key: str
     model_name: str
     base_url: str | None = None
+    config_id: uuid.UUID | None = None  # 命中已保存配置时根据测试结果落库（可选）
 
 
 @router.post("/llm", response_model=APIResponse)
@@ -87,10 +88,18 @@ async def delete_llm_config(
 
 
 @router.post("/llm/test", response_model=APIResponse)
-async def test_llm_connection(body: LLMConfigTestRequest) -> APIResponse:
-    """测试 LLM 提供商连通性（不保存配置）。"""
+async def test_llm_connection(
+    body: LLMConfigTestRequest,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """测试 LLM 提供商连通性。
+
+    未传 ``config_id`` 时仅测试不落库；命中已保存配置时，测试通过将
+    其标记为已验证，失败则处于未验证。
+    """
     result = await llm_config_service.test_connection(
         body.provider, body.api_key, body.model_name, body.base_url,
+        session=session, config_id=body.config_id,
     )
     return APIResponse(data=result)
 
@@ -109,6 +118,10 @@ def _serialize(config: LLMConfigModel) -> dict[str, object]:
         "model_name": config.model_name,
         "base_url": config.base_url,
         "is_active": config.is_active,
+        "verified": config.verified,
+        "last_verified_at": (
+            config.last_verified_at.isoformat() if config.last_verified_at else None
+        ),
         "created_at": config.created_at.isoformat(),
         "updated_at": config.updated_at.isoformat(),
     }

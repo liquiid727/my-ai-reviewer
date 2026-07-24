@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -94,7 +95,7 @@ class InterviewService:
         await self._session.commit()
         logger.error("Interview %s marked as failed: %s", interview_id, error_msg)
 
-    async def get_interview_status(self, interview_id: uuid.UUID) -> dict:
+    async def get_interview_status(self, interview_id: uuid.UUID) -> dict[str, Any]:
         """获取面试状态概要。"""
         interview = await self.get_interview(interview_id)
         if not interview:
@@ -136,7 +137,7 @@ class InterviewService:
         )
         return result.scalar_one_or_none()
 
-    async def list_interviews(self, resume_id: uuid.UUID | None = None) -> list[dict]:
+    async def list_interviews(self, resume_id: uuid.UUID | None = None) -> list[dict[str, Any]]:
         """获取面试列表。"""
         query = select(InterviewModel).order_by(InterviewModel.created_at.desc())
         if resume_id:

@@ -1,0 +1,19 @@
+{% extends "_base.html" %}
+{% import "_macros.html" as m %}
+
+{% block body %}
+  <header class="resume-header">
+    <div class="resume-name">{{ identity.name or draft.title }}</div>
+    <div class="resume-contact">
+      {% if identity.email %}<span>{{ identity.email }}</span>{% endif %}
+      {% if identity.phone %}<span>{{ identity.phone }}</span>{% endif %}
+      {% if identity.location %}<span>{{ identity.location }}</span>{% endif %}
+      {% if identity.links %}{% for link in identity.links %}<span>{{ link }}</span>{% endfor %}{% endif %}
+    </div>
+    {% if summary %}<div class="resume-summary">{{ summary }}</div>{% endif %}
+  </header>
+
+  {% for section in sections %}
+    {{ m.render_section(section) }}
+  {% endfor %}
+{% endblock %}

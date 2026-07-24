@@ -14,10 +14,10 @@ from backend.infrastructure.llm.prompts.evaluation import (
 
 VERSION = "llm-evaluator-v1"
 
-# 必须包含的 8 个评估维度
+# 必须包含的 9 个评估维度
 REQUIRED_DIMENSIONS = frozenset([
     "技术能力", "项目质量", "工程能力", "架构能力",
-    "业务复杂度", "影响力", "成长性", "AI能力",
+    "业务复杂度", "影响力", "成长性", "AI能力", "沟通表达",
 ])
 
 
@@ -35,7 +35,7 @@ class LLMResumeEvaluator(ResumeEvaluator):
     def version(self) -> str:
         return VERSION
 
-    async def evaluate(self, parsed_result: dict) -> dict[str, Any]:
+    async def evaluate(self, parsed_result: dict[str, Any]) -> dict[str, Any]:
         """执行评估：构建提示词 → 调用 LLM → 解析并验证响应。"""
         resume_text = json.dumps(parsed_result, ensure_ascii=False, indent=2)
 
@@ -72,7 +72,8 @@ def _parse_response(content: str) -> dict[str, Any]:
         text = text.strip()
 
     try:
-        return json.loads(text)
+        result: dict[str, Any] = json.loads(text)
+        return result
     except json.JSONDecodeError as exc:
         raise ValueError(f"LLM returned invalid JSON: {exc}") from exc
 

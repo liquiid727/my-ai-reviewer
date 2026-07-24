@@ -1,0 +1,32 @@
+{# 共享宏 —— 渲染区块与条目，供三个模板复用 #}
+{% macro render_item(item) %}
+  <div class="item">
+    {% if item.heading or item.subheading or item.date_range %}
+    <div class="item-head">
+      <div class="item-title">
+        {% if item.heading %}<span class="item-heading">{{ item.heading }}</span>{% endif %}
+        {% if item.subheading %}<span class="item-subheading">{{ item.subheading }}</span>{% endif %}
+      </div>
+      {% if item.date_range %}<span class="item-date">{{ item.date_range }}</span>{% endif %}
+    </div>
+    {% endif %}
+    {% if item.bullets %}
+    <ul class="bullets">
+      {% for bullet in item.bullets %}
+        {% if bullet %}<li>{{ bullet }}</li>{% endif %}
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+{% endmacro %}
+
+{% macro render_section(section) %}
+  <section class="resume-section">
+    <h2 class="section-title">{{ section.title }}</h2>
+    <div class="section-body">
+      {% for item in section.items %}
+        {{ render_item(item) }}
+      {% endfor %}
+    </div>
+  </section>
+{% endmacro %}

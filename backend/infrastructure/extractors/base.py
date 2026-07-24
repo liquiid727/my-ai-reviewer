@@ -1,6 +1,7 @@
 """简历信息提取器基类 —— 定义提取器抽象接口。"""
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 
 class ResumeExtractor(ABC):
@@ -8,5 +9,5 @@ class ResumeExtractor(ABC):
     version: str = "base"
 
     @abstractmethod
-    async def extract(self, raw_text: str) -> dict:
+    async def extract(self, raw_text: str) -> dict[str, Any]:
         pass

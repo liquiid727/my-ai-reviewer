@@ -1,10 +1,14 @@
 """LangGraph checkpoint 持久化 —— 使用 PostgreSQL 存储图执行状态。"""
 
+from contextlib import AsyncExitStack
+
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from backend.config import get_settings
 
 _checkpointer: AsyncPostgresSaver | None = None
+# from_conn_string 是异步上下文管理器，用 ExitStack 持有以保持单例连接不被关闭
+_exit_stack: AsyncExitStack | None = None
 
 
 def get_checkpoint_conn_string() -> str:
@@ -18,9 +22,12 @@ def get_checkpoint_conn_string() -> str:
 
 async def get_checkpointer() -> AsyncPostgresSaver:
     """获取单例 LangGraph checkpoint 存储，避免重复创建连接。"""
-    global _checkpointer
+    global _checkpointer, _exit_stack
     if _checkpointer is None:
         conn_string = get_checkpoint_conn_string()
-        _checkpointer = AsyncPostgresSaver.from_conn_string(conn_string)
+        _exit_stack = AsyncExitStack()
+        _checkpointer = await _exit_stack.enter_async_context(
+            AsyncPostgresSaver.from_conn_string(conn_string)
+        )
         await _checkpointer.setup()
     return _checkpointer

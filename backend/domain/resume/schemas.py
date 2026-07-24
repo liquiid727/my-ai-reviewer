@@ -1,8 +1,67 @@
 """简历领域数据模型 —— 定义简历结构化信息的 Pydantic 模型。"""
 
-from pydantic import BaseModel,Field
-from typing import List, Optional, Any, Dict
-from datetime import date
+from typing import Any, Dict, List, Optional
+
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+
+from backend.domain.resume.enums import SkillCategory
+
+# 自由文本分类 → SkillCategory 枚举的归一映射（小写、去空格后匹配）
+_SKILL_CATEGORY_ALIASES: dict[str, SkillCategory] = {
+    "language": SkillCategory.PROGRAMMING_LANGUAGE,
+    "languages": SkillCategory.PROGRAMMING_LANGUAGE,
+    "programminglanguage": SkillCategory.PROGRAMMING_LANGUAGE,
+    "programming": SkillCategory.PROGRAMMING_LANGUAGE,
+    "编程语言": SkillCategory.PROGRAMMING_LANGUAGE,
+    "语言": SkillCategory.PROGRAMMING_LANGUAGE,
+    "framework": SkillCategory.FRAMEWORK,
+    "frameworks": SkillCategory.FRAMEWORK,
+    "library": SkillCategory.FRAMEWORK,
+    "框架": SkillCategory.FRAMEWORK,
+    "database": SkillCategory.DATABASE,
+    "db": SkillCategory.DATABASE,
+    "数据库": SkillCategory.DATABASE,
+    "cache": SkillCategory.CACHE,
+    "caching": SkillCategory.CACHE,
+    "缓存": SkillCategory.CACHE,
+    "mq": SkillCategory.MQ,
+    "messagequeue": SkillCategory.MQ,
+    "messaging": SkillCategory.MQ,
+    "消息队列": SkillCategory.MQ,
+    "cloudnative": SkillCategory.CLOUD_NATIVE,
+    "cloud": SkillCategory.CLOUD_NATIVE,
+    "云原生": SkillCategory.CLOUD_NATIVE,
+    "ai": SkillCategory.AI,
+    "ml": SkillCategory.AI,
+    "machinelearning": SkillCategory.AI,
+    "llm": SkillCategory.AI,
+    "devops": SkillCategory.DEVOPS,
+    "ops": SkillCategory.DEVOPS,
+    "cicd": SkillCategory.DEVOPS,
+    "testing": SkillCategory.TESTING,
+    "test": SkillCategory.TESTING,
+    "qa": SkillCategory.TESTING,
+    "测试": SkillCategory.TESTING,
+    "architecture": SkillCategory.ARCHITECTURE,
+    "architect": SkillCategory.ARCHITECTURE,
+    "架构": SkillCategory.ARCHITECTURE,
+}
+
+
+def _normalize_skill_category(value: Optional[str]) -> Optional[str]:
+    """将自由文本的技能分类归一到 SkillCategory；无法识别时归到 other。"""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    key = raw.lower().replace(" ", "").replace("-", "").replace("_", "")
+    # 已是合法枚举值
+    for member in SkillCategory:
+        if key == member.value.replace("_", ""):
+            return member.value
+    mapped = _SKILL_CATEGORY_ALIASES.get(key)
+    return (mapped or SkillCategory.OTHER).value
 
 
 class Evidence(BaseModel):
@@ -29,6 +88,7 @@ class Education(BaseModel):
     major: Optional[str] = None      # 专业
     start_date: Optional[str] = None
     end_date: Optional[str] = None
+    gpa: Optional[str] = None        # 绩点（可选）
     evidence: Optional[Evidence] = None
 
 
@@ -40,16 +100,26 @@ class WorkExperience(BaseModel):
     end_date:Optional[str]=None
     responsibilities:List[str]= []     # 工作职责
     achievements:List[str]=[]          # 工作成果
+    tech_stack:List[str] = []          # 该经历涉及的技术栈
+    industry:Optional[str] = None      # 所属行业
     evidence:Optional[Evidence]= None
 
 
 class ProjectExperience(BaseModel):
     """项目经历。"""
+    # 兼容旧数据里的拼写错误字段名 responsibilitity
+    model_config = ConfigDict(populate_by_name=True)
+
     name:Optional[str] = None          # 项目名称
     role:Optional[str] = None          # 担任角色
     tech_stack:List[str] = []          # 技术栈
     background:Optional[str] = None    # 项目背景
-    responsibilitity:Optional[str]=None  # 负责内容
+    responsibility:Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("responsibility", "responsibilitity"),
+    )                                  # 负责内容（兼容旧字段 responsibilitity）
+    difficulties:List[str] = []        # 项目难点
+    team_size:Optional[str] = None     # 团队规模
     highlights:List[str] = []          # 项目亮点
     metrics: List[str]= []            # 量化指标
     evidence:Optional[Evidence]=None
@@ -58,9 +128,14 @@ class ProjectExperience(BaseModel):
 class Skill(BaseModel):
     """技能信息。"""
     name:str                           # 技能名称
-    category:Optional[str] = None      # 分类（编程语言/框架/工具等）
+    category:Optional[str] = None      # 分类（见 SkillCategory，非法值归一到 other）
     evidence:Optional[str] =None       # 技能证据
     confidence:float = Field(default=0.0,ge=0,le=1)  # 置信度
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _coerce_category(cls, v: Optional[str]) -> Optional[str]:
+        return _normalize_skill_category(v)
 
 
 class Certificate(BaseModel):
@@ -97,7 +172,8 @@ class DimensionScore(BaseModel):
     """评估维度评分。"""
     dimension: str                     # 维度名称
     score: float = Field(ge=0, le=100)  # 分数 (0~100)
-    comment: Optional[str] = None      # 评语
+    comment: Optional[str] = None      # 评语 / 理由
+    evidence: Optional[str] = None     # 支撑证据（简历原文片段）
 
 
 class ResumeEvaluation(BaseModel):

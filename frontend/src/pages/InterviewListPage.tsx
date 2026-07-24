@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
+import { useTranslation } from 'react-i18next'
+import { formatDateTime } from '@/i18n'
 import { listInterviews } from '@/api/interview'
 import type { InterviewListItem } from '@/types/interview'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -8,24 +10,17 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ArrowRight, Calendar, Hash } from 'lucide-react'
 
-const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  pending: { label: '待开始', color: 'bg-gray-300 text-gray-800 border-gray-500' },
-  generating: { label: '生成题目中', color: 'bg-blue-300 text-blue-900 border-blue-600' },
-  in_progress: { label: '进行中', color: 'bg-yellow-300 text-yellow-900 border-yellow-600' },
-  report_generating: { label: '报告生成中', color: 'bg-purple-300 text-purple-900 border-purple-600' },
-  completed: { label: '已完成', color: 'bg-green-400 text-green-900 border-green-700' },
-  failed: { label: '失败', color: 'bg-red-400 text-red-900 border-red-700' },
-}
-
-const RECOMMENDATION_LABELS: Record<string, string> = {
-  strong_yes: '强烈推荐',
-  yes: '推荐',
-  maybe: '待定',
-  no: '不推荐',
-  strong_no: '强烈不推荐',
+const STATUS_COLORS: Record<string, string> = {
+  pending: 'bg-gray-300 text-gray-800 border-gray-500',
+  generating: 'bg-blue-300 text-blue-900 border-blue-600',
+  in_progress: 'bg-yellow-300 text-yellow-900 border-yellow-600',
+  report_generating: 'bg-purple-300 text-purple-900 border-purple-600',
+  completed: 'bg-green-400 text-green-900 border-green-700',
+  failed: 'bg-red-400 text-red-900 border-red-700',
 }
 
 export function InterviewListPage() {
+  const { t } = useTranslation()
   const [interviews, setInterviews] = useState<InterviewListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -35,17 +30,18 @@ export function InterviewListPage() {
     listInterviews()
       .then((res) => {
         if (res.code !== 0) {
-          setError(res.message || '获取面试列表失败')
+          setError(res.message || t('interviewList.loadFailed'))
           return
         }
         setInterviews(res.data || [])
       })
       .catch((err: Error) => {
-        setError(err.message || '获取面试列表失败')
+        setError(err.message || t('interviewList.loadFailed'))
       })
       .finally(() => {
         setLoading(false)
       })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   if (loading) {
@@ -66,7 +62,7 @@ export function InterviewListPage() {
       <div className="max-w-4xl mx-auto py-8 px-4">
         <Card>
           <CardContent className="pt-6">
-            <p className="text-red-600 font-bold">错误：{error}</p>
+            <p className="text-red-600 font-bold">{t('interviewList.error', { msg: error })}</p>
           </CardContent>
         </Card>
       </div>
@@ -75,24 +71,21 @@ export function InterviewListPage() {
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4 space-y-6">
-      <h1 className="text-3xl font-black">面试列表</h1>
+      <h1 className="text-3xl font-black">{t('interviewList.title')}</h1>
 
       {interviews.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-4 py-12">
-            <p className="text-lg text-muted-foreground">暂无面试记录</p>
+            <p className="text-lg text-muted-foreground">{t('interviewList.noRecords')}</p>
             <Button asChild>
-              <Link to="/upload">上传简历开始面试</Link>
+              <Link to="/upload">{t('interviewList.uploadToStart')}</Link>
             </Button>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4">
           {interviews.map((iv) => {
-            const statusCfg = STATUS_CONFIG[iv.status] || {
-              label: iv.status,
-              color: 'bg-gray-300',
-            }
+            const statusColor = STATUS_COLORS[iv.status] || 'bg-gray-300'
             const linkTo =
               iv.status === 'completed'
                 ? `/interview/${iv.interview_id}/report`
@@ -103,12 +96,12 @@ export function InterviewListPage() {
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base flex items-center gap-2">
-                      面试 #{iv.interview_id.slice(0, 8)}
-                      <Badge className={statusCfg.color}>{statusCfg.label}</Badge>
+                      {t('interviewList.interviewId', { id: iv.interview_id.slice(0, 8) })}
+                      <Badge className={statusColor}>{t(`interviewList.status.${iv.status}`) || iv.status}</Badge>
                     </CardTitle>
                     {iv.overall_score != null && (
                       <span className="text-2xl font-black">
-                        {iv.overall_score.toFixed(0)}分
+                        {iv.overall_score.toFixed(0)}{t('interview.points')}
                       </span>
                     )}
                   </div>
@@ -118,21 +111,21 @@ export function InterviewListPage() {
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <Hash className="size-3" />
-                        {iv.question_count} 题
+                        {t('interviewList.questions', { count: iv.question_count })}
                       </span>
                       <span className="flex items-center gap-1">
                         <Calendar className="size-3" />
-                        {new Date(iv.created_at).toLocaleString('zh-CN')}
+                        {formatDateTime(iv.created_at)}
                       </span>
                       {iv.recommendation && (
                         <Badge variant="neutral">
-                          {RECOMMENDATION_LABELS[iv.recommendation] || iv.recommendation}
+                          {t(`interviewList.recommendation.${iv.recommendation}`) || iv.recommendation}
                         </Badge>
                       )}
                     </div>
                     <Button asChild size="sm">
                       <Link to={linkTo}>
-                        {iv.status === 'completed' ? '查看报告' : '继续面试'}
+                        {iv.status === 'completed' ? t('interviewList.viewReport') : t('interviewList.continue')}
                         <ArrowRight className="size-4" />
                       </Link>
                     </Button>

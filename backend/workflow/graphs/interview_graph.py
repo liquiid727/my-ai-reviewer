@@ -17,7 +17,7 @@ from backend.workflow.nodes.present_question import present_question
 from backend.workflow.state import InterviewState
 
 
-def build_interview_graph() -> StateGraph:
+def build_interview_graph() -> StateGraph[InterviewState]:
     """构建面试流程的 StateGraph（不含 checkpointer）。"""
     builder = StateGraph(InterviewState)
 
@@ -49,7 +49,7 @@ def build_interview_graph() -> StateGraph:
     return builder
 
 
-async def get_compiled_graph() -> CompiledStateGraph:
+async def get_compiled_graph() -> CompiledStateGraph[InterviewState]:
     """获取编译后的面试流程图（含 PostgreSQL checkpointer）。"""
     builder = build_interview_graph()
     checkpointer = await get_checkpointer()

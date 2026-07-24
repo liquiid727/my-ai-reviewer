@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
+import { useTranslation } from 'react-i18next'
+import { i18n, formatDateTime } from '@/i18n'
 import {
   RadarChart,
   PolarGrid,
@@ -19,9 +21,13 @@ import {
   HelpCircle,
   Search,
   SkipForward,
+  FileEdit,
+  Loader2,
 } from 'lucide-react'
 
 import { getEvaluation } from '@/api/evaluation'
+import { createDraftFromResume } from '@/api/builder'
+import { toast } from 'sonner'
 import type { EvaluationData, DimensionScore } from '@/types/evaluation'
 import { ScoreGauge } from '@/components/ScoreGauge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -53,11 +59,11 @@ function severityColor(severity: string): string {
 function severityLabel(severity: string): string {
   switch (severity) {
     case 'high':
-      return '高风险'
+      return i18n.t('evaluation.severity.high')
     case 'medium':
-      return '中风险'
+      return i18n.t('evaluation.severity.medium')
     case 'low':
-      return '低风险'
+      return i18n.t('evaluation.severity.low')
     default:
       return severity
   }
@@ -109,8 +115,9 @@ function LoadingSkeleton() {
 }
 
 function SuggestionList({ items }: { items: string[] }) {
+  const { t } = useTranslation()
   if (items.length === 0) {
-    return <p className="text-sm text-gray-500">暂无内容</p>
+    return <p className="text-sm text-gray-500">{t('evaluation.noContent')}</p>
   }
   return (
     <ul className="space-y-3">
@@ -129,9 +136,28 @@ function SuggestionList({ items }: { items: string[] }) {
 export function EvaluationPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const [data, setData] = useState<EvaluationData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [buildingDraft, setBuildingDraft] = useState(false)
+
+  const handleBuildResume = async () => {
+    if (!id) return
+    setBuildingDraft(true)
+    try {
+      const res = await createDraftFromResume(id)
+      if (res.code !== 0) {
+        toast.error(res.message || t('builder.createFailed'))
+        return
+      }
+      navigate(`/builder/${res.data.draft_id}`)
+    } catch (err) {
+      toast.error((err as Error).message || t('builder.createFailed'))
+    } finally {
+      setBuildingDraft(false)
+    }
+  }
 
   useEffect(() => {
     if (!id) return
@@ -140,17 +166,18 @@ export function EvaluationPage() {
     getEvaluation(id)
       .then((res) => {
         if (res.code !== 0) {
-          setError(res.message || '获取评估报告失败')
+          setError(res.message || t('evaluation.loadFailed'))
         } else {
           setData(res.data)
         }
       })
       .catch((err: unknown) => {
         const message =
-          err instanceof Error ? err.message : '网络错误，请稍后重试'
+          err instanceof Error ? err.message : t('evaluation.networkError')
         setError(message)
       })
       .finally(() => setLoading(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   const radarData = useMemo(() => {
@@ -164,7 +191,7 @@ export function EvaluationPage() {
   if (loading) {
     return (
       <div className="mx-auto max-w-4xl">
-        <h1 className="mb-6 text-3xl font-black">评估报告</h1>
+        <h1 className="mb-6 text-3xl font-black">{t('evaluation.title')}</h1>
         <LoadingSkeleton />
       </div>
     )
@@ -173,11 +200,11 @@ export function EvaluationPage() {
   if (error || !data) {
     return (
       <div className="mx-auto max-w-4xl">
-        <h1 className="mb-6 text-3xl font-black">评估报告</h1>
+        <h1 className="mb-6 text-3xl font-black">{t('evaluation.title')}</h1>
         <Alert variant="destructive">
           <XCircle className="h-4 w-4" />
-          <AlertTitle>加载失败</AlertTitle>
-          <AlertDescription>{error ?? '未找到评估数据'}</AlertDescription>
+          <AlertTitle>{t('evaluation.loadFailed')}</AlertTitle>
+          <AlertDescription>{error ?? t('evaluation.notFound')}</AlertDescription>
         </Alert>
         <Button
           className="mt-4"
@@ -185,7 +212,7 @@ export function EvaluationPage() {
           onClick={() => navigate(-1)}
         >
           <ArrowLeft className="h-4 w-4" />
-          返回
+          {t('evaluation.back')}
         </Button>
       </div>
     )
@@ -198,7 +225,20 @@ export function EvaluationPage() {
         <Button variant="neutral" size="icon" onClick={() => navigate(-1)}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <h1 className="text-3xl font-black">评估报告</h1>
+        <h1 className="text-3xl font-black">{t('evaluation.title')}</h1>
+        <Button
+          className="ml-auto"
+          variant="neutral"
+          onClick={handleBuildResume}
+          disabled={buildingDraft}
+        >
+          {buildingDraft ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <FileEdit className="h-4 w-4" />
+          )}
+          {t('builder.entry')}
+        </Button>
       </div>
 
       {/* Overall Score Section */}
@@ -206,9 +246,9 @@ export function EvaluationPage() {
         <CardContent className="flex flex-col items-center gap-6 py-6 sm:flex-row sm:items-start">
           <ScoreGauge score={data.overall_score} />
           <div className="flex-1 text-center sm:text-left">
-            <h2 className="text-2xl font-black">综合评分</h2>
+            <h2 className="text-2xl font-black">{t('evaluation.overall')}</h2>
             <p className="mt-2 text-gray-600">
-              基于 {data.dimension_scores.length} 个维度的综合评估
+              {t('evaluation.basedOn', { count: data.dimension_scores.length })}
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               {data.dimension_scores.map((d) => (
@@ -228,7 +268,7 @@ export function EvaluationPage() {
       {/* Radar Chart */}
       <Card>
         <CardHeader>
-          <CardTitle>维度评分雷达图</CardTitle>
+          <CardTitle>{t('evaluation.radar')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="h-80 w-full">
@@ -250,7 +290,7 @@ export function EvaluationPage() {
                   tick={{ fontSize: 10, fill: '#666' }}
                 />
                 <Radar
-                  name="评分"
+                  name={t('evaluation.score')}
                   dataKey="score"
                   stroke="#88aaee"
                   fill="#88aaee"
@@ -271,7 +311,7 @@ export function EvaluationPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-green-600" />
-              优势亮点
+              {t('evaluation.strengths')}
               <Badge className="ml-auto bg-green-500 text-white">
                 {data.strengths.length}
               </Badge>
@@ -288,7 +328,7 @@ export function EvaluationPage() {
               </div>
             ))}
             {data.strengths.length === 0 && (
-              <p className="text-sm text-gray-500">暂无优势亮点</p>
+              <p className="text-sm text-gray-500">{t('evaluation.noStrengths')}</p>
             )}
           </CardContent>
         </Card>
@@ -298,7 +338,7 @@ export function EvaluationPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-red-500" />
-              风险提示
+              {t('evaluation.risks')}
               <Badge className="ml-auto bg-red-500 text-white">
                 {data.risks.length}
               </Badge>
@@ -320,7 +360,7 @@ export function EvaluationPage() {
               </div>
             ))}
             {data.risks.length === 0 && (
-              <p className="text-sm text-gray-500">暂无风险提示</p>
+              <p className="text-sm text-gray-500">{t('evaluation.noRisks')}</p>
             )}
           </CardContent>
         </Card>
@@ -331,7 +371,7 @@ export function EvaluationPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Info className="h-5 w-5" />
-            面试建议
+            {t('evaluation.suggestions')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -340,7 +380,7 @@ export function EvaluationPage() {
               <AccordionTrigger>
                 <span className="flex items-center gap-2">
                   <HelpCircle className="h-4 w-4" />
-                  值得追问
+                  {t('evaluation.worthAsking')}
                   <Badge variant="neutral">
                     {data.interview_suggestions.worth_asking.length}
                   </Badge>
@@ -357,7 +397,7 @@ export function EvaluationPage() {
               <AccordionTrigger>
                 <span className="flex items-center gap-2">
                   <AlertCircle className="h-4 w-4" />
-                  疑似夸大
+                  {t('evaluation.suspicious')}
                   <Badge variant="neutral">
                     {data.interview_suggestions.suspicious.length}
                   </Badge>
@@ -374,7 +414,7 @@ export function EvaluationPage() {
               <AccordionTrigger>
                 <span className="flex items-center gap-2">
                   <Search className="h-4 w-4" />
-                  验证方向
+                  {t('evaluation.verifyDirection')}
                   <Badge variant="neutral">
                     {data.interview_suggestions.verify_direction.length}
                   </Badge>
@@ -391,7 +431,7 @@ export function EvaluationPage() {
               <AccordionTrigger>
                 <span className="flex items-center gap-2">
                   <SkipForward className="h-4 w-4" />
-                  建议跳过
+                  {t('evaluation.skip')}
                   <Badge variant="neutral">
                     {data.interview_suggestions.skip.length}
                   </Badge>
@@ -411,7 +451,7 @@ export function EvaluationPage() {
       {data.summary && (
         <Alert>
           <Info className="h-4 w-4" />
-          <AlertTitle>AI 综合评价</AlertTitle>
+          <AlertTitle>{t('evaluation.aiSummary')}</AlertTitle>
           <AlertDescription className="whitespace-pre-wrap">
             {data.summary}
           </AlertDescription>
@@ -421,13 +461,13 @@ export function EvaluationPage() {
       {/* Footer */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-t-2 border-border pt-4 text-sm text-gray-500">
         <span>
-          模型:{' '}
-          <span className="font-heading">{data.llm_model ?? '未知'}</span>
+          {t('evaluation.model')}{' '}
+          <span className="font-heading">{data.llm_model ?? t('evaluation.unknown')}</span>
         </span>
         <span>
-          评估时间:{' '}
+          {t('evaluation.evaluatedAt')}{' '}
           <span className="font-heading">
-            {new Date(data.created_at).toLocaleString('zh-CN')}
+            {formatDateTime(data.created_at)}
           </span>
         </span>
       </div>

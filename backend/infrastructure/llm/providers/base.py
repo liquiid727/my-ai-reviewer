@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -9,7 +10,7 @@ class LLMResponse:
     """LLM 调用响应：包含生成内容、模型名称和 token 用量。"""
     content: str                    # 生成的文本内容
     model: str                      # 实际使用的模型名称
-    usage: dict = field(default_factory=lambda: {"prompt_tokens": 0, "completion_tokens": 0})
+    usage: dict[str, Any] = field(default_factory=lambda: {"prompt_tokens": 0, "completion_tokens": 0})
 
 
 class BaseLLMProvider(ABC):
@@ -18,7 +19,7 @@ class BaseLLMProvider(ABC):
     @abstractmethod
     async def complete(
         self,
-        messages: list[dict],
-        response_format: dict | None = None,
+        messages: list[dict[str, Any]],
+        response_format: dict[str, Any] | None = None,
     ) -> LLMResponse:
         pass

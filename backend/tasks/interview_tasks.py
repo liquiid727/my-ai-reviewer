@@ -3,19 +3,20 @@
 import asyncio
 import logging
 import uuid
+from typing import Any
 
 from backend.celery_app import celery
 
 logger = logging.getLogger(__name__)
 
 
-@celery.task(name="generate_interview_report")
-def generate_report_task(interview_id: str) -> dict:
+@celery.task(name="generate_interview_report")  # type: ignore[untyped-decorator]
+def generate_report_task(interview_id: str) -> dict[str, Any]:
     """异步生成面试报告（Celery task 入口，内部调用 async 实现）。"""
     return asyncio.run(_generate_report(interview_id))
 
 
-async def _generate_report(interview_id: str) -> dict:
+async def _generate_report(interview_id: str) -> dict[str, Any]:
     """面试报告生成的异步实现。"""
     from sqlalchemy import select, update
 
@@ -45,7 +46,7 @@ async def _generate_report(interview_id: str) -> dict:
         )
         questions = list(q_result.scalars().all())
 
-        interview_data: dict = {
+        interview_data: dict[str, Any] = {
             "jd_text": interview.jd_text or "",
             "questions": [],
         }

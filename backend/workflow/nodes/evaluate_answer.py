@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from typing import Any
 
 from backend.agents.evaluation_agent import AnswerEvaluationAgent
 from backend.infrastructure.db.database import async_session_factory
@@ -12,7 +13,7 @@ from backend.workflow.state import AnswerRecord, InterviewState
 logger = logging.getLogger(__name__)
 
 
-async def evaluate_answer(state: InterviewState) -> dict:
+async def evaluate_answer(state: InterviewState) -> dict[str, Any]:
     """评估回答，保存到 DB，返回评分结果。"""
     idx = state["current_question_index"]
     question = state["questions"][idx]

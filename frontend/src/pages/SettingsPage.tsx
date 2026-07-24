@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 import { Eye, EyeOff, Trash2, Pencil, Plus, FlaskConical, Save, Loader2, X } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -30,23 +31,66 @@ import {
 } from '@/api/settings'
 import type { LLMConfig } from '@/types/settings'
 
-const PROVIDERS = ['openai', 'anthropic', 'deepseek', 'custom'] as const
+const PROVIDERS = [
+  'openai',
+  'anthropic',
+  'deepseek',
+  'glm',
+  'kimi',
+  'qwen',
+  'custom',
+] as const
 
+// 品牌名不翻译
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
   deepseek: 'DeepSeek',
+  glm: 'GLM',
+  kimi: 'Kimi',
+  qwen: 'Qwen',
   custom: 'Custom',
 }
 
+// 2026 主流 + 最新模型清单（数据驱动，随厂商文档微调即可）
 const PROVIDER_MODELS: Record<string, string[]> = {
-  openai: ['gpt-5.5', 'gpt-5.4', 'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o3-mini'],
-  anthropic: [
-    'claude-sonnet-4-20250514',
-    'claude-haiku-4-5-20251001',
-    'claude-opus-4-20250514',
+  openai: [
+    'gpt-5.5',
+    'gpt-5.5-pro',
+    'gpt-5.4',
+    'gpt-5.4-pro',
+    'gpt-5.4-mini',
+    'gpt-5.4-nano',
+    'gpt-5.2',
+    'gpt-5.1',
+    'gpt-5',
+    'gpt-5-mini',
+    'o3',
+    'o3-pro',
+    'gpt-4.1',
+    'gpt-4.1-mini',
   ],
+  anthropic: ['claude-opus-4-5', 'claude-sonnet-4-5', 'claude-haiku-4-5'],
   deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+  glm: ['glm-5.2', 'glm-5.1', 'glm-5', 'glm-4.7', 'glm-4.6'],
+  kimi: ['kimi-k2.6', 'kimi-k2.5'],
+  qwen: [
+    'qwen3.6-max',
+    'qwen3.6-plus',
+    'qwen3.5',
+    'qwen3-coder',
+    'qwen-max',
+    'qwen-plus',
+    'qwen-turbo',
+  ],
+}
+
+// 各供应商默认 Base URL（OpenAI 兼容接口）。openai/anthropic/custom 走官方端点，留空。
+const PROVIDER_BASE_URLS: Record<string, string> = {
+  deepseek: 'https://api.deepseek.com',
+  glm: 'https://open.bigmodel.cn/api/aihub/v1',
+  kimi: 'https://api.moonshot.cn/v1',
+  qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
 }
 
 interface FormState {
@@ -64,6 +108,7 @@ const EMPTY_FORM: FormState = {
 }
 
 export function SettingsPage() {
+  const { t } = useTranslation()
   const [configs, setConfigs] = useState<LLMConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [form, setForm] = useState<FormState>(EMPTY_FORM)
@@ -79,14 +124,14 @@ export function SettingsPage() {
       if (res.code === 0) {
         setConfigs(res.data)
       } else {
-        toast.error('Failed to load configs: ' + res.message)
+        toast.error(t('settings.loadError', { msg: res.message }))
       }
     } catch {
-      toast.error('Failed to load LLM configurations')
+      toast.error(t('settings.loadErrorGeneric'))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     fetchConfigs()
@@ -94,10 +139,13 @@ export function SettingsPage() {
 
   function handleProviderChange(provider: string) {
     const models = PROVIDER_MODELS[provider]
+    // 切换供应商时预填默认 Base URL（custom / openai / anthropic 留空走官方端点）
+    const baseUrl = PROVIDER_BASE_URLS[provider] ?? ''
     setForm((prev) => ({
       ...prev,
       provider,
       model_name: models ? models[0] : '',
+      base_url: baseUrl,
     }))
   }
 
@@ -121,11 +169,11 @@ export function SettingsPage() {
 
   async function handleTestConnection() {
     if (!form.api_key) {
-      toast.error('API key is required to test connection')
+      toast.error(t('settings.apiKeyRequiredTest'))
       return
     }
     if (!form.model_name) {
-      toast.error('Model name is required to test connection')
+      toast.error(t('settings.modelRequiredTest'))
       return
     }
 
@@ -141,14 +189,14 @@ export function SettingsPage() {
         const modelCount = res.data.models?.length
         toast.success(
           modelCount
-            ? `Connection successful! ${modelCount} models available.`
-            : 'Connection successful!',
+            ? t('settings.connectionSuccessModels', { count: modelCount })
+            : t('settings.connectionSuccess'),
         )
       } else {
-        toast.error(res.data?.error ?? res.message ?? 'Connection test failed')
+        toast.error(res.data?.error ?? res.message ?? t('settings.testErrorGeneric'))
       }
     } catch {
-      toast.error('Connection test failed. Check your settings.')
+      toast.error(t('settings.testErrorGeneric'))
     } finally {
       setTesting(false)
     }
@@ -156,15 +204,15 @@ export function SettingsPage() {
 
   async function handleSave() {
     if (!form.api_key && !editingId) {
-      toast.error('API key is required')
+      toast.error(t('settings.apiKeyRequired'))
       return
     }
     if (!form.model_name) {
-      toast.error('Model name is required')
+      toast.error(t('settings.modelRequired'))
       return
     }
     if (form.provider === 'custom' && !form.base_url) {
-      toast.error('Base URL is required for Custom provider')
+      toast.error(t('settings.baseUrlRequired'))
       return
     }
 
@@ -188,27 +236,27 @@ export function SettingsPage() {
         }
         const res = await updateLLMConfig(editingId, updatePayload)
         if (res.code === 0) {
-          toast.success('Configuration updated successfully')
+          toast.success(t('settings.updated'))
           setEditingId(null)
           setForm(EMPTY_FORM)
           setShowApiKey(false)
           await fetchConfigs()
         } else {
-          toast.error('Failed to update: ' + res.message)
+          toast.error(t('settings.updateError', { msg: res.message }))
         }
       } else {
         const res = await createLLMConfig(payload)
         if (res.code === 0) {
-          toast.success('Configuration saved successfully')
+          toast.success(t('settings.saved'))
           setForm(EMPTY_FORM)
           setShowApiKey(false)
           await fetchConfigs()
         } else {
-          toast.error('Failed to save: ' + res.message)
+          toast.error(t('settings.saveError', { msg: res.message }))
         }
       }
     } catch {
-      toast.error('Failed to save configuration')
+      toast.error(t('settings.saveErrorGeneric'))
     } finally {
       setSaving(false)
     }
@@ -219,17 +267,17 @@ export function SettingsPage() {
     try {
       const res = await deleteLLMConfig(id)
       if (res.code === 0) {
-        toast.success('Configuration deleted')
+        toast.success(t('settings.deleted'))
         if (editingId === id) {
           setEditingId(null)
           setForm(EMPTY_FORM)
         }
         await fetchConfigs()
       } else {
-        toast.error('Failed to delete: ' + res.message)
+        toast.error(t('settings.deleteError', { msg: res.message }))
       }
     } catch {
-      toast.error('Failed to delete configuration')
+      toast.error(t('settings.deleteErrorGeneric'))
     } finally {
       setDeletingId(null)
     }
@@ -241,10 +289,8 @@ export function SettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-8">
       <div>
-        <h1 className="text-3xl font-black">Settings</h1>
-        <p className="mt-1 text-muted-foreground">
-          Configure your LLM providers for AI-powered resume reviews.
-        </p>
+        <h1 className="text-3xl font-black">{t('settings.title')}</h1>
+        <p className="mt-1 text-muted-foreground">{t('settings.subtitle')}</p>
       </div>
 
       {/* Config Form */}
@@ -254,30 +300,28 @@ export function SettingsPage() {
             {editingId ? (
               <>
                 <Pencil className="size-5" />
-                Edit Configuration
+                {t('settings.editTitle')}
               </>
             ) : (
               <>
                 <Plus className="size-5" />
-                Add LLM Configuration
+                {t('settings.addTitle')}
               </>
             )}
           </CardTitle>
           <CardDescription>
-            {editingId
-              ? 'Update the configuration below. Leave API key empty to keep the existing one.'
-              : 'Add a new LLM provider to use for resume reviews.'}
+            {editingId ? t('settings.editDesc') : t('settings.addDesc')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           {/* Provider */}
           <div className="space-y-2">
             <Label htmlFor="provider" className="font-bold">
-              Provider
+              {t('settings.provider')}
             </Label>
             <Select value={form.provider} onValueChange={handleProviderChange}>
               <SelectTrigger id="provider">
-                <SelectValue placeholder="Select a provider" />
+                <SelectValue placeholder={t('settings.provider')} />
               </SelectTrigger>
               <SelectContent>
                 {PROVIDERS.map((p) => (
@@ -292,14 +336,14 @@ export function SettingsPage() {
           {/* Model */}
           <div className="space-y-2">
             <Label htmlFor="model" className="font-bold">
-              Model
+              {t('settings.model')}
             </Label>
             <Input
               id="model"
               placeholder={
                 isCustomProvider
-                  ? 'e.g. my-custom-model'
-                  : 'Type a model name or pick one below'
+                  ? t('settings.customModelPlaceholder')
+                  : t('settings.modelPlaceholder')
               }
               value={form.model_name}
               onChange={(e) =>
@@ -334,7 +378,7 @@ export function SettingsPage() {
           {/* API Key */}
           <div className="space-y-2">
             <Label htmlFor="api_key" className="font-bold">
-              API Key
+              {t('settings.apiKey')}
             </Label>
             <div className="relative">
               <Input
@@ -342,8 +386,8 @@ export function SettingsPage() {
                 type={showApiKey ? 'text' : 'password'}
                 placeholder={
                   editingId
-                    ? 'Leave empty to keep existing key'
-                    : 'Enter your API key'
+                    ? t('settings.apiKeyKeep')
+                    : t('settings.apiKeyPlaceholder')
                 }
                 value={form.api_key}
                 onChange={(e) =>
@@ -355,7 +399,7 @@ export function SettingsPage() {
                 type="button"
                 onClick={() => setShowApiKey((prev) => !prev)}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground/60 hover:text-foreground"
-                aria-label={showApiKey ? 'Hide API key' : 'Show API key'}
+                aria-label={showApiKey ? t('settings.hideApiKey') : t('settings.showApiKey')}
               >
                 {showApiKey ? (
                   <EyeOff className="size-4" />
@@ -369,22 +413,18 @@ export function SettingsPage() {
           {/* Base URL */}
           <div className="space-y-2">
             <Label htmlFor="base_url" className="font-bold">
-              Base URL{' '}
+              {t('settings.baseUrl')}{' '}
               {isCustomProvider ? (
                 <span className="text-red-500">*</span>
               ) : (
                 <span className="text-foreground/50 font-normal">
-                  (optional)
+                  {t('settings.baseUrlOptional')}
                 </span>
               )}
             </Label>
             <Input
               id="base_url"
-              placeholder={
-                isCustomProvider
-                  ? 'https://your-api-endpoint.com/v1'
-                  : 'Leave empty to use default'
-              }
+              placeholder={t('settings.baseUrlPlaceholder')}
               value={form.base_url}
               onChange={(e) =>
                 setForm((prev) => ({ ...prev, base_url: e.target.value }))
@@ -404,7 +444,7 @@ export function SettingsPage() {
               ) : (
                 <FlaskConical className="size-4" />
               )}
-              {testing ? 'Testing...' : 'Test Connection'}
+              {testing ? t('settings.testing') : t('settings.test')}
             </Button>
             <Button onClick={handleSave} disabled={saving}>
               {saving ? (
@@ -413,15 +453,15 @@ export function SettingsPage() {
                 <Save className="size-4" />
               )}
               {saving
-                ? 'Saving...'
+                ? t('common.loading')
                 : editingId
-                  ? 'Update Config'
-                  : 'Save Config'}
+                  ? t('settings.updateConfig')
+                  : t('settings.saveConfig')}
             </Button>
             {editingId && (
               <Button variant="neutral" onClick={handleCancelEdit}>
                 <X className="size-4" />
-                Cancel
+                {t('common.cancel')}
               </Button>
             )}
           </div>
@@ -432,23 +472,23 @@ export function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-xl font-black">
-            Saved Configurations
+            {t('settings.savedConfigs')}
           </CardTitle>
           <CardDescription>
             {configs.length === 0 && !loading
-              ? 'No configurations yet. Add one above.'
-              : `${configs.length} configuration${configs.length === 1 ? '' : 's'} saved.`}
+              ? t('settings.noConfigs')
+              : t('settings.configsCount', { count: configs.length })}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="flex items-center justify-center py-8 text-foreground/50">
               <Loader2 className="mr-2 size-5 animate-spin" />
-              Loading configurations...
+              {t('common.loading')}
             </div>
           ) : configs.length === 0 ? (
             <div className="py-8 text-center text-foreground/50">
-              No LLM configurations found. Add one using the form above.
+              {t('settings.noConfigs')}
             </div>
           ) : (
             <div className="space-y-3">
@@ -463,7 +503,7 @@ export function SettingsPage() {
                         {PROVIDER_LABELS[config.provider] ?? config.provider}
                       </span>
                       <Badge variant="neutral">{config.model_name}</Badge>
-                      {config.is_active && <Badge>Active</Badge>}
+                      {config.is_active && <Badge>{t('common.active')}</Badge>}
                     </div>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-foreground/60">
                       <span className="font-mono">{config.api_key}</span>
@@ -481,7 +521,7 @@ export function SettingsPage() {
                       onClick={() => handleEdit(config)}
                     >
                       <Pencil className="size-3.5" />
-                      Edit
+                      {t('common.edit')}
                     </Button>
                     <Button
                       size="sm"
@@ -489,9 +529,7 @@ export function SettingsPage() {
                       disabled={deletingId === config.id}
                       onClick={() => {
                         if (
-                          window.confirm(
-                            'Are you sure you want to delete this configuration?',
-                          )
+                          window.confirm(t('settings.deleteConfirm'))
                         ) {
                           handleDelete(config.id)
                         }
@@ -502,7 +540,7 @@ export function SettingsPage() {
                       ) : (
                         <Trash2 className="size-3.5" />
                       )}
-                      Delete
+                      {t('common.delete')}
                     </Button>
                   </div>
                 </div>

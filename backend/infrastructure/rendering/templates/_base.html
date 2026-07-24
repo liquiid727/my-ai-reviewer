@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{ draft.title }}</title>
+<style>
+:root {
+  --font-family: {{ css_vars.font_family }};
+  --font-scale: {{ css_vars.font_scale }};
+  --line-height: {{ css_vars.line_height }};
+  --section-gap: {{ css_vars.section_gap }};
+  --accent: {{ css_vars.accent_color }};
+  --page-margin: {{ css_vars.page_margin }};
+}
+
+@page {
+  size: A4;
+  margin: 0;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  font-family: var(--font-family);
+  line-height: var(--line-height);
+  color: #1f2937;
+  background: #ffffff;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+body {
+  font-size: calc(14px * var(--font-scale));
+}
+
+.page {
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: var(--page-margin);
+  background: #ffffff;
+}
+
+/* 头部：姓名与联系方式 */
+.resume-header { margin-bottom: var(--section-gap); }
+.resume-name {
+  font-size: calc(28px * var(--font-scale));
+  font-weight: 700;
+  color: #111827;
+}
+.resume-contact {
+  margin-top: 4px;
+  font-size: calc(12px * var(--font-scale));
+  color: #4b5563;
+}
+.resume-contact span { margin-right: 12px; }
+.resume-summary {
+  margin-top: 8px;
+  font-size: calc(13px * var(--font-scale));
+  color: #374151;
+}
+
+/* 区块 */
+.resume-section { margin-bottom: var(--section-gap); }
+.section-title {
+  font-size: calc(15px * var(--font-scale));
+  font-weight: 700;
+  color: var(--accent);
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 3px;
+  margin-bottom: 6px;
+}
+.section-body { display: flex; flex-direction: column; gap: calc(var(--section-gap) * 0.5); }
+
+/* 条目 */
+.item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.item-heading { font-weight: 600; color: #111827; }
+.item-subheading { color: #4b5563; margin-left: 8px; }
+.item-date { color: #6b7280; font-size: calc(12px * var(--font-scale)); white-space: nowrap; }
+.bullets { list-style: disc; padding-left: 18px; margin-top: 2px; }
+.bullets li { margin-bottom: 2px; }
+
+{% block extra_style %}{% endblock %}
+</style>
+</head>
+<body>
+  <div class="page">
+    {% block body %}{% endblock %}
+  </div>
+</body>
+</html>

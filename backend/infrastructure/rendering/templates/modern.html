@@ -1,0 +1,39 @@
+{% extends "_base.html" %}
+{% import "_macros.html" as m %}
+
+{% block extra_style %}
+.layout { display: flex; gap: calc(var(--section-gap) * 1.2); }
+.sidebar { width: 34%; }
+.main { flex: 1; min-width: 0; }
+.sidebar .section-title { border-bottom-color: var(--accent); }
+.resume-name-block { margin-bottom: var(--section-gap); }
+{% endblock %}
+
+{% block body %}
+  {% set sidebar_types = ["skills", "certificates", "awards", "self_evaluation"] %}
+  <div class="resume-name-block">
+    <div class="resume-name">{{ identity.name or draft.title }}</div>
+    {% if summary %}<div class="resume-summary">{{ summary }}</div>{% endif %}
+  </div>
+  <div class="layout">
+    <aside class="sidebar">
+      <section class="resume-section">
+        <h2 class="section-title">联系方式</h2>
+        <div class="resume-contact" style="display:flex;flex-direction:column;gap:2px;">
+          {% if identity.email %}<span>{{ identity.email }}</span>{% endif %}
+          {% if identity.phone %}<span>{{ identity.phone }}</span>{% endif %}
+          {% if identity.location %}<span>{{ identity.location }}</span>{% endif %}
+          {% if identity.links %}{% for link in identity.links %}<span>{{ link }}</span>{% endfor %}{% endif %}
+        </div>
+      </section>
+      {% for section in sections if section.section_type.value in sidebar_types %}
+        {{ m.render_section(section) }}
+      {% endfor %}
+    </aside>
+    <div class="main">
+      {% for section in sections if section.section_type.value not in sidebar_types %}
+        {{ m.render_section(section) }}
+      {% endfor %}
+    </div>
+  </div>
+{% endblock %}

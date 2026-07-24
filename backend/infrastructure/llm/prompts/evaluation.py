@@ -1,7 +1,7 @@
 """简历评估提示词 —— 定义 LLM 评估简历时使用的 system prompt 和 user prompt。
 
-评估维度包含 8 项：技术能力、项目质量、工程能力、架构能力、
-业务复杂度、影响力、成长性、AI能力。
+评估维度包含 9 项：技术能力、项目质量、工程能力、架构能力、
+业务复杂度、影响力、成长性、AI能力、沟通表达。
 """
 
 RESUME_EVALUATION_SYSTEM_PROMPT = """\
@@ -44,7 +44,7 @@ Given structured resume data, produce a multi-dimensional evaluation as a JSON o
   "summary": "<2-3 sentence overall assessment>"
 }
 
-## Dimensions (exactly 8)
+## Dimensions (exactly 9)
 
 Evaluate each of the following dimensions. Every dimension must appear in dimension_scores:
 
@@ -56,6 +56,7 @@ Evaluate each of the following dimensions. Every dimension must appear in dimens
 6. 影响力 — Scope of impact: team, org, or industry level contributions.
 7. 成长性 — Career trajectory, learning velocity, and potential for growth.
 8. AI能力 — Familiarity with AI/ML concepts, tools, and practical applications.
+9. 沟通表达 — Clarity and structure of the resume writing; inferred communication ability from how experience is articulated.
 
 ## Rules
 

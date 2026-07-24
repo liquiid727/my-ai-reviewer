@@ -1,5 +1,6 @@
 """简历上传服务 —— 负责文件校验、去重、对象存储上传和数据库记录创建。"""
 
+import asyncio
 import hashlib
 import uuid
 from pathlib import PurePosixPath
@@ -14,12 +15,10 @@ from backend.domain.resume.exceptions import (
 )
 from backend.infrastructure.db.models import FileModel, ResumeModel
 from backend.infrastructure.storage.minio_client import upload_file
-import asyncio
-
 from backend.tasks.resume_tasks import process_resume_pipeline
 
 # 允许上传的文件扩展名
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
+ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".md", ".html", ".htm"}
 # 文件大小上限：10MB
 MAX_FILE_SIZE = 10 * 1024 * 1024
 
@@ -27,8 +26,11 @@ MAX_FILE_SIZE = 10 * 1024 * 1024
 CONTENT_TYPE_MAP = {
     ".pdf": "application/pdf",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".doc": "application/msword",
     ".txt": "text/plain",
     ".md": "text/markdown",
+    ".html": "text/html",
+    ".htm": "text/html",
 }
 
 

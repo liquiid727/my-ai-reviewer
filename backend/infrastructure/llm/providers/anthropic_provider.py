@@ -1,5 +1,7 @@
 """Anthropic 提供商 —— 适配 Anthropic Messages API 的差异。"""
 
+from typing import Any
+
 from anthropic import AsyncAnthropic
 
 from backend.infrastructure.llm.providers.base import BaseLLMProvider, LLMResponse
@@ -18,12 +20,12 @@ class AnthropicProvider(BaseLLMProvider):
 
     async def complete(
         self,
-        messages: list[dict],
-        response_format: dict | None = None,
+        messages: list[dict[str, Any]],
+        response_format: dict[str, Any] | None = None,
     ) -> LLMResponse:
         """调用 Anthropic Messages API。"""
         system_text = ""
-        converted: list[dict] = []
+        converted: list[dict[str, Any]] = []
 
         # 将统一的 messages 格式转换为 Anthropic 的格式
         # Anthropic 的 system prompt 需要单独传入，不放在 messages 中
@@ -42,7 +44,7 @@ class AnthropicProvider(BaseLLMProvider):
             )
             system_text += json_instruction
 
-        kwargs: dict = {
+        kwargs: dict[str, Any] = {
             "model": self._model,
             "messages": converted,
             "max_tokens": 8192,

@@ -2,6 +2,7 @@
 
 import json
 import logging
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -30,7 +31,7 @@ class AnswerEvaluationAgent:
         expected_points: list[str],
         answer_text: str,
         followup_round: int = 0,
-        previous_answers: list[dict] | None = None,
+        previous_answers: list[dict[str, Any]] | None = None,
     ) -> AnswerEvaluation:
         previous_context = ""
         if previous_answers:

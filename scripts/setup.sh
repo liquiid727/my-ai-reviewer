@@ -104,6 +104,14 @@ cd "$PROJECT_ROOT/backend"
 uv sync
 ok "Backend dependencies installed"
 
+# ── 4b. Install Playwright Chromium (for resume PDF export) ──
+info "Installing Playwright Chromium (used by Resume Builder PDF export)..."
+if uv run playwright install chromium; then
+    ok "Playwright Chromium installed"
+else
+    warn "Failed to install Playwright Chromium — PDF export will not work until 'uv run playwright install chromium' succeeds"
+fi
+
 # ── 5. Run database migrations ───────────────────
 info "Running database migrations..."
 cd "$PROJECT_ROOT"

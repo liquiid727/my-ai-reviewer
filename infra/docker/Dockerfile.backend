@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1
+
+# ─────────────────────────────────────────────────────────────
+# 后端服务镜像（FastAPI API 与 Celery worker 共用同一镜像）
+# 内置 Playwright Chromium + Noto CJK 字体，用于简历 PDF 导出与中文渲染。
+#
+# 构建（在仓库根目录执行）：
+#   docker build -f infra/docker/Dockerfile.backend -t ai-reviewer-backend .
+#
+# 运行 API：
+#   docker run --rm -p 8000:8000 --env-file .env ai-reviewer-backend
+#
+# 运行 Celery worker（复用同一镜像，覆盖启动命令）：
+#   docker run --rm --env-file .env ai-reviewer-backend \
+#     celery -A backend.celery_app:celery worker --loglevel=info
+#
+# 执行数据库迁移：
+#   docker run --rm --env-file .env ai-reviewer-backend \
+#     alembic -c alembic.ini upgrade head
+# ─────────────────────────────────────────────────────────────
+FROM python:3.12-slim
+
+# 安装 uv（用于按 uv.lock 精确复现依赖）。经 PyPI 安装，避免依赖额外镜像仓库。
+RUN pip install --no-cache-dir uv
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/app/backend/.venv \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PATH="/app/backend/.venv/bin:$PATH"
+
+WORKDIR /app
+
+# 1) 仅安装第三方依赖（利用 lockfile 形成稳定缓存层）。
+#    不安装项目自身——运行时通过 PYTHONPATH=/app 导入 backend 包，与本地一致。
+COPY backend/pyproject.toml backend/uv.lock ./backend/
+RUN uv sync --project backend --frozen --no-install-project
+
+# 2) 安装 Playwright Chromium 及其系统依赖，并追加 Noto CJK 字体
+#    （保证导出的中文简历 PDF 正常显示字形）。
+RUN playwright install --with-deps chromium \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends fonts-noto-cjk \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# 3) 复制应用源码、Alembic 迁移与配置
+COPY backend ./backend
+COPY infra ./infra
+COPY alembic.ini ./alembic.ini
+
+EXPOSE 8000
+
+# 默认启动 FastAPI；Celery worker / 迁移可在运行时覆盖此命令
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

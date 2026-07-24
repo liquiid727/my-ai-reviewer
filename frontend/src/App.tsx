@@ -8,6 +8,7 @@ import { EvaluationPage } from '@/pages/EvaluationPage'
 import { InterviewPage } from '@/pages/InterviewPage'
 import { InterviewReportPage } from '@/pages/InterviewReportPage'
 import { InterviewListPage } from '@/pages/InterviewListPage'
+import { BuilderPage } from '@/pages/BuilderPage'
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
           <Route path="/interview/:id" element={<InterviewPage />} />
           <Route path="/interview/:id/report" element={<InterviewReportPage />} />
           <Route path="/interviews" element={<InterviewListPage />} />
+          <Route path="/builder/:draftId" element={<BuilderPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

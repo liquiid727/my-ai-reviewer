@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 import { FileUploader } from '@/components/FileUploader'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
@@ -9,19 +10,11 @@ import { Badge } from '@/components/ui/badge'
 import { useResumeStore } from '@/stores/resumeStore'
 import { uploadResume, getResumeStatus, retryResume } from '@/api/resume'
 
-const STEP_LABELS: Record<string, string> = {
-  text_extract: 'Extracting text',
-  llm_parse: 'Parsing with AI',
-  classify: 'Classifying',
-  evaluate: 'Evaluating',
-  done: 'Complete',
-  failed: 'Failed',
-}
-
 const MAX_POLL_DURATION = 10 * 60 * 1000
 
 export function UploadPage() {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const {
     resumeId, status, currentStep, completedSteps, error,
     setResumeId, setStatus, setPolling, reset,
@@ -49,7 +42,7 @@ export function UploadPage() {
 
       if (res.code !== 0) {
         stopPolling()
-        toast.error(res.message || 'Failed to check status')
+        toast.error(res.message || t('upload.timedOut'))
         return
       }
 
@@ -58,7 +51,7 @@ export function UploadPage() {
 
       if (s === 'evaluated') {
         stopPolling()
-        toast.success('Resume evaluation complete!')
+        toast.success(t('upload.evaluationComplete'))
         navigate(`/resume/${id}`)
         return
       }
@@ -71,7 +64,7 @@ export function UploadPage() {
       const elapsed = Date.now() - startTimeRef.current
       if (elapsed > MAX_POLL_DURATION) {
         stopPolling()
-        toast.error('Processing timed out. Please try again later.')
+        toast.error(t('upload.timedOut'))
         return
       }
 
@@ -83,13 +76,14 @@ export function UploadPage() {
       const elapsed = Date.now() - startTimeRef.current
       if (elapsed > MAX_POLL_DURATION) {
         stopPolling()
-        toast.error('Processing timed out. Please try again later.')
+        toast.error(t('upload.timedOut'))
         return
       }
 
       const interval = elapsed > 3 * 60 * 1000 ? 5000 : 2000
       pollTimerRef.current = setTimeout(() => pollStatus(id), interval)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setStatus, stopPolling, navigate])
 
   const handleUpload = useCallback(async (file: File) => {
@@ -110,12 +104,13 @@ export function UploadPage() {
       setPolling(true)
       startTimeRef.current = Date.now()
       pollStatus(id)
-      toast.success('Resume uploaded, processing started')
+      toast.success(t('upload.uploaded'))
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Upload failed')
+      toast.error(err instanceof Error ? err.message : t('upload.uploadFailed'))
     } finally {
       setUploading(false)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setResumeId, setStatus, setPolling, pollStatus])
 
   const handleRetry = useCallback(async () => {
@@ -123,17 +118,18 @@ export function UploadPage() {
     try {
       const res = await retryResume(resumeId)
       if (res.code !== 0) {
-        toast.error(res.message || 'Retry failed')
+        toast.error(res.message || t('upload.retryFailed'))
         return
       }
       setStatus('uploaded', 'text_extract', [], null)
       setPolling(true)
       startTimeRef.current = Date.now()
       pollStatus(resumeId)
-      toast.success('Retrying processing...')
+      toast.success(t('upload.retrying'))
     } catch {
-      toast.error('Retry failed')
+      toast.error(t('upload.retryFailed'))
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resumeId, setStatus, setPolling, pollStatus])
 
   useEffect(() => {
@@ -148,7 +144,7 @@ export function UploadPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-black">Upload Resume</h1>
+      <h1 className="text-3xl font-black">{t('upload.title')}</h1>
 
       {!resumeId && (
         <FileUploader onFileSelect={handleUpload} disabled={uploading} />
@@ -156,7 +152,7 @@ export function UploadPage() {
 
       {uploading && (
         <div className="space-y-2">
-          <p className="font-bold">Uploading...</p>
+          <p className="font-bold">{t('upload.uploading')}</p>
           <Progress value={uploadProgress} />
         </div>
       )}
@@ -164,7 +160,7 @@ export function UploadPage() {
       {resumeId && status && status !== 'evaluated' && (
         <div className="rounded-lg border-4 border-black bg-white p-6 shadow-[4px_4px_0_0_#000]">
           <div className="mb-4 flex items-center gap-3">
-            <h2 className="text-xl font-black">Processing</h2>
+            <h2 className="text-xl font-black">{t('upload.processing')}</h2>
             <Badge variant={status === 'failed' ? 'neutral' : 'default'} className={status === 'failed' ? 'bg-red-500 text-white' : ''}>
               {status}
             </Badge>
@@ -174,7 +170,7 @@ export function UploadPage() {
             <>
               <Progress value={progress} className="mb-3" />
               <p className="text-sm font-medium">
-                {STEP_LABELS[currentStep || ''] || currentStep || 'Starting...'}
+                {t(`upload.step.${currentStep || 'starting'}`)}
               </p>
               <div className="mt-2 flex flex-wrap gap-1">
                 {completedSteps.map((step) => (
@@ -187,12 +183,12 @@ export function UploadPage() {
           {status === 'failed' && (
             <div className="space-y-3">
               <Alert variant="destructive">
-                <AlertTitle>Processing Failed</AlertTitle>
-                <AlertDescription>{error || 'Unknown error'}</AlertDescription>
+                <AlertTitle>{t('upload.processingFailed')}</AlertTitle>
+                <AlertDescription>{error || t('common.loading')}</AlertDescription>
               </Alert>
               <div className="flex gap-2">
-                <Button onClick={handleRetry}>Retry</Button>
-                <Button variant="neutral" onClick={reset}>Upload Another</Button>
+                <Button onClick={handleRetry}>{t('upload.retry')}</Button>
+                <Button variant="neutral" onClick={reset}>{t('upload.uploadAnother')}</Button>
               </div>
             </div>
           )}
@@ -201,11 +197,10 @@ export function UploadPage() {
 
       {!resumeId && !uploading && (
         <Alert>
-          <AlertTitle>Tip</AlertTitle>
+          <AlertTitle>{t('upload.tipTitle')}</AlertTitle>
           <AlertDescription>
-            Make sure you've configured your AI model in{' '}
-            <a href="/settings" className="font-bold underline">Settings</a>
-            {' '}before uploading.
+            {t('upload.tip')}{' '}
+            <a href="/settings" className="font-bold underline">{t('nav.settings')}</a>
           </AlertDescription>
         </Alert>
       )}

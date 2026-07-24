@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router'
+import { useTranslation } from 'react-i18next'
+import { formatDateTime } from '@/i18n'
 import {
   RadarChart,
   PolarGrid,
@@ -32,15 +34,16 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion'
 
-const RECOMMENDATION_LABELS: Record<string, { label: string; color: string }> = {
-  strong_yes: { label: '强烈推荐录用', color: 'bg-green-400 text-green-900 border-green-700' },
-  yes: { label: '推荐录用', color: 'bg-green-300 text-green-900 border-green-600' },
-  maybe: { label: '待定', color: 'bg-yellow-300 text-yellow-900 border-yellow-600' },
-  no: { label: '不推荐', color: 'bg-red-300 text-red-900 border-red-600' },
-  strong_no: { label: '强烈不推荐', color: 'bg-red-400 text-red-900 border-red-700' },
+const RECOMMENDATION_COLORS: Record<string, string> = {
+  strong_yes: 'bg-green-400 text-green-900 border-green-700',
+  yes: 'bg-green-300 text-green-900 border-green-600',
+  maybe: 'bg-yellow-300 text-yellow-900 border-yellow-600',
+  no: 'bg-red-300 text-red-900 border-red-600',
+  strong_no: 'bg-red-400 text-red-900 border-red-700',
 }
 
 export function InterviewReportPage() {
+  const { t } = useTranslation()
   const { id } = useParams()
   const [report, setReport] = useState<InterviewReportData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -58,14 +61,14 @@ export function InterviewReportPage() {
           return
         }
         if (res.code !== 0) {
-          setError(res.message || '获取报告失败')
+          setError(res.message || t('interviewReport.loadFailed'))
           return
         }
         setGenerating(false)
         setReport(res.data)
       })
       .catch((err: Error) => {
-        setError(err.message || '获取报告失败')
+        setError(err.message || t('interviewReport.loadFailed'))
       })
       .finally(() => {
         setLoading(false)
@@ -102,11 +105,11 @@ export function InterviewReportPage() {
         <Card>
           <CardContent className="flex flex-col items-center gap-4 py-16">
             <Loader2 className="size-12 animate-spin text-main" />
-            <p className="text-xl font-heading">面试报告生成中...</p>
-            <p className="text-sm text-muted-foreground">AI 正在综合分析所有回答，请稍候</p>
+            <p className="text-xl font-heading">{t('interviewReport.generating')}</p>
+            <p className="text-sm text-muted-foreground">{t('interviewReport.generatingWait')}</p>
             <Button variant="neutral" size="sm" onClick={fetchReport}>
               <RefreshCw className="size-4 mr-1" />
-              刷新状态
+              {t('interviewReport.refresh')}
             </Button>
           </CardContent>
         </Card>
@@ -119,7 +122,7 @@ export function InterviewReportPage() {
       <div className="max-w-4xl mx-auto py-8 px-4">
         <Card>
           <CardContent className="pt-6">
-            <p className="text-red-600 font-bold">错误：{error}</p>
+            <p className="text-red-600 font-bold">{t('interviewReport.error', { msg: error })}</p>
           </CardContent>
         </Card>
       </div>
@@ -128,10 +131,8 @@ export function InterviewReportPage() {
 
   if (!report) return null
 
-  const rec = RECOMMENDATION_LABELS[report.recommendation] || {
-    label: report.recommendation,
-    color: 'bg-gray-300',
-  }
+  const recColor = RECOMMENDATION_COLORS[report.recommendation] || 'bg-gray-300'
+  const recLabel = t(`interviewReport.recommendation.${report.recommendation}`) || report.recommendation
 
   const radarData = report.dimension_scores.map((d) => ({
     dimension: d.name,
@@ -148,7 +149,7 @@ export function InterviewReportPage() {
             <ArrowLeft className="size-4" />
           </Link>
         </Button>
-        <h1 className="text-3xl font-black">面试报告</h1>
+        <h1 className="text-3xl font-black">{t('interviewReport.title')}</h1>
       </div>
 
       {/* Score + Recommendation */}
@@ -157,17 +158,17 @@ export function InterviewReportPage() {
           <CardContent className="flex flex-col items-center gap-4 pt-6">
             <ScoreGauge score={report.overall_score / 10} size={200} />
             <div className="text-center">
-              <p className="text-sm text-muted-foreground">综合评分</p>
+              <p className="text-sm text-muted-foreground">{t('interviewReport.overall')}</p>
               <p className="text-2xl font-black">{report.overall_score.toFixed(1)} / 100</p>
             </div>
-            <Badge className={`text-base py-1 px-4 ${rec.color}`}>{rec.label}</Badge>
+            <Badge className={`text-base py-1 px-4 ${recColor}`}>{recLabel}</Badge>
           </CardContent>
         </Card>
 
         {/* Radar Chart */}
         <Card>
           <CardHeader>
-            <CardTitle>维度评分</CardTitle>
+            <CardTitle>{t('interviewReport.radar')}</CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={280}>
@@ -212,7 +213,7 @@ export function InterviewReportPage() {
                   <div className="flex items-center gap-2">
                     <span className="font-heading">{d.name}</span>
                     <Badge className={d.score >= 70 ? 'bg-green-400 border-green-700' : d.score >= 50 ? 'bg-yellow-300 border-yellow-600' : 'bg-red-400 border-red-700'}>
-                      {d.score}分
+                      {d.score}{t('interview.points')}
                     </Badge>
                   </div>
                   <p className="text-sm text-muted-foreground mt-1">{d.reason}</p>
@@ -229,7 +230,7 @@ export function InterviewReportPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-green-700">
               <CheckCircle className="size-5" />
-              优势
+              {t('interviewReport.strengths')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -244,7 +245,7 @@ export function InterviewReportPage() {
                 </div>
               ))}
               {report.strengths.length === 0 && (
-                <p className="text-sm text-muted-foreground">暂无</p>
+                <p className="text-sm text-muted-foreground">{t('interviewReport.noStrengths')}</p>
               )}
             </div>
           </CardContent>
@@ -254,7 +255,7 @@ export function InterviewReportPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-red-700">
               <XCircle className="size-5" />
-              不足
+              {t('interviewReport.weaknesses')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -269,7 +270,7 @@ export function InterviewReportPage() {
                 </div>
               ))}
               {report.weaknesses.length === 0 && (
-                <p className="text-sm text-muted-foreground">暂无</p>
+                <p className="text-sm text-muted-foreground">{t('interviewReport.noWeaknesses')}</p>
               )}
             </div>
           </CardContent>
@@ -287,12 +288,12 @@ export function InterviewReportPage() {
               <AccordionItem key={i} value={`q-${i}`}>
                 <AccordionTrigger>
                   <div className="flex items-center gap-2 text-left">
-                    <Badge variant="neutral">第{q.question_num}题</Badge>
+                    <Badge variant="neutral">{t('interviewReport.questionNum', { num: q.question_num })}</Badge>
                     <span className="text-sm font-heading truncate max-w-[400px]">
                       {q.question_text}
                     </span>
                     <Badge className={q.final_score >= 70 ? 'bg-green-400 border-green-700' : q.final_score >= 50 ? 'bg-yellow-300 border-yellow-600' : 'bg-red-400 border-red-700'}>
-                      {q.final_score.toFixed(0)}分
+                      {q.final_score.toFixed(0)}{t('interview.points')}
                     </Badge>
                   </div>
                 </AccordionTrigger>
@@ -308,7 +309,7 @@ export function InterviewReportPage() {
       {/* AI Summary */}
       {report.summary && (
         <Alert>
-          <AlertTitle className="font-heading">AI 综合评价</AlertTitle>
+          <AlertTitle className="font-heading">{t('interviewReport.aiSummary')}</AlertTitle>
           <AlertDescription className="mt-2 whitespace-pre-wrap">
             {report.summary}
           </AlertDescription>
@@ -317,9 +318,9 @@ export function InterviewReportPage() {
 
       {/* Footer */}
       <div className="flex items-center justify-between text-xs text-muted-foreground pt-4">
-        {report.llm_model && <span>模型：{report.llm_model}</span>}
+        {report.llm_model && <span>{t('interviewReport.model')}{report.llm_model}</span>}
         {report.created_at && (
-          <span>生成时间：{new Date(report.created_at).toLocaleString('zh-CN')}</span>
+          <span>{t('interviewReport.generatedAt')}{formatDateTime(report.created_at)}</span>
         )}
       </div>
     </div>

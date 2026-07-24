@@ -24,6 +24,8 @@ dependencies = [
     "langgraph>=0.2.0",
     "langgraph-checkpoint-postgres>=2.0.0",
     "psycopg[binary]>=3.1.0",
+    "jinja2>=3.1.6",
+    "playwright>=1.61.0",
 ]
 
 [project.optional-dependencies]
@@ -48,9 +50,18 @@ line-length = 120
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
 
+[tool.ruff.lint.per-file-ignores]
+# 提示词为面向 LLM 的自然语言文本，位于字符串字面量内，不受行宽限制
+"infrastructure/llm/prompts/*.py" = ["E501"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
+
+[[tool.mypy.overrides]]
+# celery 未提供类型存根（py.typed），忽略其导入未定义告警
+module = ["celery", "celery.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

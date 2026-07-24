@@ -2,6 +2,8 @@
 
 import asyncio
 import uuid
+from datetime import UTC, datetime
+from types import EllipsisType
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,7 +45,7 @@ async def update_config(
     provider: str | None = None,
     api_key: str | None = None,
     model_name: str | None = None,
-    base_url: str | None = ...,  # type: ignore[assignment]
+    base_url: str | None | EllipsisType = ...,
 ) -> LLMConfigModel | None:
     """更新指定的 LLM 配置，只修改传入的字段。
 
@@ -52,6 +54,12 @@ async def update_config(
     config = await session.get(LLMConfigModel, config_id)
     if config is None:
         return None
+    # 关键字段变更时重置已验证状态，需重新测试（verified 不设过期）
+    key_field_changed = (
+        provider is not None
+        or api_key is not None
+        or model_name is not None
+    )
     if provider is not None:
         config.provider = provider
     if api_key is not None:
@@ -60,6 +68,9 @@ async def update_config(
         config.model_name = model_name
     if base_url is not ...:
         config.base_url = base_url
+        key_field_changed = True
+    if key_field_changed:
+        config.verified = False
     await session.commit()
     await session.refresh(config)
     return config
@@ -80,8 +91,35 @@ async def test_connection(
     api_key: str,
     model_name: str,
     base_url: str | None = None,
+    *,
+    session: AsyncSession | None = None,
+    config_id: uuid.UUID | None = None,
 ) -> dict[str, object]:
-    """测试 LLM 提供商连通性：发送最小请求或列出可用模型。"""
+    """测试 LLM 提供商连通性。
+
+    传入 ``session`` 与 ``config_id`` 且命中已保存配置时，根据测试结果落库：
+    测试通过则置 ``verified=true`` 并更新 ``last_verified_at``；测试失败置
+    ``verified=false``。不传 ``config_id`` 时仅测试不落库。
+    """
+    result = await _run_connection_test(provider, api_key, model_name, base_url)
+    if session is not None and config_id is not None:
+        config = await session.get(LLMConfigModel, config_id)
+        if config is not None:
+            success = bool(result["success"])
+            config.verified = success
+            if success:
+                config.last_verified_at = datetime.now(UTC)
+            await session.commit()
+    return result
+
+
+async def _run_connection_test(
+    provider: str,
+    api_key: str,
+    model_name: str,
+    base_url: str | None = None,
+) -> dict[str, object]:
+    """向 LLM 提供商发送最小请求或列出可用模型，验证连通性。"""
     if provider == "anthropic":
         from anthropic import AsyncAnthropic
 

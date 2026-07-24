@@ -20,6 +20,13 @@ def get_minio_client() -> Minio:
     )
 
 
+def ensure_bucket(bucket: str) -> None:
+    """确保对象存储桶存在，不存在则创建。"""
+    client = get_minio_client()
+    if not client.bucket_exists(bucket):
+        client.make_bucket(bucket)
+
+
 def upload_file(
     bucket: str,
     object_name: str,

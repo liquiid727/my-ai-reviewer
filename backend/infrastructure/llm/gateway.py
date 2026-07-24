@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from backend.infrastructure.llm.providers.anthropic_provider import AnthropicProvider
 from backend.infrastructure.llm.providers.base import BaseLLMProvider, LLMResponse
 from backend.infrastructure.llm.providers.openai_provider import OpenAIProvider
-from backend.infrastructure.llm.providers.anthropic_provider import AnthropicProvider
 
 if TYPE_CHECKING:
     from backend.infrastructure.db.models import LLMConfigModel
@@ -20,8 +20,8 @@ class LLMGateway:
 
     async def complete(
         self,
-        messages: list[dict],
-        response_format: dict | None = None,
+        messages: list[dict[str, Any]],
+        response_format: dict[str, Any] | None = None,
     ) -> LLMResponse:
         """发送对话消息并获取 LLM 响应。"""
         return await self._provider.complete(messages, response_format=response_format)

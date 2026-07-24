@@ -1,7 +1,8 @@
 """全局配置 —— 使用 pydantic-settings 从 .env 文件和环境变量中加载配置项。"""
 
-from pydantic_settings import BaseSettings
 from functools import lru_cache
+
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -22,6 +23,7 @@ class Settings(BaseSettings):
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET_RESUMES: str = "resumes"
+    MINIO_BUCKET_EXPORTS: str = "exports"
     MINIO_USE_SSL: bool = False
 
     # ── CORS 跨域白名单 ─────────────────────────

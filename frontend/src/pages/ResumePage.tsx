@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
+import { useTranslation } from 'react-i18next'
 import { getResumeDetail } from '@/api/resume'
 import { createInterview } from '@/api/interview'
+import { createDraftFromResume } from '@/api/builder'
 import type {
   ResumeDetailData,
   Evidence,
@@ -36,6 +38,7 @@ import {
   ArrowRight,
   Loader2,
   MessageSquare,
+  FileEdit,
   X,
 } from 'lucide-react'
 
@@ -73,12 +76,13 @@ function ConfidenceBadge({ confidence }: { confidence?: number }) {
 }
 
 function EvidenceSection({ evidence }: { evidence?: Evidence[] }) {
+  const { t } = useTranslation()
   if (!evidence || evidence.length === 0) return null
   return (
     <Accordion type="single" collapsible className="mt-3">
       <AccordionItem value="evidence">
         <AccordionTrigger className="text-sm py-2 px-3">
-          Source Evidence ({evidence.length})
+          {t('resume.sourceEvidence', { count: evidence.length })}
         </AccordionTrigger>
         <AccordionContent>
           <div className="space-y-3">
@@ -91,7 +95,7 @@ function EvidenceSection({ evidence }: { evidence?: Evidence[] }) {
                   <div className="flex items-center gap-2 mt-1">
                     {ev.page != null && (
                       <span className="text-xs text-muted-foreground">
-                        Page {ev.page}
+                        {t('resume.page', { page: ev.page })}
                       </span>
                     )}
                     <ConfidenceBadge confidence={ev.confidence} />
@@ -107,15 +111,17 @@ function EvidenceSection({ evidence }: { evidence?: Evidence[] }) {
 }
 
 function DateRange({ start, end }: { start?: string; end?: string }) {
+  const { t } = useTranslation()
   if (!start && !end) return null
   return (
     <span className="text-sm text-muted-foreground">
-      {start ?? '?'} &mdash; {end ?? 'Present'}
+      {start ?? '?'} &mdash; {end ?? t('resume.present')}
     </span>
   )
 }
 
 function EducationCard({ edu }: { edu: Education }) {
+  const { t } = useTranslation()
   return (
     <Card>
       <CardHeader>
@@ -131,7 +137,7 @@ function EducationCard({ edu }: { edu: Education }) {
           )}
           <DateRange start={edu.start_date} end={edu.end_date} />
           {edu.gpa && (
-            <p className="text-sm text-muted-foreground">GPA: {edu.gpa}</p>
+            <p className="text-sm text-muted-foreground">{t('resume.gpa', { gpa: edu.gpa })}</p>
           )}
         </div>
         <EvidenceSection evidence={edu.evidence} />
@@ -171,6 +177,7 @@ function WorkExperienceCard({ exp }: { exp: WorkExperience }) {
 }
 
 function ProjectExperienceCard({ proj }: { proj: ProjectExperience }) {
+  const { t } = useTranslation()
   return (
     <Card>
       <CardHeader>
@@ -182,7 +189,7 @@ function ProjectExperienceCard({ proj }: { proj: ProjectExperience }) {
       <CardContent>
         <div className="space-y-2">
           {proj.role && (
-            <p className="text-sm font-medium">Role: {proj.role}</p>
+            <p className="text-sm font-medium">{t('resume.role', { role: proj.role })}</p>
           )}
           {proj.tech_stack && proj.tech_stack.length > 0 && (
             <div className="flex flex-wrap gap-1">
@@ -235,6 +242,7 @@ function SkillCard({ skill }: { skill: Skill }) {
 }
 
 function CertificateCard({ cert }: { cert: Certificate }) {
+  const { t } = useTranslation()
   return (
     <Card>
       <CardHeader>
@@ -245,7 +253,7 @@ function CertificateCard({ cert }: { cert: Certificate }) {
       </CardHeader>
       <CardContent>
         <div className="space-y-1 text-sm">
-          {cert.issuer && <p>Issuer: {cert.issuer}</p>}
+          {cert.issuer && <p>{t('resume.issuer', { issuer: cert.issuer })}</p>}
           {cert.date && (
             <p className="text-muted-foreground">{cert.date}</p>
           )}
@@ -288,6 +296,7 @@ function ProfileSkeleton() {
 export function ResumePage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const [resume, setResume] = useState<ResumeDetailData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -295,6 +304,24 @@ export function ResumePage() {
   const [jdText, setJdText] = useState('')
   const [questionCount, setQuestionCount] = useState(5)
   const [creatingInterview, setCreatingInterview] = useState(false)
+  const [buildingDraft, setBuildingDraft] = useState(false)
+
+  const handleBuildResume = async () => {
+    if (!id) return
+    setBuildingDraft(true)
+    try {
+      const res = await createDraftFromResume(id)
+      if (res.code !== 0) {
+        toast.error(res.message || t('builder.createFailed'))
+        return
+      }
+      navigate(`/builder/${res.data.draft_id}`)
+    } catch (err) {
+      toast.error((err as Error).message || t('builder.createFailed'))
+    } finally {
+      setBuildingDraft(false)
+    }
+  }
 
   const handleCreateInterview = async () => {
     if (!id) return
@@ -302,14 +329,14 @@ export function ResumePage() {
     try {
       const res = await createInterview(id, jdText || undefined, questionCount)
       if (res.code !== 0) {
-        toast.error(res.message || '创建面试失败')
+        toast.error(res.message || t('resume.createFailed'))
         return
       }
-      toast.success('面试创建成功')
+      toast.success(t('resume.createSuccess'))
       setShowInterviewDialog(false)
       navigate(`/interview/${res.data.interview_id}`)
     } catch (err) {
-      toast.error((err as Error).message || '创建面试失败')
+      toast.error((err as Error).message || t('resume.createFailed'))
     } finally {
       setCreatingInterview(false)
     }
@@ -322,17 +349,18 @@ export function ResumePage() {
     getResumeDetail(id)
       .then((res) => {
         if (res.code !== 0) {
-          setError(res.message || 'Failed to load resume')
+          setError(res.message || t('resume.loadFailed'))
         } else {
           setResume(res.data)
         }
       })
       .catch((err: Error) => {
-        setError(err.message ?? 'Failed to load resume')
+        setError(err.message ?? t('resume.loadFailed'))
       })
       .finally(() => {
         setLoading(false)
       })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   if (loading) {
@@ -348,7 +376,7 @@ export function ResumePage() {
       <div className="max-w-4xl mx-auto py-8 px-4">
         <Card>
           <CardContent className="pt-6">
-            <p className="text-red-600 font-bold">Error: {error}</p>
+            <p className="text-red-600 font-bold">{t('resume.error', { msg: error })}</p>
           </CardContent>
         </Card>
       </div>
@@ -360,7 +388,7 @@ export function ResumePage() {
       <div className="max-w-4xl mx-auto py-8 px-4">
         <Card>
           <CardContent className="pt-6">
-            <p>Resume not found.</p>
+            <p>{t('resume.notFound')}</p>
           </CardContent>
         </Card>
       </div>
@@ -375,12 +403,12 @@ export function ResumePage() {
         <Card>
           <CardContent className="flex flex-col items-center gap-4 py-12">
             <Loader2 className="size-10 animate-spin text-main" />
-            <p className="text-lg font-heading">Resume is being processed...</p>
+            <p className="text-lg font-heading">{t('resume.processing')}</p>
             <p className="text-sm text-muted-foreground">
-              Current status: <Badge variant="neutral">{resume.status}</Badge>
+              {t('resume.processingStatus')} <Badge variant="neutral">{resume.status}</Badge>
             </p>
             <p className="text-sm text-muted-foreground">
-              Please check back shortly. The parsing and evaluation may take a moment.
+              {t('resume.processingWait')}
             </p>
           </CardContent>
         </Card>
@@ -397,7 +425,7 @@ export function ResumePage() {
       <Card>
         <CardHeader>
           <CardTitle className="text-2xl">
-            {profile?.name ?? 'Unknown Candidate'}
+            {profile?.name ?? t('resume.unknownCandidate')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -454,13 +482,13 @@ export function ResumePage() {
             <div className="mt-4 space-y-2">
               {classification.experience_level && (
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">Experience Level:</span>
+                  <span className="text-sm font-medium">{t('resume.experienceLevel')}</span>
                   <Badge variant="neutral">{classification.experience_level}</Badge>
                 </div>
               )}
               {classification.tech_direction_tags && classification.tech_direction_tags.length > 0 && (
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium">Tech Direction:</span>
+                  <span className="text-sm font-medium">{t('resume.techDirection')}</span>
                   {classification.tech_direction_tags.map((tag, i) => (
                     <Badge key={i} variant="neutral">{tag}</Badge>
                   ))}
@@ -468,7 +496,7 @@ export function ResumePage() {
               )}
               {classification.industry_tags && classification.industry_tags.length > 0 && (
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium">Industry:</span>
+                  <span className="text-sm font-medium">{t('resume.industry')}</span>
                   {classification.industry_tags.map((tag, i) => (
                     <Badge key={i} variant="neutral">{tag}</Badge>
                   ))}
@@ -484,23 +512,23 @@ export function ResumePage() {
         <TabsList className="flex flex-wrap h-auto gap-1">
           <TabsTrigger value="education" className="gap-1">
             <GraduationCap className="size-4" />
-            Education
+            {t('resume.tabs.education')}
           </TabsTrigger>
           <TabsTrigger value="work" className="gap-1">
             <Briefcase className="size-4" />
-            Work Experience
+            {t('resume.tabs.work')}
           </TabsTrigger>
           <TabsTrigger value="projects" className="gap-1">
             <FolderKanban className="size-4" />
-            Projects
+            {t('resume.tabs.projects')}
           </TabsTrigger>
           <TabsTrigger value="skills" className="gap-1">
             <Wrench className="size-4" />
-            Skills
+            {t('resume.tabs.skills')}
           </TabsTrigger>
           <TabsTrigger value="certificates" className="gap-1">
             <Award className="size-4" />
-            Certificates
+            {t('resume.tabs.certificates')}
           </TabsTrigger>
         </TabsList>
 
@@ -511,7 +539,7 @@ export function ResumePage() {
                 <EducationCard key={i} edu={edu} />
               ))
             ) : (
-              <p className="text-sm text-muted-foreground py-4">No education data available.</p>
+              <p className="text-sm text-muted-foreground py-4">{t('resume.noEducation')}</p>
             )}
           </div>
         </TabsContent>
@@ -523,7 +551,7 @@ export function ResumePage() {
                 <WorkExperienceCard key={i} exp={exp} />
               ))
             ) : (
-              <p className="text-sm text-muted-foreground py-4">No work experience data available.</p>
+              <p className="text-sm text-muted-foreground py-4">{t('resume.noWork')}</p>
             )}
           </div>
         </TabsContent>
@@ -535,7 +563,7 @@ export function ResumePage() {
                 <ProjectExperienceCard key={i} proj={proj} />
               ))
             ) : (
-              <p className="text-sm text-muted-foreground py-4">No project data available.</p>
+              <p className="text-sm text-muted-foreground py-4">{t('resume.noProjects')}</p>
             )}
           </div>
         </TabsContent>
@@ -547,7 +575,7 @@ export function ResumePage() {
                 <SkillCard key={i} skill={skill} />
               ))
             ) : (
-              <p className="text-sm text-muted-foreground py-4">No skills data available.</p>
+              <p className="text-sm text-muted-foreground py-4">{t('resume.noSkills')}</p>
             )}
           </div>
         </TabsContent>
@@ -559,7 +587,7 @@ export function ResumePage() {
                 <CertificateCard key={i} cert={cert} />
               ))
             ) : (
-              <p className="text-sm text-muted-foreground py-4">No certificates data available.</p>
+              <p className="text-sm text-muted-foreground py-4">{t('resume.noCertificates')}</p>
             )}
           </div>
         </TabsContent>
@@ -569,13 +597,21 @@ export function ResumePage() {
       <div className="flex justify-center gap-4 pt-4">
         <Button asChild size="lg">
           <Link to={`/resume/${id}/evaluation`}>
-            View AI Evaluation Report
+            {t('resume.viewEvaluation')}
             <ArrowRight className="size-4" />
           </Link>
         </Button>
         <Button size="lg" onClick={() => setShowInterviewDialog(true)}>
           <MessageSquare className="size-4" />
-          开始面试
+          {t('resume.startInterview')}
+        </Button>
+        <Button size="lg" variant="neutral" onClick={handleBuildResume} disabled={buildingDraft}>
+          {buildingDraft ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <FileEdit className="size-4" />
+          )}
+          {t('builder.entry')}
         </Button>
       </div>
 
@@ -588,7 +624,7 @@ export function ResumePage() {
           />
           <div className="relative z-10 w-full max-w-md mx-4 bg-bg border-2 border-border rounded-base shadow-shadow p-6 space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-heading">创建面试</h2>
+              <h2 className="text-xl font-heading">{t('resume.createInterview')}</h2>
               <button
                 onClick={() => setShowInterviewDialog(false)}
                 className="p-1 hover:bg-main/20 rounded-base"
@@ -599,12 +635,12 @@ export function ResumePage() {
 
             <div className="space-y-2">
               <label className="text-sm font-heading">
-                职位描述 JD（选填）
+                {t('resume.jdLabel')}
               </label>
               <textarea
                 value={jdText}
                 onChange={(e) => setJdText(e.target.value)}
-                placeholder="粘贴职位描述，AI 将根据 JD 生成针对性问题..."
+                placeholder={t('resume.jdPlaceholder')}
                 rows={5}
                 className="w-full rounded-base border-2 border-border bg-white px-3 py-2 text-sm shadow-shadow focus:outline-none focus:ring-2 focus:ring-main resize-none"
               />
@@ -612,7 +648,7 @@ export function ResumePage() {
 
             <div className="space-y-2">
               <label className="text-sm font-heading">
-                题目数量
+                {t('resume.questionCount')}
               </label>
               <select
                 value={questionCount}
@@ -621,7 +657,7 @@ export function ResumePage() {
               >
                 {[3, 5, 8, 10].map((n) => (
                   <option key={n} value={n}>
-                    {n} 题
+                    {t('resume.questionUnit', { count: n })}
                   </option>
                 ))}
               </select>
@@ -632,7 +668,7 @@ export function ResumePage() {
                 variant="neutral"
                 onClick={() => setShowInterviewDialog(false)}
               >
-                取消
+                {t('common.cancel')}
               </Button>
               <Button
                 onClick={handleCreateInterview}
@@ -641,7 +677,7 @@ export function ResumePage() {
                 {creatingInterview && (
                   <Loader2 className="size-4 animate-spin" />
                 )}
-                确认开始
+                {t('resume.confirmStart')}
               </Button>
             </div>
           </div>

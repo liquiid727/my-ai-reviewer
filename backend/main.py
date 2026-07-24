@@ -52,4 +52,7 @@ async def handle_file_too_large(request, exc: FileTooLargeError) -> JSONResponse
 @app.exception_handler(DuplicateResumeError)
 async def handle_duplicate_resume(request, exc: DuplicateResumeError) -> JSONResponse:  # type: ignore[no-untyped-def]
     """简历文件重复上传时直接返回已有的 resume_id，避免重复处理。"""
-    return JSONResponse(status_code=200, content={"code": 0, "message": "success", "data": {"resume_id": exc.resume_id}})
+    return JSONResponse(
+        status_code=200,
+        content={"code": 0, "message": "success", "data": {"resume_id": exc.resume_id}},
+    )

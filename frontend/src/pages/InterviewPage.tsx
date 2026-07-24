@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router'
+import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { startInterview, submitAnswer } from '@/api/interview'
 import { useInterviewStore } from '@/stores/interviewStore'
@@ -18,13 +19,6 @@ import {
   ArrowRight,
 } from 'lucide-react'
 
-const STAGE_LABELS: Record<string, string> = {
-  basic: '基础知识',
-  project: '项目经验',
-  architecture: '系统设计',
-  behavior: '行为面试',
-}
-
 const DIFFICULTY_COLORS: Record<string, string> = {
   easy: 'bg-green-400 text-green-900 border-green-700',
   medium: 'bg-yellow-300 text-yellow-900 border-yellow-700',
@@ -32,17 +26,19 @@ const DIFFICULTY_COLORS: Record<string, string> = {
 }
 
 function ScoreBadge({ score }: { score: number }) {
+  const { t } = useTranslation()
   const color =
     score >= 70
       ? 'bg-green-400 text-green-900 border-green-700'
       : score >= 50
         ? 'bg-yellow-300 text-yellow-900 border-yellow-700'
         : 'bg-red-400 text-red-900 border-red-700'
-  return <Badge className={color}>{score}分</Badge>
+  return <Badge className={color}>{score}{t('interview.points')}</Badge>
 }
 
 export function InterviewPage() {
   const { id } = useParams()
+  const { t } = useTranslation()
   const [loading, setLoading] = useState(true)
   const [answerText, setAnswerText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -76,7 +72,7 @@ export function InterviewPage() {
     startInterview(id)
       .then((res) => {
         if (res.code !== 0) {
-          toast.error(res.message || '开始面试失败')
+          toast.error(res.message || t('interview.startFailed'))
           return
         }
         const q = res.data
@@ -90,7 +86,7 @@ export function InterviewPage() {
         })
       })
       .catch((err: Error) => {
-        toast.error(err.message || '面试启动失败')
+        toast.error(err.message || t('interview.startFailed'))
       })
       .finally(() => {
         setLoading(false)
@@ -106,7 +102,7 @@ export function InterviewPage() {
     if (!id || !currentQuestion || !answerText.trim() || isSubmitting) return
 
     if (answerText.trim().length < 10) {
-      toast.error('回答至少需要 10 个字符')
+      toast.error(t('interview.answerTooShort'))
       return
     }
 
@@ -124,7 +120,7 @@ export function InterviewPage() {
     try {
       const res = await submitAnswer(id, currentQuestion.question_id, answer)
       if (res.code !== 0) {
-        toast.error(res.message || '提交回答失败')
+        toast.error(res.message || t('interview.submitFailed'))
         setSubmitting(false)
         return
       }
@@ -144,7 +140,7 @@ export function InterviewPage() {
         addMessage({
           id: `sys-finished-${Date.now()}`,
           type: 'system',
-          content: '面试已完成！正在生成面试报告...',
+          content: t('interview.completed'),
           timestamp: Date.now(),
         })
       } else if (result.next) {
@@ -159,7 +155,7 @@ export function InterviewPage() {
         })
       }
     } catch (err) {
-      toast.error((err as Error).message || '提交失败')
+      toast.error((err as Error).message || t('interview.submitError'))
     } finally {
       setSubmitting(false)
       textareaRef.current?.focus()
@@ -193,10 +189,13 @@ export function InterviewPage() {
       {/* Header */}
       <div className="mb-4 space-y-2">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-black">AI 面试</h1>
+          <h1 className="text-2xl font-black">{t('interview.title')}</h1>
           {currentQuestion && (
             <span className="text-sm font-heading">
-              第 {currentQuestion.current_num} 题 / 共 {currentQuestion.total_count} 题
+              {t('interview.questionXofY', {
+                current: currentQuestion.current_num,
+                total: currentQuestion.total_count,
+              })}
             </span>
           )}
         </div>
@@ -220,7 +219,7 @@ export function InterviewPage() {
               value={answerText}
               onChange={(e) => setAnswerText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="输入你的回答... (Shift+Enter 换行)"
+              placeholder={t('interview.placeholder')}
               disabled={isSubmitting || !currentQuestion}
               rows={3}
               className="flex-1 rounded-base border-2 border-border bg-secondary-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-black focus:ring-offset-2 resize-none disabled:opacity-50"
@@ -242,7 +241,7 @@ export function InterviewPage() {
         <div className="border-t-2 border-border pt-4 flex justify-center">
           <Button asChild size="lg">
             <Link to={`/interview/${id}/report`}>
-              查看面试报告
+              {t('interview.viewReport')}
               <ArrowRight className="size-4" />
             </Link>
           </Button>
@@ -253,6 +252,7 @@ export function InterviewPage() {
 }
 
 function MessageBubble({ message }: { message: ChatMessage }) {
+  const { t } = useTranslation()
   if (message.type === 'question' || message.type === 'followup') {
     const q = message.data as QuestionPresentData | undefined
     return (
@@ -263,15 +263,15 @@ function MessageBubble({ message }: { message: ChatMessage }) {
               <MessageSquare className="size-4" />
               {q && (
                 <>
-                  <Badge>{STAGE_LABELS[q.stage] || q.stage}</Badge>
+                  <Badge>{t(`interview.stage.${q.stage}`) || q.stage}</Badge>
                   <Badge className={DIFFICULTY_COLORS[q.difficulty] || ''}>
-                    {q.difficulty}
+                    {t(`interview.difficulty.${q.difficulty}`)}
                   </Badge>
                 </>
               )}
               {message.type === 'followup' && (
                 <Badge className="bg-purple-400 text-purple-900 border-purple-700">
-                  追问
+                  {t('interview.followup')}
                 </Badge>
               )}
             </div>
@@ -308,13 +308,13 @@ function MessageBubble({ message }: { message: ChatMessage }) {
             {result && (
               <>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-heading">评分：</span>
+                  <span className="text-sm font-heading">{t('interview.score')}</span>
                   <ScoreBadge score={result.score} />
                 </div>
                 <p className="text-sm">{result.feedback}</p>
                 {result.key_points_hit.length > 0 && (
                   <div className="space-y-1">
-                    <span className="text-xs font-heading text-green-700">命中要点：</span>
+                    <span className="text-xs font-heading text-green-700">{t('interview.hitPoints')}</span>
                     <div className="flex flex-wrap gap-1">
                       {result.key_points_hit.map((p, i) => (
                         <span key={i} className="inline-flex items-center gap-1 text-xs bg-green-100 border border-green-300 rounded-base px-2 py-0.5">
@@ -327,7 +327,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
                 )}
                 {result.key_points_missed.length > 0 && (
                   <div className="space-y-1">
-                    <span className="text-xs font-heading text-red-700">遗漏要点：</span>
+                    <span className="text-xs font-heading text-red-700">{t('interview.missedPoints')}</span>
                     <div className="flex flex-wrap gap-1">
                       {result.key_points_missed.map((p, i) => (
                         <span key={i} className="inline-flex items-center gap-1 text-xs bg-red-100 border border-red-300 rounded-base px-2 py-0.5">

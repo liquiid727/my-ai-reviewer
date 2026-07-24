@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from typing import Any
 
 from sqlalchemy import update
 
@@ -15,7 +16,7 @@ from backend.workflow.state import InterviewState, QuestionItem
 logger = logging.getLogger(__name__)
 
 
-async def generate_questions(state: InterviewState) -> dict:
+async def generate_questions(state: InterviewState) -> dict[str, Any]:
     """LLM 生成题目，写入 DB，更新面试状态为 in_progress。"""
     gateway = LLMGateway.from_settings()
     agent = QuestionGenerationAgent(gateway)

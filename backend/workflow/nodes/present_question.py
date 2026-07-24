@@ -1,11 +1,13 @@
 """present_question 节点 —— 中断图执行，等待用户回答。"""
 
+from typing import Any
+
 from langgraph.types import interrupt
 
 from backend.workflow.state import InterviewState
 
 
-def present_question(state: InterviewState) -> dict:
+def present_question(state: InterviewState) -> dict[str, Any]:
     """中断执行，将当前题目信息返回给前端，等待用户提交回答。"""
     idx = state["current_question_index"]
     question = state["questions"][idx]

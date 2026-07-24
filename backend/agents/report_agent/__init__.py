@@ -2,6 +2,7 @@
 
 import json
 import logging
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -24,7 +25,7 @@ class ReportGenerationAgent:
         self._gateway = gateway
         self.model_info: str = ""
 
-    async def generate(self, interview_data: dict) -> InterviewReport:
+    async def generate(self, interview_data: dict[str, Any]) -> InterviewReport:
         messages = [
             {"role": "system", "content": REPORT_GEN_SYSTEM_PROMPT},
             {

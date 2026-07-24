@@ -43,7 +43,8 @@ You are a structured resume extraction engine. Given raw resume text, extract al
         "degree": "<string or null>",
         "major": "<string or null>",
         "start_date": "<string or null>",
-        "end_date": "<string or null>"
+        "end_date": "<string or null>",
+        "gpa": "<string or null>"
       }
     ],
     "work_experiences": [
@@ -53,7 +54,9 @@ You are a structured resume extraction engine. Given raw resume text, extract al
         "start_date": "<string or null>",
         "end_date": "<string or null>",
         "responsibilities": ["<string>"],
-        "achievements": ["<string>"]
+        "achievements": ["<string>"],
+        "tech_stack": ["<string>"],
+        "industry": "<string or null>"
       }
     ],
     "projects": [
@@ -62,7 +65,9 @@ You are a structured resume extraction engine. Given raw resume text, extract al
         "role": "<string or null>",
         "tech_stack": ["<string>"],
         "background": "<string or null>",
-        "responsibilitity": "<string or null>",
+        "responsibility": "<string or null>",
+        "difficulties": ["<string>"],
+        "team_size": "<string or null>",
         "highlights": ["<string>"],
         "metrics": ["<string>"]
       }
@@ -70,7 +75,7 @@ You are a structured resume extraction engine. Given raw resume text, extract al
     "skills": [
       {
         "name": "<string>",
-        "category": "<string or null>",
+        "category": "<one of: programming_language, framework, database, cache, mq, cloud_native, ai, devops, testing, architecture, other>",
         "evidence": "<string or null>",
         "confidence": <float 0-1>
       }

@@ -21,7 +21,24 @@ class ResumeSectionType(str, Enum):
     PROJECT_EXPERIENCE = "project_experience"  # 项目经历
     SKILLS = "skills"                        # 技能
     CERTIFICATES = "certificates"            # 证书
+    AWARDS = "awards"                        # 奖项荣誉
+    SELF_EVALUATION = "self_evaluation"      # 自我评价
     OTHER = "other"                          # 其他
+
+
+class SkillCategory(str, Enum):
+    """技能分类（PRD §5 要求的 10 类固定分类 + other 兜底）。"""
+    PROGRAMMING_LANGUAGE = "programming_language"  # 编程语言
+    FRAMEWORK = "framework"                        # 框架
+    DATABASE = "database"                          # 数据库
+    CACHE = "cache"                                # 缓存
+    MQ = "mq"                                      # 消息队列
+    CLOUD_NATIVE = "cloud_native"                  # 云原生
+    AI = "ai"                                      # AI / 机器学习
+    DEVOPS = "devops"                              # DevOps
+    TESTING = "testing"                            # 测试
+    ARCHITECTURE = "architecture"                  # 架构
+    OTHER = "other"                                # 其他 / 无法归类
 
 
 class FactType(str, Enum):

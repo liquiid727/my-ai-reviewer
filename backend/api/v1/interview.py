@@ -3,14 +3,17 @@
 import logging
 import uuid
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends
+from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.v1.schemas import APIResponse
 from backend.application.interview_service import InterviewService
 from backend.infrastructure.db.database import get_db
+from backend.workflow.state import InterviewState
 
 logger = logging.getLogger(__name__)
 
@@ -84,10 +87,10 @@ class InterviewReportData(BaseModel):
 
     interview_id: str
     overall_score: float
-    dimension_scores: list[dict]
-    per_question_summary: list[dict]
-    strengths: list[dict]
-    weaknesses: list[dict]
+    dimension_scores: list[dict[str, Any]]
+    per_question_summary: list[dict[str, Any]]
+    strengths: list[dict[str, Any]]
+    weaknesses: list[dict[str, Any]]
     recommendation: str
     summary: str | None
     llm_model: str | None
@@ -109,7 +112,7 @@ class InterviewListItem(BaseModel):
 # ── Helpers ──
 
 
-def _extract_interrupt_value(state: object) -> dict | None:
+def _extract_interrupt_value(state: object) -> dict[str, Any] | None:
     """安全提取 LangGraph interrupt 值，无中断时返回 None。"""
     tasks = getattr(state, "tasks", None)
     if not tasks:
@@ -118,10 +121,11 @@ def _extract_interrupt_value(state: object) -> dict | None:
     interrupts = getattr(first_task, "interrupts", None)
     if not interrupts:
         return None
-    return interrupts[0].value
+    value: dict[str, Any] = interrupts[0].value
+    return value
 
 
-def _build_question_data(interrupt_value: dict) -> QuestionPresentData:
+def _build_question_data(interrupt_value: dict[str, Any]) -> QuestionPresentData:
     """从 interrupt 值中构建题目展示数据。"""
     question_data = interrupt_value.get("question", {})
     is_followup = interrupt_value.get("type") == "followup"
@@ -139,7 +143,7 @@ def _build_question_data(interrupt_value: dict) -> QuestionPresentData:
     )
 
 
-def _build_eval_response(last_eval: dict) -> dict:
+def _build_eval_response(last_eval: dict[str, Any]) -> dict[str, Any]:
     """从最后一条评估记录中提取响应字段。"""
     return {
         "score": last_eval.get("score", 0),
@@ -202,26 +206,26 @@ async def start_interview(
 
     graph = await get_compiled_graph()
     thread_id = interview.graph_thread_id or str(interview_id)
-    config = {"configurable": {"thread_id": thread_id}}
+    config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+
+    initial_state: InterviewState = {
+        "interview_id": str(interview_id),
+        "resume_id": str(interview.resume_id),
+        "resume_data": {},  # 由 analyze_resume 节点从 DB 加载后覆盖
+        "jd_text": interview.jd_text or "",
+        "question_count": interview.question_count,
+        "questions": [],
+        "current_question_index": 0,
+        "answers": [],
+        "current_followup_count": 0,
+        "pending_followup": None,
+        "is_finished": False,
+        "_current_answer_text": "",
+        "_evaluation": {},
+    }
 
     try:
-        await graph.ainvoke(
-            {
-                "interview_id": str(interview_id),
-                "resume_id": str(interview.resume_id),
-                "jd_text": interview.jd_text or "",
-                "question_count": interview.question_count,
-                "questions": [],
-                "current_question_index": 0,
-                "answers": [],
-                "current_followup_count": 0,
-                "pending_followup": None,
-                "is_finished": False,
-                "_current_answer_text": "",
-                "_evaluation": {},
-            },
-            config=config,
-        )
+        await graph.ainvoke(initial_state, config=config)
     except Exception:
         logger.exception("Failed to start interview %s", interview_id)
         await service.mark_failed(interview_id, "Graph execution failed during start")
@@ -262,7 +266,7 @@ async def submit_answer(
 
     graph = await get_compiled_graph()
     thread_id = interview.graph_thread_id or str(interview_id)
-    config = {"configurable": {"thread_id": thread_id}}
+    config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
 
     try:
         await graph.ainvoke(Command(resume=req.answer_text), config=config)

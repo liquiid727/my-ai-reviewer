@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from typing import Any
 
 from sqlalchemy import select
 
@@ -12,7 +13,7 @@ from backend.workflow.state import InterviewState
 logger = logging.getLogger(__name__)
 
 
-async def analyze_resume(state: InterviewState) -> dict:
+async def analyze_resume(state: InterviewState) -> dict[str, Any]:
     """加载简历 parsed_result 到 state。"""
     resume_id = uuid.UUID(state["resume_id"])
 

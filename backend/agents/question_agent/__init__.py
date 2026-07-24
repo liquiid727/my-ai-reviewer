@@ -2,6 +2,7 @@
 
 import json
 import logging
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -26,7 +27,7 @@ class QuestionGenerationAgent:
 
     async def generate(
         self,
-        resume_data: dict,
+        resume_data: dict[str, Any],
         jd_text: str,
         count: int,
         experience_level: str = "Mid",

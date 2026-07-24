@@ -10,22 +10,45 @@ from backend.infrastructure.classifiers.base import ClassificationResult, Resume
 TECH_DIRECTION_KEYWORDS: dict[str, set[str]] = {
     "Backend": {
         "python", "java", "go", "fastapi", "spring", "django", "flask",
-        "redis", "kafka", "postgresql", "mysql",
+        "redis", "kafka", "postgresql", "mysql", "grpc", "microservice",
     },
     "Frontend": {
         "react", "vue", "angular", "typescript", "javascript", "css", "html",
+        "webpack", "vite", "next.js", "tailwind",
     },
     "AI": {
-        "pytorch", "tensorflow", "llm", "ml", "nlp", "cv",
-        "deep-learning", "langchain",
+        "pytorch", "tensorflow", "ml", "nlp", "cv",
+        "deep-learning", "machine learning", "scikit-learn", "keras",
+    },
+    "LLM Engineer": {
+        "llm", "langchain", "langgraph", "rag", "prompt", "openai",
+        "vector database", "embedding", "fine-tuning", "agent",
+    },
+    "Architect": {
+        "architecture", "architect", "system design", "ddd",
+        "high availability", "scalability",
     },
     "DevOps": {
         "docker", "kubernetes", "ci-cd", "terraform", "ansible",
-        "aws", "gcp", "azure",
+        "prometheus", "grafana", "jenkins", "gitlab-ci",
+    },
+    "Cloud Native": {
+        "kubernetes", "istio", "helm", "serverless", "service mesh",
+        "cloud-native", "cloud native", "aws", "gcp", "azure",
+    },
+    "Distributed System": {
+        "distributed", "distributed system", "consensus", "raft", "paxos",
+        "sharding", "consistent hashing", "zookeeper", "etcd",
     },
     "Data": {
         "spark", "hadoop", "flink", "etl", "data-pipeline",
-        "sql", "pandas", "airflow",
+        "sql", "pandas", "airflow", "data warehouse",
+    },
+    "Game": {
+        "unity", "unreal", "cocos", "game engine", "game development",
+    },
+    "Mobile": {
+        "android", "ios", "flutter", "react native", "swift", "kotlin",
     },
 }
 
@@ -122,26 +145,63 @@ def _extract_industry_tags(experiences: list[WorkExperience]) -> list[str]:
     return sorted(found)
 
 
+def _build_search_corpus(profile: CandidateProfile) -> tuple[set[str], str]:
+    """从技能 + 项目技术栈 + 工作职责/职位 构建匹配语料。
+
+    返回：(token 集合（用于短关键词精确匹配）, 拼接后的小写长文本（用于多词短语子串匹配）)。
+    分开两种匹配方式：短词（如 go/ml/cv）用 token 精确匹配避免误判（go ≠ good），
+    含空格的多词短语（如 system design）用子串匹配。
+    """
+    parts: list[str] = []
+    for s in profile.skills:
+        parts.append(s.name)
+    for p in profile.projects:
+        parts.extend(p.tech_stack)
+    for exp in profile.work_experiences:
+        parts.append(exp.title or "")
+        parts.extend(exp.responsibilities)
+        parts.extend(exp.tech_stack)
+
+    joined = " ".join(parts).lower()
+    tokens = {tok for tok in re.split(r"[^a-z0-9+.#-]+", joined) if tok}
+    return tokens, joined
+
+
+def _match_directions(tokens: set[str], corpus: str) -> list[str]:
+    """根据语料匹配技术方向标签。"""
+    matched: list[str] = []
+    for direction, keywords in TECH_DIRECTION_KEYWORDS.items():
+        for kw in keywords:
+            kw_l = kw.lower()
+            if " " in kw_l:
+                # 多词短语：子串匹配
+                if kw_l in corpus:
+                    matched.append(direction)
+                    break
+            elif kw_l in tokens:
+                # 单词：精确 token 匹配
+                matched.append(direction)
+                break
+    return matched
+
+
 class RuleBasedResumeClassifier(ResumeClassifier):
     """基于规则的简历分类器实现。
 
-    通过技能关键词匹配技术方向，根据工作年限判定资历等级，
+    通过技能/项目/工作关键词匹配技术方向，根据工作年限判定资历等级，
     从工作经历中推断行业背景。
     """
 
     @property
     def version(self) -> str:
-        return "rule-classifier-v1"
+        return "rule-classifier-v2"
 
     def classify(self, profile: CandidateProfile) -> ClassificationResult:
-        # 收集所有技能名（小写）
-        skill_names = {s.name.lower().strip() for s in profile.skills}
+        # 从技能 + 项目技术栈 + 工作文本 构建匹配语料
+        tokens, corpus = _build_search_corpus(profile)
 
-        # 匹配技术方向：技能集合与方向关键词取交集
-        tech_direction_tags: list[str] = []
-        for direction, keywords in TECH_DIRECTION_KEYWORDS.items():
-            if skill_names & keywords:
-                tech_direction_tags.append(direction)
+        # 匹配技术方向
+        tech_direction_tags = _match_directions(tokens, corpus)
 
         # 计算总工作年限
         total_years = _compute_total_years(profile.work_experiences)
@@ -153,7 +213,7 @@ class RuleBasedResumeClassifier(ResumeClassifier):
         tech_depth = len(unique_categories) + len(profile.skills)
 
         return ClassificationResult(
-            tech_direction_tags=sorted(tech_direction_tags),
+            tech_direction_tags=sorted(set(tech_direction_tags)),
             experience_level=_experience_level(total_years),
             industry_tags=_extract_industry_tags(profile.work_experiences),
             stats={

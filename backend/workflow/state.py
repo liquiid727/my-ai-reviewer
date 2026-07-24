@@ -1,6 +1,6 @@
 """LangGraph 面试流程状态定义。"""
 
-from typing import TypedDict
+from typing import Any, TypedDict
 
 
 class QuestionItem(TypedDict):
@@ -34,7 +34,7 @@ class InterviewState(TypedDict):
 
     interview_id: str
     resume_id: str
-    resume_data: dict
+    resume_data: dict[str, Any]
     jd_text: str
     question_count: int
 
@@ -48,4 +48,4 @@ class InterviewState(TypedDict):
     is_finished: bool
 
     _current_answer_text: str
-    _evaluation: dict
+    _evaluation: dict[str, Any]

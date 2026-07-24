@@ -1,0 +1,28 @@
+{% extends "_base.html" %}
+{% import "_macros.html" as m %}
+
+{% block extra_style %}
+/* 紧凑模板：更小的头部与更密的行距，适合内容多的简历 */
+.resume-header { margin-bottom: calc(var(--section-gap) * 0.6); }
+.resume-name { font-size: calc(22px * var(--font-scale)); }
+.resume-section { margin-bottom: calc(var(--section-gap) * 0.7); }
+.section-title { border-bottom-width: 1px; margin-bottom: 4px; }
+.bullets li { margin-bottom: 1px; }
+{% endblock %}
+
+{% block body %}
+  <header class="resume-header">
+    <div class="resume-name">{{ identity.name or draft.title }}</div>
+    <div class="resume-contact">
+      {% if identity.email %}<span>{{ identity.email }}</span>{% endif %}
+      {% if identity.phone %}<span>{{ identity.phone }}</span>{% endif %}
+      {% if identity.location %}<span>{{ identity.location }}</span>{% endif %}
+      {% if identity.links %}{% for link in identity.links %}<span>{{ link }}</span>{% endfor %}{% endif %}
+    </div>
+    {% if summary %}<div class="resume-summary">{{ summary }}</div>{% endif %}
+  </header>
+
+  {% for section in sections %}
+    {{ m.render_section(section) }}
+  {% endfor %}
+{% endblock %}
