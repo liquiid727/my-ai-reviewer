@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET_RESUMES: str = "resumes"
     MINIO_BUCKET_EXPORTS: str = "exports"
+    MINIO_BUCKET_PHOTOS: str = "photos"
     MINIO_USE_SSL: bool = False
 
     # ── CORS 跨域白名单 ─────────────────────────

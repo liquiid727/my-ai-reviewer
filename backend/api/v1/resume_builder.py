@@ -1,24 +1,43 @@
-"""简历制作 API 端点 —— 草稿 CRUD、AI 润色、AI 打分、HTML 预览与 PDF 导出。"""
+"""简历制作 API 端点 —— 草稿 CRUD、AI 润色、AI 打分、证件照处理、HTML 预览与 PDF 导出。"""
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.v1.schemas import APIResponse
+from backend.config import get_settings
 from backend.domain.resume.enums import ResumeSectionType
 from backend.domain.resume_builder import services
 from backend.domain.resume_builder.enums import LayoutDensity, TemplateId
 from backend.domain.resume_builder.schemas import ExportOptions
 from backend.infrastructure.db.database import get_db
+from backend.infrastructure.imaging import (
+    BG_COLORS,
+    FaceNotFoundError,
+    ImageDecodeError,
+    ImagingNotAvailableError,
+    process_photo,
+)
 from backend.infrastructure.llm.gateway import LLMGateway
+from backend.infrastructure.storage.minio_client import (
+    ensure_bucket,
+    object_exists,
+    presigned_url,
+    upload_file,
+)
 
 router = APIRouter(prefix="/builder", tags=["builder"])
+
+# 证件照上传限制：仅 jpg/png，最大 10MB
+PHOTO_ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png"}
+PHOTO_MAX_SIZE = 10 * 1024 * 1024
 
 
 # ─────────────────────────── 请求体模型 ───────────────────────────
@@ -47,6 +66,11 @@ class ExportRequest(BaseModel):
     template_id: TemplateId | None = None
     auto_one_page: bool = False
     persist: bool = False
+
+
+class ConfirmPhotoRequest(BaseModel):
+    """确认采用处理后证件照的请求体。"""
+    object_name: str
 
 
 # ─────────────────────────── 序列化 ───────────────────────────
@@ -177,3 +201,94 @@ async def export_draft(
             "X-Overflow": "true" if result.overflow else "false",
         },
     )
+
+
+# ─────────────────────────── 证件照 ───────────────────────────
+
+
+@router.post("/{draft_id}/photo")
+async def upload_photo(
+    draft_id: uuid.UUID,
+    file: UploadFile,
+    bg_color: str = "white",
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """上传生活照并处理为证件照，返回原图/结果预览（不写入草稿，需 confirm）。"""
+    await services.get_draft(session, draft_id)  # 校验草稿存在
+
+    if bg_color not in BG_COLORS:
+        raise HTTPException(status_code=400, detail="INVALID_PHOTO")
+    if file.content_type not in PHOTO_ALLOWED_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail="INVALID_PHOTO")
+    # 先按声明尺寸拦截，再限额读取，避免超大请求体全量进内存
+    if file.size is not None and file.size > PHOTO_MAX_SIZE:
+        raise HTTPException(status_code=400, detail="INVALID_PHOTO")
+    data = await file.read(PHOTO_MAX_SIZE + 1)
+    if len(data) > PHOTO_MAX_SIZE:
+        raise HTTPException(status_code=400, detail="INVALID_PHOTO")
+
+    try:
+        # rembg/人脸检测为 CPU 重操作，放线程池避免阻塞事件循环
+        result = await asyncio.to_thread(process_photo, data, bg_color)
+    except ImagingNotAvailableError as exc:
+        raise HTTPException(status_code=501, detail="IMAGING_NOT_AVAILABLE") from exc
+    except FaceNotFoundError as exc:
+        raise HTTPException(status_code=422, detail="FACE_NOT_FOUND") from exc
+    except ImageDecodeError as exc:
+        raise HTTPException(status_code=400, detail="PHOTO_DECODE_FAILED") from exc
+
+    # 原图与结果分别落 MinIO（可追溯）；对象名以 draft_id 为前缀供 confirm 归属校验
+    settings = get_settings()
+    bucket = settings.MINIO_BUCKET_PHOTOS
+    uid = uuid.uuid4().hex[:8]
+    original_ext = "png" if file.content_type == "image/png" else "jpg"
+    original_object = f"{draft_id}/original-{uid}.{original_ext}"
+    processed_object = f"{draft_id}/processed-{uid}.png"
+
+    def _store_photo() -> tuple[str, str]:
+        """MinIO SDK 为同步网络 I/O，打包进线程池避免阻塞事件循环。"""
+        ensure_bucket(bucket)
+        upload_file(bucket, original_object, data, file.content_type or "image/jpeg")
+        upload_file(bucket, processed_object, result.png_bytes, "image/png")
+        return presigned_url(bucket, original_object), presigned_url(bucket, processed_object)
+
+    original_url, processed_url = await asyncio.to_thread(_store_photo)
+
+    return APIResponse(data={
+        "original_object": original_object,
+        "processed_object": processed_object,
+        "original_url": original_url,
+        "processed_url": processed_url,
+        "background_replaced": result.background_replaced,
+        "degraded_reason": result.degraded_reason,
+        "bg_color": bg_color,
+    })
+
+
+@router.put("/{draft_id}/photo/confirm")
+async def confirm_photo(
+    draft_id: uuid.UUID,
+    body: ConfirmPhotoRequest,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """确认采用处理后的证件照，写入草稿 identity.photo。"""
+    # 归属校验：对象必须是该草稿产出的处理结果
+    if not body.object_name.startswith(f"{draft_id}/processed-"):
+        raise HTTPException(status_code=400, detail="PHOTO_NOT_OWNED")
+    # 存在性校验：拒绝伪造的对象名，避免写入悬空引用
+    settings = get_settings()
+    exists = await asyncio.to_thread(object_exists, settings.MINIO_BUCKET_PHOTOS, body.object_name)
+    if not exists:
+        raise HTTPException(status_code=400, detail="PHOTO_NOT_OWNED")
+    model = await services.set_draft_photo(session, draft_id, body.object_name)
+    return APIResponse(data=_serialize_draft(model))
+
+
+@router.delete("/{draft_id}/photo")
+async def delete_photo(
+    draft_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """移除草稿的证件照引用（MinIO 对象保留可追溯）。"""
+    model = await services.set_draft_photo(session, draft_id, None)
+    return APIResponse(data=_serialize_draft(model))

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0033</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="../tasks/issues/issue-033-photo-api.md">#0033</a> &mdash; 照片API三端点与草稿集成 &mdash; 2026-07-30</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 对象名以 draft_id 为前缀承载归属关系</h3>
+      <p><strong>Ambiguity:</strong> SPEC 只要求 confirm 时"校验对象归属该草稿"，未规定归属信息存放方式。</p>
+      <p><strong>Choice:</strong> 对象名固定为 <code>{draft_id}/original-{uid8}.{ext}</code> / <code>{draft_id}/processed-{uid8}.png</code>，confirm 时用 <code>startswith(f"{draft_id}/processed-")</code> 校验，另加 <code>stat_object</code> 存在性校验拒绝伪造对象名。</p>
+      <p><strong>Rationale:</strong> 无需额外表或元数据即可完成归属校验；MinIO key 是字面量不存在路径穿越；存在性校验堵住"前缀合法但对象不存在"的悬空引用（review 发现后补上）。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 两段式确认：处理结果不直接写草稿</h3>
+      <p><strong>Ambiguity:</strong> PRD 描述"上传→预览→确认"，端点边界未明确。</p>
+      <p><strong>Choice:</strong> POST /photo 只处理并落 MinIO 返回预签名预览 URL；PUT /photo/confirm 才写 <code>identity.photo</code>；DELETE /photo 仅清引用、保留对象可追溯。</p>
+      <p><strong>Rationale:</strong> 用户可换背景色反复重试而不污染草稿；删除不删对象，误删可恢复且历史 PDF 引用不悬空。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> set_draft_photo 用新字典重新赋值触发 JSONB 变更检测</h3>
+      <p><strong>Ambiguity:</strong> SQLAlchemy 对 JSONB 列的原地修改不会被检测。</p>
+      <p><strong>Choice:</strong> <code>dict(model.content or {})</code> + <code>dict(identity)</code> 浅拷贝后整体重新赋值 <code>model.content</code>；photo 为 None 时 <code>pop("photo")</code>。</p>
+      <p><strong>Rationale:</strong> 顶层新对象赋值天然触发属性级变更检测，无需 MutableDict / flag_modified；只增删 photo 键，不触碰 identity 其余字段。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> bucket 命名与 SPEC 示例路径不同</h3>
+      <p><strong>Spec:</strong> RIP-004 示例写作 <code>photos/{draft_id}/...</code>（photos 作为路径前缀）。</p>
+      <p><strong>Implemented:</strong> 新增独立 bucket <code>photos</code>（配置项 <code>MINIO_BUCKET_PHOTOS</code>），对象名为 <code>{draft_id}/...</code>。</p>
+      <p><strong>Why:</strong> 与现有 <code>resumes</code> / <code>exports</code> bucket 划分方式一致；SPEC 示例的 <code>photos/</code> 前缀语义由 bucket 名承担，最终完整路径等价。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 同步 MinIO SDK + asyncio.to_thread，而非换异步 S3 客户端</h3>
+      <p><strong>Alternatives:</strong> ① 引入 aioboto3/aiobotocore 异步客户端；② 沿用同步 minio SDK 直接在端点调用（现有 export 流程的做法）；③ 同步 SDK 打包进 <code>asyncio.to_thread</code>。</p>
+      <p><strong>Chosen:</strong> ③ —— CPU 重的 <code>process_photo</code> 与五次 MinIO 网络往返（ensure_bucket + 2×upload + 2×presign）分别打包线程池执行。</p>
+      <p><strong>Why:</strong> 不新增依赖、复用现有 minio_client 封装；照片上传最大 10MB，直接在事件循环里传输会卡住全部并发请求（review 第 1 轮 major 发现）。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 尺寸校验双重防护而非流式拒绝</h3>
+      <p><strong>Alternatives:</strong> ① 读完再检查 len(data)；② 中间件级 Content-Length 拦截；③ 声明尺寸预检 + 限额读取 <code>file.read(PHOTO_MAX_SIZE + 1)</code>。</p>
+      <p><strong>Chosen:</strong> ③。先按 <code>file.size</code> 拦截，再限额读取兜底（size 可伪造/缺失）。</p>
+      <p><strong>Why:</strong> 避免超大请求体全量进内存（review 第 1 轮 minor 发现）；不引入全局中间件改动，风险面最小。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 免数据库单测：直接调端点函数 + monkeypatch 模块级名字</h3>
+      <p><strong>Alternatives:</strong> ① TestClient + dependency_overrides + 测试库；② 直接调用端点函数，打桩 services/MinIO/process_photo。</p>
+      <p><strong>Chosen:</strong> ②，与既有 test 风格（test_photo_processor.py 等）一致。</p>
+      <p><strong>Why:</strong> 13 例 0.02s 跑完、无外部服务依赖；HTTP 层（路由/序列化）由 FastAPI 保证，核心是六类错误映射与归属校验逻辑。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 换照/删照后的旧对象是否需要生命周期清理？</h3>
+      <p><strong>Assumption:</strong> 当前策略为对象只增不删（可追溯优先），多次重试会在 <code>photos</code> bucket 累积孤儿对象。</p>
+      <p><strong>Verify:</strong> 是否需要 MinIO lifecycle rule（如 30 天清理未 confirm 的对象）或后台清理任务？MVP 阶段建议暂不做。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 草稿不存在时的 500 语义（沿用既有模式）</h3>
+      <p><strong>Assumption:</strong> <code>services.get_draft</code> 抛 ValueError → 500，与本文件所有既有端点一致，本次未改。</p>
+      <p><strong>Verify:</strong> 后续是否统一加 404 映射的全局异常处理器？属独立技债，不在 #033 范围。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
