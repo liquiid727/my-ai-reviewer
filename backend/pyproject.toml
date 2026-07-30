@@ -26,9 +26,15 @@ dependencies = [
     "psycopg[binary]>=3.1.0",
     "jinja2>=3.1.6",
     "playwright>=1.61.0",
+    "pillow>=10.0.0",
 ]
 
 [project.optional-dependencies]
+# 证件照美化依赖（体积大，可选安装；未安装时照片 API 返回 501）
+imaging = [
+    "opencv-python-headless>=4.10.0",
+    "rembg>=2.0.60",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
@@ -62,6 +68,12 @@ strict = true
 # celery 未提供类型存根（py.typed），忽略其导入未定义告警
 module = ["celery", "celery.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# imaging 可选依赖（cv2/rembg 无类型存根；本地未安装 imaging 分组时跳过导入检查）
+module = ["cv2", "cv2.*", "rembg", "rembg.*", "numpy", "numpy.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
