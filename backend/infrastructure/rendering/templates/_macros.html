@@ -1,4 +1,10 @@
 {# 共享宏 —— 渲染区块与条目，供三个模板复用 #}
+{% macro photo_block(photo_data_uri) %}
+  {%- if photo_data_uri -%}
+  <div class="photo-block"><img class="id-photo" src="{{ photo_data_uri }}" alt="证件照"></div>
+  {%- endif -%}
+{% endmacro %}
+
 {% macro render_item(item) %}
   <div class="item">
     {% if item.heading or item.subheading or item.date_range %}

@@ -56,8 +56,14 @@ class PdfRenderer:
         self,
         draft: ResumeDraft,
         auto_one_page: bool = False,
+        photo_data_uri: str | None = None,
     ) -> tuple[bytes, int, bool]:
         """把草稿渲染为 PDF 字节。
+
+        Args:
+            draft: 简历草稿。
+            auto_one_page: 是否启用自动一页收缩。
+            photo_data_uri: 证件照 data URI（内联进 HTML，无外部网络请求）。
 
         Returns:
             (pdf_bytes, page_count, overflow)。overflow 仅在 auto_one_page 且
@@ -73,10 +79,10 @@ class PdfRenderer:
                 await page.emulate_media(media="print")
 
                 if auto_one_page:
-                    density, overflow = await self._fit_one_page(page, draft)
-                    html = self._renderer.render(draft, density_override=density)
+                    density, overflow = await self._fit_one_page(page, draft, photo_data_uri)
+                    html = self._renderer.render(draft, density_override=density, photo_data_uri=photo_data_uri)
                 else:
-                    html = self._renderer.render(draft)
+                    html = self._renderer.render(draft, photo_data_uri=photo_data_uri)
 
                 await page.set_content(html, wait_until="networkidle")
                 pdf_bytes = await page.pdf(format="A4", print_background=True)
@@ -89,6 +95,7 @@ class PdfRenderer:
         self,
         page: Page,
         draft: ResumeDraft,
+        photo_data_uri: str | None = None,
     ) -> tuple[LayoutDensity, bool]:
         """从草稿当前密度起逐档收紧，测量各档高度并选出适配一页的档位。"""
         start_density = draft.design_tokens.density
@@ -96,7 +103,7 @@ class PdfRenderer:
         heights: dict[LayoutDensity, float] = {}
 
         for density in DENSITY_ORDER[start_idx:]:
-            html = self._renderer.render(draft, density_override=density)
+            html = self._renderer.render(draft, density_override=density, photo_data_uri=photo_data_uri)
             await page.set_content(html, wait_until="networkidle")
             height = await page.evaluate("document.body.scrollHeight")
             heights[density] = float(height)
