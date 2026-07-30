@@ -11,7 +11,8 @@
 {% endblock %}
 
 {% block body %}
-  <header class="resume-header">
+  <header class="resume-header{% if photo_data_uri %} with-photo{% endif %}">
+    {{ m.photo_block(photo_data_uri) }}
     <div class="resume-name">{{ identity.name or draft.title }}</div>
     <div class="resume-contact">
       {% if identity.email %}<span>{{ identity.email }}</span>{% endif %}

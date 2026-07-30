@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import base64
+import logging
 import uuid
 from typing import Any
 
@@ -30,7 +33,13 @@ from backend.infrastructure.llm.gateway import LLMGateway
 from backend.infrastructure.polishers.llm_polisher import LLMResumePolisher
 from backend.infrastructure.rendering.html_renderer import HtmlRenderer
 from backend.infrastructure.rendering.pdf_renderer import PdfRenderer
-from backend.infrastructure.storage.minio_client import ensure_bucket, upload_file
+from backend.infrastructure.storage.minio_client import (
+    download_file,
+    ensure_bucket,
+    upload_file,
+)
+
+logger = logging.getLogger(__name__)
 
 # ─────────────────────────── profile → draft 映射 ───────────────────────────
 
@@ -242,7 +251,14 @@ async def update_draft(
     # content 相关字段（identity / summary / sections）合并进 content JSONB
     content = dict(model.content or {})
     if "identity" in patch and patch["identity"] is not None:
-        content["identity"] = patch["identity"]
+        # photo 为服务端受控字段，仅经 confirm/delete 照片端点写入，
+        # 避免绕过归属校验直写任意对象名
+        incoming = dict(patch["identity"])
+        incoming.pop("photo", None)
+        existing_photo = (content.get("identity") or {}).get("photo")
+        if existing_photo:
+            incoming["photo"] = existing_photo
+        content["identity"] = incoming
     if "summary" in patch:
         content["summary"] = patch["summary"]
     if "sections" in patch and patch["sections"] is not None:
@@ -307,9 +323,28 @@ async def score_draft(gateway: LLMGateway, draft: ResumeDraft) -> dict[str, Any]
     return await evaluator.evaluate(parsed_result)
 
 
-def render_draft_html(draft: ResumeDraft) -> str:
+def draft_photo_data_uri(draft: ResumeDraft) -> str | None:
+    """把草稿照片（identity.photo 存 MinIO 对象名）读为 base64 data URI。
+
+    无照片返回 None；读取失败降级为 None（不阻断预览/导出）。
+    同步网络 I/O，调用方需用 asyncio.to_thread 包裹。
+    """
+    object_name = draft.identity.get("photo") if draft.identity else None
+    if not object_name:
+        return None
+    settings = get_settings()
+    try:
+        photo_bytes = download_file(settings.MINIO_BUCKET_PHOTOS, str(object_name))
+    except Exception:
+        logger.warning("读取草稿照片失败，降级为无照片渲染: %s", object_name, exc_info=True)
+        return None
+    encoded = base64.b64encode(photo_bytes).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+def render_draft_html(draft: ResumeDraft, photo_data_uri: str | None = None) -> str:
     """渲染草稿为预览 HTML。"""
-    return HtmlRenderer().render(draft)
+    return HtmlRenderer().render(draft, photo_data_uri=photo_data_uri)
 
 
 async def export_draft_pdf(
@@ -322,8 +357,11 @@ async def export_draft_pdf(
     if options.template_id is not None:
         draft.template_id = options.template_id
 
+    # 照片以 data URI 内联，Playwright 离线打印无外部网络请求
+    photo_data_uri = await asyncio.to_thread(draft_photo_data_uri, draft)
+
     pdf_bytes, page_count, overflow = await PdfRenderer().render_pdf(
-        draft, auto_one_page=options.auto_one_page,
+        draft, auto_one_page=options.auto_one_page, photo_data_uri=photo_data_uri,
     )
 
     storage_path: str | None = None

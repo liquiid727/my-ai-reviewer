@@ -86,3 +86,46 @@ def test_all_templates_render() -> None:
         draft = _sample_draft(template_id=template_id)
         html = HtmlRenderer().render(draft)
         assert "张三" in html
+
+
+# ─────────────────────────── 证件照区块（#034） ───────────────────────────
+
+_PHOTO_URI = "data:image/png;base64,dGVzdA=="
+
+
+def test_photo_rendered_in_all_templates() -> None:
+    """三套模板均渲染头像区块，data URI 内联进 img src。"""
+    for template_id in TemplateId:
+        draft = _sample_draft(template_id=template_id)
+        html = HtmlRenderer().render(draft, photo_data_uri=_PHOTO_URI)
+        assert '<div class="photo-block">' in html
+        assert '<img class="id-photo"' in html
+        assert f'src="{_PHOTO_URI}"' in html
+
+
+def test_no_photo_renders_without_photo_block() -> None:
+    """无照片时三套模板均不产生头像标记（布局回归）。"""
+    for template_id in TemplateId:
+        draft = _sample_draft(template_id=template_id)
+        html = HtmlRenderer().render(draft)
+        assert '<div class="photo-block">' not in html
+        assert "<img" not in html
+        assert " with-photo\"" not in html
+
+
+def test_no_photo_output_identical_to_explicit_none() -> None:
+    """缺省参数与显式 None 渲染结果字符级一致。"""
+    for template_id in TemplateId:
+        draft = _sample_draft(template_id=template_id)
+        assert HtmlRenderer().render(draft) == HtmlRenderer().render(draft, photo_data_uri=None)
+
+
+def test_photo_with_density_override() -> None:
+    """密度收缩时照片仍内联（自动一页链路用）。"""
+    draft = _sample_draft(design_tokens=DesignTokens(density=LayoutDensity.LOOSE))
+    html = HtmlRenderer().render(
+        draft, density_override=LayoutDensity.COMPACT, photo_data_uri=_PHOTO_URI,
+    )
+    compact = density_params(LayoutDensity.COMPACT)
+    assert f"--font-scale: {compact['font_scale']};" in html
+    assert f'src="{_PHOTO_URI}"' in html

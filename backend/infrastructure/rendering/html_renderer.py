@@ -41,12 +41,14 @@ class HtmlRenderer:
         self,
         draft: ResumeDraft,
         density_override: LayoutDensity | None = None,
+        photo_data_uri: str | None = None,
     ) -> str:
         """把草稿渲染为完整 HTML 字符串。
 
         Args:
             draft: 简历草稿。
             density_override: 覆盖草稿密度（自动一页收缩时使用）。
+            photo_data_uri: 证件照 data URI（为空时模板不渲染头像区块）。
         """
         tokens = draft.design_tokens
         density = density_override or tokens.density
@@ -67,6 +69,7 @@ class HtmlRenderer:
             summary=draft.summary,
             sections=sections,
             css_vars=css_vars,
+            photo_data_uri=photo_data_uri,
         )
 
 

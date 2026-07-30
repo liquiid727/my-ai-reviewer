@@ -173,7 +173,9 @@ async def preview_draft(
     """返回渲染后的 HTML（供 iframe 预览）。"""
     model = await services.get_draft(session, draft_id)
     draft = services.draft_model_to_schema(model)
-    html = services.render_draft_html(draft)
+    # 照片读取为同步 MinIO I/O，放线程池避免阻塞事件循环
+    photo_data_uri = await asyncio.to_thread(services.draft_photo_data_uri, draft)
+    html = services.render_draft_html(draft, photo_data_uri=photo_data_uri)
     return HTMLResponse(content=html)
 
 

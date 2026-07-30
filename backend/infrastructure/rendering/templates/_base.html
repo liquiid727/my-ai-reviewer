@@ -60,6 +60,17 @@ body {
   color: #374151;
 }
 
+/* 证件照：右上角绝对定位，295:413 比例；无照片时不产生任何占位 */
+.with-photo { position: relative; padding-right: 84px; }
+.photo-block { position: absolute; top: 0; right: 0; }
+.id-photo {
+  height: 96px;
+  aspect-ratio: 295 / 413;
+  object-fit: cover;
+  border-radius: 2px;
+  display: block;
+}
+
 /* 区块 */
 .resume-section { margin-bottom: var(--section-gap); }
 .section-title {

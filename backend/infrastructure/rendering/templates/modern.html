@@ -11,7 +11,8 @@
 
 {% block body %}
   {% set sidebar_types = ["skills", "certificates", "awards", "self_evaluation"] %}
-  <div class="resume-name-block">
+  <div class="resume-name-block{% if photo_data_uri %} with-photo{% endif %}">
+    {{ m.photo_block(photo_data_uri) }}
     <div class="resume-name">{{ identity.name or draft.title }}</div>
     {% if summary %}<div class="resume-summary">{{ summary }}</div>{% endif %}
   </div>

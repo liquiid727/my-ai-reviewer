@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0034</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="../tasks/issues/issue-034-template-photo-rendering.md">#0034</a> &mdash; 模板头像渲染与 PDF data URI 内联 &mdash; 2026-07-30</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 头像用绝对定位 + 条件 class，而非 flex 重排头部</h3>
+      <p><strong>Ambiguity:</strong> SPEC 说"姓名区右侧引用"并要求无照片时"布局保持现状（无占位空洞）"，未规定实现方式。</p>
+      <p><strong>Choice:</strong> 头部容器仅在有照片时追加 <code>with-photo</code> class（relative + padding-right 84px），照片块 <code>position: absolute; top:0; right:0</code>；无照片时模板输出与改造前字符级一致。</p>
+      <p><strong>Rationale:</strong> flex 包裹方案会在无照片时也改变 DOM 结构，破坏回归保证；绝对定位方案做到"零照片零变化"，并用 <code>test_no_photo_output_identical_to_explicit_none</code> 锁死。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 295:413 比例用 CSS aspect-ratio 承载</h3>
+      <p><strong>Ambiguity:</strong> 验收要求"295:413 比例展示"，照片本身已是该比例，但需防异常图。</p>
+      <p><strong>Choice:</strong> <code>.id-photo { height: 96px; aspect-ratio: 295/413; object-fit: cover; }</code>。</p>
+      <p><strong>Rationale:</strong> 高度 96px 落在 SPEC"照片高度固定（约 100px 内）"约束内；Playwright 的 Chromium 支持 aspect-ratio，即使传入非标比例图也不破版。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> photo_data_uri 作为渲染参数逐层透传，而非塞进 draft schema</h3>
+      <p><strong>Ambiguity:</strong> SPEC 只说"HtmlRenderer 渲染前注入上下文"。</p>
+      <p><strong>Choice:</strong> <code>HtmlRenderer.render</code> / <code>PdfRenderer.render_pdf</code> / <code>_fit_one_page</code> 均新增可选参数 <code>photo_data_uri</code>；MinIO 读取集中在 <code>services.draft_photo_data_uri</code>。</p>
+      <p><strong>Rationale:</strong> ResumeDraft 保持纯数据不携带 MB 级 base64；渲染器保持无 I/O 纯函数，单测无需 mock 存储。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> photo_block 宏签名未按 SPEC 独立承担条件判断位置</h3>
+      <p><strong>Spec:</strong> "_macros.html 新增 photo_block(photo_data_uri) 宏；identity.photo 为空 → 宏输出空"。</p>
+      <p><strong>Implemented:</strong> 宏内部 if 输出空（与 SPEC 一致），但模板侧还额外做了一次条件（with-photo class），即条件出现两处。</p>
+      <p><strong>Why:</strong> class 必须与照片存在性联动才能保证无照片时 header 标签完全不变；单靠宏输出空无法回收 padding-right。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 额外收紧 update_draft：identity.photo 变为服务端受控字段（超出 issue 范围的安全修复）</h3>
+      <p><strong>Spec:</strong> issue #034 未涉及 update_draft。</p>
+      <p><strong>Implemented:</strong> PUT /builder/{draft_id} 传入的 identity.photo 被剥离，存量已 confirm 的值保留；photo 写入收敛为 set_draft_photo 唯一入口。</p>
+      <p><strong>Why:</strong> review 发现本 issue 新增的 data URI 读取原语使"PUT 直写伪造对象名"升级为跨草稿 IDOR 读取，必须随本次一起堵上（confirm 的归属校验否则形同虚设）。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 读照片失败降级为无照片渲染，而非报错</h3>
+      <p><strong>Alternatives:</strong> ① MinIO 读失败 → 预览/导出直接 5xx；② 降级为 None（无照片渲染）+ warning 日志。</p>
+      <p><strong>Chosen:</strong> ②。</p>
+      <p><strong>Why:</strong> 照片是简历的增强项而非必需项，对象缺失/存储抖动不应阻断导出主流程；与 #032 处理器的降级哲学一致。代价是问题只能靠日志发现。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> MIME 固定 image/png 而非按对象嗅探</h3>
+      <p><strong>Alternatives:</strong> ① 读 MinIO 对象元数据取 content-type；② 固定 data:image/png。</p>
+      <p><strong>Chosen:</strong> ②。</p>
+      <p><strong>Why:</strong> confirm 归属校验保证只有 processed-*.png 能写入 identity.photo，处理器输出恒为 PNG；省一次 stat 往返，且 Chromium 对 data URI 会做内容嗅探兜底。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> 自动一页回归测试停在纯逻辑层，不起 Playwright</h3>
+      <p><strong>Alternatives:</strong> ① 真实 Playwright 渲染带照片草稿测 1123px 阈值；② 渲染层验证照片在密度收缩下仍内联 + 导出层验证透传链路，阈值逻辑靠既有 select_fit_density 纯函数测试。</p>
+      <p><strong>Chosen:</strong> ②。</p>
+      <p><strong>Why:</strong> 单测套件保持免浏览器依赖秒级运行；photo_data_uri 对 _fit_one_page 每档渲染一致注入，测量天然含照片高度，无新分支逻辑需要浏览器验证。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 预览接口每次请求都重新下载照片并 base64，是否需要缓存？</h3>
+      <p><strong>Assumption:</strong> 预览频率低（用户编辑时手动刷新），单张 ≤100KB PNG，暂不缓存。</p>
+      <p><strong>Verify:</strong> 若前端改为实时预览（keystroke 级刷新），需加 Redis/内存缓存或前端复用 presigned URL。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> PUT 不再能清除 photo，前端是否有依赖？</h3>
+      <p><strong>Assumption:</strong> 清除照片应走 DELETE /photo 端点；#035 前端实现时按此对接。</p>
+      <p><strong>Verify:</strong> 确认 BuilderPage 现有代码没有通过 PUT identity 清 photo 的路径（当前前端尚未接照片功能，风险低）。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
