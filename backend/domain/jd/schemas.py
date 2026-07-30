@@ -1,5 +1,7 @@
-"""JD 匹配相关数据模型 —— 定义输入与匹配结果结构。"""
+"""JD 匹配相关数据模型 —— 定义输入、匹配结果与 LLM 抽取结果结构。"""
 
+
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -48,3 +50,32 @@ class JobDescriptionInput(BaseModel):
     raw_text: str
     required_skills: list[str] = []
     critical_skills: list[str] = []
+
+
+class ExtractedSkill(BaseModel):
+    """LLM 从 JD 原文抽取的单项技能，附原文证据便于追溯。"""
+    name: str
+    critical: bool = False       # 是否关键技能
+    evidence: str | None = None  # 支撑该技能要求的 JD 原文片段
+
+
+class JDExtraction(BaseModel):
+    """LLM JD 抽取结果（RIP-003 v1.1）。
+
+    required_skills / responsibilities 必填：键缺失或键名走样的 LLM 输出
+    会触发 ValidationError 走重试→报错链路，避免静默返回空结果。
+    """
+    required_skills: list[ExtractedSkill]
+    responsibilities: list[str]
+    seniority: Literal["junior", "mid", "senior", "expert"] = "mid"
+
+    @property
+    def skill_names(self) -> list[str]:
+        """全部技能名，供落库/匹配复用。"""
+        return [s.name for s in self.required_skills]
+
+    @property
+    def critical_skills(self) -> list[str]:
+        """关键技能名子集。"""
+        return [s.name for s in self.required_skills if s.critical]
+

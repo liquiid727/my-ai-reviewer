@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0036</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="../tasks/issues/issue-036-llm-jd-extractor.md">#0036</a> &mdash; LLM JD 抽取器（required_skills + evidence） &mdash; 2026-07-30</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> required_skills / responsibilities 必填，仅 seniority 带默认</h3>
+      <p><strong>Ambiguity:</strong> Pydantic 惯例是全字段给默认值，但默认 <code>extra="ignore"</code> 下，空 JSON <code>{}</code> 或键名走样（<code>{"skills": ...}</code>）会静默校验通过，返回空抽取结果。</p>
+      <p><strong>Choice:</strong> <code>required_skills</code> / <code>responsibilities</code> 无默认值（键缺失 → ValidationError → 走重试→JDExtractionError 链路）；<code>seniority</code> 保留 <code>"mid"</code> 默认与 prompt「default to mid when unclear」一致。</p>
+      <p><strong>Rationale:</strong> review 第 1 轮 finding：spec 要求「不返回半成品」，静默空结果比显式失败更难排查（#037 会拿空技能 JD 污染匹配）。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 专用异常 JDExtractionError（llm_extractor 用的是 ValueError）</h3>
+      <p><strong>Ambiguity:</strong> issue 明确要求抛 <code>JDExtractionError</code>，但「与 llm_extractor.py 风格一致」的既有实现抛 ValueError。</p>
+      <p><strong>Choice:</strong> 定义在 jd_extractor.py 内的专用异常类，其余重试/截断/自我修正逻辑与 llm_extractor 完全同构。</p>
+      <p><strong>Rationale:</strong> #037 的 API 层需要精确 catch 抽取失败映射 502，ValueError 太宽会误捕其他错误；验收条件优先于模式一致性。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> critical 内联在技能项上，critical_skills 作派生属性</h3>
+      <p><strong>Ambiguity:</strong> issue 说输出结构含 required_skills / critical_skills 两个列表；spec 的 JSON 示例则是技能项内联 <code>critical</code> 布尔。</p>
+      <p><strong>Choice:</strong> 按 spec JSON 建模（ExtractedSkill.critical + evidence），<code>JDExtraction.critical_skills</code> / <code>skill_names</code> 作为 property 派生，供 #037 落库复用。</p>
+      <p><strong>Rationale:</strong> 内联结构让 evidence 与 critical 归属同一技能项，无两列表对齐问题；派生属性同时满足 issue 的字段口径。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None — implementation followed the spec as written.（抽取器位置、重试语义、seniority 四档、evidence 口径均按 RIP-003 v1.1 增量设计执行）</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> extract 返回类型：dict vs JDExtraction 模型</h3>
+      <p><strong>Alternatives:</strong> ① 学 llm_extractor 返回 <code>dict[str, Any]</code>（校验后仍传 dict）；② 直接返回 <code>JDExtraction</code>。</p>
+      <p><strong>Chosen:</strong> ②。JD 抽取结构小且封闭，强类型让 #037 落库时直接用 <code>skill_names</code>/<code>critical_skills</code> 属性，mypy 可查；llm_extractor 返 dict 是因为简历结构庞大且部分透传。也因此没继承 ResumeExtractor 基类（返回类型不兼容，语义也不是简历抽取）。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> extra="forbid" 收紧 vs 默认 ignore</h3>
+      <p><strong>Alternatives:</strong> ① <code>ConfigDict(extra="forbid")</code> 拒绝多余键；② 仅必填化核心字段。</p>
+      <p><strong>Chosen:</strong> ②。forbid 会把「多给了无害字段」的输出也打成失败，白白消耗重试次数；必填化已足够拦住空结果这一真实风险。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> evidence 是否需要「原文包含性」校验？</h3>
+      <p>Prompt 要求 evidence 为 verbatim 引用，但未在代码里校验 evidence 确实出现在 raw_text 中（LLM 可能改写）。若下游要做高亮定位，可考虑校验失败时置 evidence=None 或触发重试——当前按 spec 仅透传，待 #037 之后有真实调用再评估。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
