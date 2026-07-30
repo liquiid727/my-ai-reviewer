@@ -4,7 +4,7 @@
 
 PRD §6 要求的方向标签远多于现有实现。当前 `rule_classifier` 仅支持 Backend/Frontend/AI/DevOps/Data，缺少 LLM Engineer、Architect、Game、Finance、E-commerce、Cloud Native、Distributed System 等。扩展关键词映射并允许基于工作/项目文本（非仅 skills）命中。
 
-PRD Reference: docs/prd/parser.md §6
+PRD Reference: tasks/prd-parser.md §6
 
 ## Acceptance Criteria
 

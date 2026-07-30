@@ -1,10 +1,10 @@
 # RIP-002 — Resume Fact & Profile Persistence
 
 **Version**: v1.0
-**Status**: Not Started
+**Status**: Done
 **Estimated**: 4-5 天
 **Track**: Resume Intelligence Platform（PRD §3）
-**Source**: `docs/prd/parser.md` §3；`tasks/spec-resume-input.md`（明确"第一版用 JSONB 存完整快照，后续按需拆表"）
+**Source**: `tasks/prd-parser.md` §3；`tasks/spec-resume-input.md`（明确"第一版用 JSONB 存完整快照，后续按需拆表"）
 
 ---
 

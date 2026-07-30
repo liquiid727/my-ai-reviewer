@@ -4,7 +4,7 @@
 
 PRD §3.1 要求 ResumeParsedText 支持 Raw Text / Paragraph / Heading / Block / Page 层级，以保证 Parser 可升级与精确定位。当前 `ParsedResumeText` 仅有 `raw_text` + `page_count`。引入结构化块模型，各 parser 在能力范围内填充。
 
-PRD Reference: docs/prd/parser.md §3.1
+PRD Reference: tasks/prd-parser.md §3.1
 
 ## Acceptance Criteria
 

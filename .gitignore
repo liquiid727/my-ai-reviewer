@@ -206,3 +206,4 @@ sandbox/output/
 *.bak
 *.tmp
 .cache/
+.loop-state.json

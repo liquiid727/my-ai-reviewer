@@ -1,10 +1,10 @@
 # RIP-001 — Resume Multi-format Parsers
 
-**Version**: v1.0
-**Status**: Not Started
-**Estimated**: 3-4 天
+**Version**: v1.1
+**Status**: Done（残留见 tasks.md：TXT 编码兜底、parse.md 文档）
+**Estimated**: 3-4 天（已完成主体；残留编码兜底约 0.5 天）
 **Track**: Resume Intelligence Platform（PRD §4）
-**Source**: `docs/prd/parser.md` §4；延伸 `tasks/spec-resume-input.md`（当前仅 PDF/DOCX 实现，抽取为 mock）
+**Source**: `tasks/prd-parser.md` §4；延伸 `tasks/spec-resume-input.md`；增量：`tasks/prd-resume-toolchain-increments.md`（US-007 / FR-13）
 
 ---
 
@@ -36,10 +36,32 @@
 
 ## 验收标准
 
-- [ ] `DocResumeParser` 解析 .doc 返回 `ParsedResumeText`
-- [ ] `HtmlResumeParser` 去除 script/style，保留正文文本
-- [ ] `MarkdownResumeParser` 解析 .md / .markdown
-- [ ] `TxtResumeParser` 解析 .txt（编码容错）
-- [ ] `detect_file_type` 支持 6 种格式；未知格式返回明确错误
-- [ ] 单测覆盖每种 parser（fixture 样本）
-- [ ] `POST /api/v1/resume/upload` 接受全部 6 种格式
+- [x] `DocResumeParser` 解析 .doc 返回 `ParsedResumeText`（LibreOffice 转换 + 兜底解码）
+- [x] `HtmlResumeParser` 去除 script/style，保留正文文本（标准库 `html.parser`）
+- [x] `MarkdownResumeParser` 解析 .md
+- [x] `TextResumeParser` 解析 .txt（编码容错见下方增量设计）
+- [x] 工厂路由覆盖 7 个扩展名；未知格式返回明确错误（`ValueError`）
+- [x] 单测覆盖每种 parser（`tests/unit/test_parsers.py`）
+- [x] `POST /api/v1/resume/upload` 接受全部 6 种格式
+
+---
+
+# 增量设计（v1.1）：TXT/MD 编码兜底
+
+> 来源：`tasks/prd-resume-toolchain-increments.md` US-007 / FR-13。现状：`TextResumeParser` / `MarkdownResumeParser` 仅 `encoding="utf-8"` 直读，GBK 等编码文件抛 `UnicodeDecodeError` 导致解析失败。
+
+## 设计
+
+- 新增 `parsers/base.py:read_text_with_fallback(file_path) -> str`，两个 parser 共用：
+  1. 优先 utf-8（含 BOM：utf-8-sig）
+  2. 失败 → `charset_normalizer.from_path` 探测（覆盖 GBK / GB18030 / Big5）重读
+  3. 仍失败 → `errors="replace"` 尽力解码，记 warning 日志，不阻断流水线
+- 依赖：`charset-normalizer`（纯 Python，写入 `backend/pyproject.toml` 主依赖）
+- 同步更新 `domain/resume/parse.md`：清理旧版设计笔记，改为当前 6 格式解析器真实架构（工厂路由 / blocks 模型 / 各 parser 技术选型）
+
+## 增量验收标准
+
+- [ ] utf-8 / GBK / GB18030 fixture 样本解析结果一致（`tests/fixtures/` 新增样本）
+- [ ] 探测失败时 `errors="replace"` 兜底不抛异常，记 warning
+- [ ] `domain/resume/parse.md` 更新为当前真实设计
+- [ ] lint / mypy 通过，现有 parser 单测零回归

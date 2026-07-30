@@ -4,7 +4,7 @@
 
 PRD §4「后续支持」列出 LinkedIn / Boss / 拉勾 导出格式。这些导出通常为结构化 HTML/PDF/JSON，直通通用 parser 会丢失结构。新增来源识别与专用适配器，映射到统一 CandidateProfile。
 
-PRD Reference: docs/prd/parser.md §4
+PRD Reference: tasks/prd-parser.md §4
 
 ## Acceptance Criteria
 

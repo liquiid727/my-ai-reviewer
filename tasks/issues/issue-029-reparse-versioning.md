@@ -4,7 +4,7 @@
 
 PRD §3.1/§4 要求 Parser 支持版本化以便「重新解析」。当前仅记录 `parser_version`，无重解析入口，也不保留历史。提供按新 parser/extractor 版本对已存简历重跑流水线的能力，并保留可追溯记录。
 
-PRD Reference: docs/prd/parser.md §3.1, §4
+PRD Reference: tasks/prd-parser.md §3.1, §4
 
 ## Acceptance Criteria
 

@@ -4,7 +4,7 @@
 
 对齐 PRD §5「AI 信息抽取」的字段要求，补齐当前 CandidateProfile schema 与抽取 prompt 缺失的字段，并修正字段拼写。当前实现缺：教育 GPA、工作经历 tech_stack/industry、项目 难点(difficulties)/团队规模(team_size)；`ProjectExperience.responsibilitity` 拼写错误。
 
-PRD Reference: docs/prd/parser.md §5
+PRD Reference: tasks/prd-parser.md §5
 
 ## Acceptance Criteria
 

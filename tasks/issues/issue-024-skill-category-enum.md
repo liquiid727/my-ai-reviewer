@@ -4,7 +4,7 @@
 
 PRD §5「技能」要求固定 10 类技能分类：Programming Language / Framework / Database / Cache / MQ / Cloud Native / AI / DevOps / Testing / Architecture。当前 `Skill.category` 为自由字符串，无约束，导致分类器与下游统计不稳定。引入枚举并在抽取 prompt 中约束模型输出。
 
-PRD Reference: docs/prd/parser.md §5
+PRD Reference: tasks/prd-parser.md §5
 
 ## Acceptance Criteria
 

@@ -4,7 +4,7 @@
 
 PRD §3.1/§4 要求 Section 作为独立的自动识别步骤，覆盖 8 类：Basic Information / Education / Work Experience / Projects / Skills / Certificates / Awards / Self Evaluation。当前分区依赖 LLM 抽取顺带产出，且缺 basic_info / awards / self_evaluation。将 Section 切分做成可追溯的独立环节。
 
-PRD Reference: docs/prd/parser.md §3.1, §4
+PRD Reference: tasks/prd-parser.md §3.1, §4
 
 ## Acceptance Criteria
 

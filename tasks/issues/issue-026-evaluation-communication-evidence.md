@@ -4,7 +4,7 @@
 
 PRD §7 要求 9 个评估维度（当前强制 8 个，缺「沟通表达（从简历推断）」），且每维需给出 Score/Reason/Evidence（当前 `DimensionScore` 只有 score+comment，Evidence 未强制）。补齐维度并在维度级增加 evidence 字段。
 
-PRD Reference: docs/prd/parser.md §7
+PRD Reference: tasks/prd-parser.md §7
 
 ## Acceptance Criteria
 

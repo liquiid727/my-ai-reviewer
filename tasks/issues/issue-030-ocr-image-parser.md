@@ -4,7 +4,7 @@
 
 PRD §4「后续支持」列出图片（OCR）。当前解析器不支持图片/扫描件。新增图片 parser，通过 OCR 提取文本并接入现有 pipeline，同时在 ResumeDocument 记录 OCR 状态。
 
-PRD Reference: docs/prd/parser.md §4
+PRD Reference: tasks/prd-parser.md §4
 
 ## Acceptance Criteria
 
