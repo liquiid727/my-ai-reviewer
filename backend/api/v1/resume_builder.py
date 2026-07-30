@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, Response
@@ -193,12 +194,14 @@ async def export_draft(
         persist=body.persist,
     )
     pdf_bytes, result = await services.export_draft_pdf(session, model, options)
+    # 非 ASCII 标题用 RFC 5987 编码，避免响应头 latin-1 编码失败；filename= 提供 ASCII 回退
     filename = f"{model.title or 'resume'}.pdf"
+    disposition = f"attachment; filename=\"resume.pdf\"; filename*=UTF-8''{quote(filename, safe='')}"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Disposition": disposition,
             "X-Page-Count": str(result.page_count),
             "X-Overflow": "true" if result.overflow else "false",
         },

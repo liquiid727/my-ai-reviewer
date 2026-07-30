@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -24,6 +25,7 @@ import {
   Loader2,
   X,
   Check,
+  Camera,
 } from 'lucide-react'
 
 import {
@@ -33,6 +35,10 @@ import {
   scoreDraft,
   exportDraftPdf,
   previewUrl,
+  uploadPhoto,
+  confirmPhoto,
+  deletePhoto,
+  PhotoApiError,
 } from '@/api/builder'
 import type {
   ResumeDraftData,
@@ -43,6 +49,8 @@ import type {
   PolishResult,
   ScoreResult,
   UpdateDraftPayload,
+  PhotoBgColor,
+  PhotoUploadResult,
 } from '@/types/builder'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -52,6 +60,9 @@ import { Badge } from '@/components/ui/badge'
 
 const TEMPLATES: TemplateId[] = ['classic', 'modern', 'compact']
 const DENSITIES: LayoutDensity[] = ['loose', 'normal', 'tight', 'compact']
+const PHOTO_BGS: PhotoBgColor[] = ['white', 'blue', 'red']
+const PHOTO_ACCEPT_TYPES = ['image/jpeg', 'image/png']
+const PHOTO_MAX_SIZE = 10 * 1024 * 1024
 
 const SELECT_CLASS =
   'rounded-base border-2 border-border bg-white px-3 py-1.5 text-sm font-base shadow-shadow focus:outline-none'
@@ -82,6 +93,15 @@ export function BuilderPage() {
   const [scoreOpen, setScoreOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
 
+  const [photoBg, setPhotoBg] = useState<PhotoBgColor>('white')
+  const [photoUploading, setPhotoUploading] = useState(false)
+  const [photoResult, setPhotoResult] = useState<PhotoUploadResult | null>(null)
+  const [photoConfirming, setPhotoConfirming] = useState(false)
+  const [photoRemoving, setPhotoRemoving] = useState(false)
+  const [photoError, setPhotoError] = useState<string | null>(null)
+  const photoInputRef = useRef<HTMLInputElement | null>(null)
+  const photoFileRef = useRef<File | null>(null)
+
   const dirtyRef = useRef(false)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -91,6 +111,10 @@ export function BuilderPage() {
     let alive = true
     setLoading(true)
     setError(null)
+    // 切换草稿时清理上一草稿的照片临时状态，避免错带旧对象名 confirm
+    setPhotoResult(null)
+    setPhotoError(null)
+    photoFileRef.current = null
     getDraft(draftId)
       .then((res) => {
         if (!alive) return
@@ -469,6 +493,117 @@ export function BuilderPage() {
     }
   }, [draftId, draft, t])
 
+  // ─────────────────────────── 证件照 ───────────────────────────
+  // 后端错误差异化文案：501 未安装图像组件 / 422 未检测到人脸 / 400 解码失败等
+  const photoErrorText = useCallback(
+    (err: unknown): string => {
+      if (err instanceof PhotoApiError) {
+        if (err.status === 501) return t('builder.photo.notAvailable')
+        // 422 仅在后端明确返回 FACE_NOT_FOUND 时提示人脸，FastAPI 参数校验型 422 落入通用文案
+        if (err.status === 422 && err.detail === 'FACE_NOT_FOUND') {
+          return t('builder.photo.faceNotFound')
+        }
+        if (err.status === 400 && err.detail === 'PHOTO_DECODE_FAILED') {
+          return t('builder.photo.decodeFailed')
+        }
+      }
+      return t('builder.photo.uploadFailed')
+    },
+    [t],
+  )
+
+  const doUploadPhoto = useCallback(
+    async (file: File, bgColor: PhotoBgColor) => {
+      if (!draftId) return
+      // 前端先行校验：类型 + 大小，避免无效请求
+      if (!PHOTO_ACCEPT_TYPES.includes(file.type)) {
+        setPhotoError(t('builder.photo.invalidType'))
+        return
+      }
+      if (file.size > PHOTO_MAX_SIZE) {
+        setPhotoError(t('builder.photo.tooLarge'))
+        return
+      }
+      photoFileRef.current = file
+      setPhotoError(null)
+      setPhotoResult(null)
+      setPhotoUploading(true)
+      try {
+        const result = await uploadPhoto(draftId, file, bgColor)
+        setPhotoResult(result)
+      } catch (err) {
+        setPhotoError(photoErrorText(err))
+      } finally {
+        setPhotoUploading(false)
+      }
+    },
+    [draftId, photoErrorText, t],
+  )
+
+  const onPhotoSelected = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0]
+      // 重置 input，允许重新选择同一文件
+      e.target.value = ''
+      if (file) void doUploadPhoto(file, photoBg)
+    },
+    [doUploadPhoto, photoBg],
+  )
+
+  // 切换背景色：若已有待确认结果，用同一张原图自动重新处理
+  const changePhotoBg = useCallback(
+    (bgColor: PhotoBgColor) => {
+      setPhotoBg(bgColor)
+      if (photoResult && photoFileRef.current) {
+        void doUploadPhoto(photoFileRef.current, bgColor)
+      }
+    },
+    [photoResult, doUploadPhoto],
+  )
+
+  const doConfirmPhoto = useCallback(async () => {
+    if (!draftId || !photoResult) return
+    setPhotoConfirming(true)
+    try {
+      const data = await confirmPhoto(draftId, photoResult.processed_object)
+      // 只合并服务端受控的 photo 字段，避免整体覆盖回滚未保存的本地编辑
+      setDraft((prev) =>
+        prev
+          ? { ...prev, identity: { ...prev.identity, photo: data.identity.photo ?? null } }
+          : data,
+      )
+      setPhotoResult(null)
+      photoFileRef.current = null
+      setPreviewNonce((n) => n + 1)
+      toast.success(t('builder.photo.confirmed'))
+    } catch (err) {
+      void err
+      toast.error(t('builder.photo.confirmFailed'))
+    } finally {
+      setPhotoConfirming(false)
+    }
+  }, [draftId, photoResult, t])
+
+  const doRemovePhoto = useCallback(async () => {
+    if (!draftId) return
+    setPhotoRemoving(true)
+    try {
+      const data = await deletePhoto(draftId)
+      // 同 confirm：仅同步 photo 字段，保留本地未保存的编辑
+      setDraft((prev) =>
+        prev
+          ? { ...prev, identity: { ...prev.identity, photo: data.identity.photo ?? null } }
+          : data,
+      )
+      setPreviewNonce((n) => n + 1)
+    } catch (err) {
+      void err
+      toast.error(t('builder.photo.removeFailed'))
+    } finally {
+      setPhotoRemoving(false)
+    }
+  }, [draftId, t])
+
   // ─────────────────────────── 渲染辅助 ───────────────────────────
   const sectionLabel = useCallback(
     (section: DraftSection): string => {
@@ -604,6 +739,140 @@ export function BuilderPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         {/* 左：结构化编辑器 */}
         <div className="space-y-4">
+          {/* 证件照：空 / 加载 / 成功（待确认 · 已确认） / 失败 四态 */}
+          <Card>
+            <CardContent className="space-y-3 py-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-heading text-sm">{t('builder.photo.title')}</h3>
+                <label className="ml-auto flex items-center gap-1 text-sm">
+                  {t('builder.photo.bgColor')}
+                  <select
+                    className={SELECT_CLASS}
+                    value={photoBg}
+                    disabled={photoUploading}
+                    onChange={(e) => changePhotoBg(e.target.value as PhotoBgColor)}
+                  >
+                    {PHOTO_BGS.map((bg) => (
+                      <option key={bg} value={bg}>
+                        {t(`builder.photo.bg_${bg}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/jpeg,image/png"
+                className="hidden"
+                onChange={onPhotoSelected}
+              />
+
+              {photoUploading ? (
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {t('builder.photo.uploading')}
+                </div>
+              ) : photoResult ? (
+                <div className="space-y-3">
+                  <div className="flex gap-4">
+                    <figure className="space-y-1">
+                      <img
+                        src={photoResult.original_url}
+                        alt={t('builder.photo.original')}
+                        className="h-32 rounded-base border-2 border-border object-cover"
+                      />
+                      <figcaption className="text-center text-xs text-gray-500">
+                        {t('builder.photo.original')}
+                      </figcaption>
+                    </figure>
+                    <figure className="space-y-1">
+                      <img
+                        src={photoResult.processed_url}
+                        alt={t('builder.photo.processed')}
+                        className="h-32 rounded-base border-2 border-border object-cover"
+                      />
+                      <figcaption className="text-center text-xs text-gray-500">
+                        {t('builder.photo.processed')}
+                      </figcaption>
+                    </figure>
+                  </div>
+                  {!photoResult.background_replaced && (
+                    <p className="text-xs text-amber-700">
+                      {t('builder.photo.degraded', {
+                        reason: photoResult.degraded_reason ?? '-',
+                      })}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" onClick={doConfirmPhoto} disabled={photoConfirming}>
+                      {photoConfirming ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Check className="h-3 w-3" />
+                      )}
+                      {photoConfirming
+                        ? t('builder.photo.confirming')
+                        : t('builder.photo.confirm')}
+                    </Button>
+                    <Button
+                      variant="neutral"
+                      size="sm"
+                      onClick={() => photoInputRef.current?.click()}
+                    >
+                      <Camera className="h-3 w-3" />
+                      {t('builder.photo.reupload')}
+                    </Button>
+                  </div>
+                </div>
+              ) : draft.identity.photo ? (
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-600">{t('builder.photo.confirmed')}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="neutral"
+                      size="sm"
+                      onClick={() => photoInputRef.current?.click()}
+                    >
+                      <Camera className="h-3 w-3" />
+                      {t('builder.photo.reupload')}
+                    </Button>
+                    <Button
+                      variant="neutral"
+                      size="sm"
+                      onClick={doRemovePhoto}
+                      disabled={photoRemoving}
+                    >
+                      {photoRemoving ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-3 w-3" />
+                      )}
+                      {photoRemoving
+                        ? t('builder.photo.removing')
+                        : t('builder.photo.remove')}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-500">{t('builder.photo.empty')}</p>
+                  <Button
+                    variant="neutral"
+                    size="sm"
+                    onClick={() => photoInputRef.current?.click()}
+                  >
+                    <Camera className="h-3 w-3" />
+                    {t('builder.photo.choose')}
+                  </Button>
+                </div>
+              )}
+
+              {photoError && <p className="text-sm text-red-600">{photoError}</p>}
+            </CardContent>
+          </Card>
+
           {/* 个人简介 */}
           <Card>
             <CardContent className="space-y-2 py-4">

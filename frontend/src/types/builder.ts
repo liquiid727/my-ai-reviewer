@@ -29,6 +29,8 @@ export interface DraftIdentity {
   phone?: string
   location?: string
   links?: string[]
+  /** 证件照对象名（服务端受控，仅由 confirm/delete 写入） */
+  photo?: string | null
   [key: string]: unknown
 }
 
@@ -83,4 +85,16 @@ export interface ExportPayload {
   template_id?: TemplateId
   auto_one_page?: boolean
   persist?: boolean
+}
+
+export type PhotoBgColor = 'white' | 'blue' | 'red'
+
+export interface PhotoUploadResult {
+  original_object: string
+  processed_object: string
+  original_url: string
+  processed_url: string
+  background_replaced: boolean
+  degraded_reason: string | null
+  bg_color: PhotoBgColor
 }
