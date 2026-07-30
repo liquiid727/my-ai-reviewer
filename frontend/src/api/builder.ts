@@ -2,6 +2,8 @@ import { apiRequest } from './client'
 import type { APIResponse } from '@/types/resume'
 import type {
   ExportPayload,
+  PhotoBgColor,
+  PhotoUploadResult,
   PolishResult,
   ResumeDraftData,
   ScoreResult,
@@ -73,4 +75,67 @@ export async function exportDraftPdf(
   const overflow = res.headers.get('X-Overflow') === 'true'
   const blob = await res.blob()
   return { blob, pageCount, overflow }
+}
+
+/** 照片接口错误——携带 HTTP 状态码与后端 detail，供前端差异化文案。 */
+export class PhotoApiError extends Error {
+  status: number
+  detail: string
+
+  constructor(status: number, detail: string) {
+    super(`Photo API error (${status}): ${detail}`)
+    this.status = status
+    this.detail = detail
+  }
+}
+
+async function throwPhotoError(res: Response): Promise<never> {
+  let detail = ''
+  try {
+    const body = (await res.json()) as { detail?: string; message?: string }
+    detail = body.detail ?? body.message ?? ''
+  } catch {
+    // 非 JSON 响应，detail 保持空字符串
+  }
+  throw new PhotoApiError(res.status, detail)
+}
+
+/** 上传生活照并处理为证件照（不写入草稿，需 confirm）。 */
+export async function uploadPhoto(
+  draftId: string,
+  file: File,
+  bgColor: PhotoBgColor,
+): Promise<PhotoUploadResult> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${BASE}/${draftId}/photo?bg_color=${bgColor}`, {
+    method: 'POST',
+    body: form,
+  })
+  if (!res.ok) await throwPhotoError(res)
+  const body = (await res.json()) as APIResponse<PhotoUploadResult>
+  return body.data
+}
+
+/** 确认采用处理后的证件照，写入草稿 identity.photo。 */
+export async function confirmPhoto(
+  draftId: string,
+  objectName: string,
+): Promise<ResumeDraftData> {
+  const res = await fetch(`${BASE}/${draftId}/photo/confirm`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ object_name: objectName }),
+  })
+  if (!res.ok) await throwPhotoError(res)
+  const body = (await res.json()) as APIResponse<ResumeDraftData>
+  return body.data
+}
+
+/** 移除草稿的证件照引用。 */
+export async function deletePhoto(draftId: string): Promise<ResumeDraftData> {
+  const res = await fetch(`${BASE}/${draftId}/photo`, { method: 'DELETE' })
+  if (!res.ok) await throwPhotoError(res)
+  const body = (await res.json()) as APIResponse<ResumeDraftData>
+  return body.data
 }
