@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0032</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="../tasks/issues/issue-032-photo-processor.md">#0032</a> &mdash; 照片处理器：人脸裁剪 + 换底 + 增强 &mdash; 2026-07-30</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> cv2/rembg 在函数内部懒加载，而非模块顶部导入</h3>
+      <p><strong>Ambiguity:</strong> SPEC 只规定"未安装时 API 返回 501"，未规定导入位置。</p>
+      <p><strong>Choice:</strong> <code>import cv2</code> / <code>from rembg import remove</code> 放在 <code>_detect_largest_face</code> / <code>_remove_background</code> 函数体内，ImportError 转 <code>ImagingNotAvailableError</code>。</p>
+      <p><strong>Rationale:</strong> <code>backend.infrastructure.imaging</code> 包可被 API 层无条件导入（#033 需要 import 它才能捕获异常映射 501）；顶部导入会让未安装 imaging 分组的环境直接 ImportError 崩溃。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 多人脸选择逻辑抽为纯函数 <code>_select_largest_face</code></h3>
+      <p><strong>Ambiguity:</strong> SPEC 只说"多张 → 取面积最大"，未约束代码结构。</p>
+      <p><strong>Choice:</strong> Haar 检测（IO/依赖重）与"选最大"（纯逻辑）分离。</p>
+      <p><strong>Rationale:</strong> 本地不装 cv2 也能对空列表 → <code>FaceNotFoundError</code>、多框选最大这两条分支做真实单测，而非全靠 mock。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> ImagingNotAvailableError 不走抠图降级</h3>
+      <p><strong>Ambiguity:</strong> SPEC 说"抠图异常 → 降级"，但依赖缺失也是异常的一种。</p>
+      <p><strong>Choice:</strong> <code>except ImagingNotAvailableError: raise</code> 先行短路，其余异常才降级。</p>
+      <p><strong>Rationale:</strong> 依赖缺失是环境配置问题，应返回 501 让运维修复；若降级会掩盖问题且行为不一致（检测要 cv2 早已失败）。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <div class="item">
+      <h3><span class="label label-deviation">Deviation</span> 单测 fixture 为合成简笔画而非真实人像照片</h3>
+      <p><strong>Spec:</strong> 「fixture 存 tests/fixtures/photos/：face.jpg / no_face.jpg / two_faces.jpg」。</p>
+      <p><strong>Implemented:</strong> 三个 fixture 均为 PIL 程序生成的确定性合成图（人像简笔画/渐变风景），Haar 检测与 rembg 通过 monkeypatch 接缝替换。</p>
+      <p><strong>Why:</strong> 本地与 CI 均不安装 imaging 可选分组（opencv+rembg+onnx 体积大），真实 Haar 检测无法在单测跑；合成图避免真人照片的肖像权与仓库体积问题。真实检测效果留待安装 imaging 分组的环境集成验证。</p>
+    </div>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> Haar cascade vs DNN 人脸检测</h3>
+      <p><strong>Alternatives:</strong> OpenCV DNN（res10 SSD）/ mediapipe 检出率更高，尤其侧脸遮挡。</p>
+      <p><strong>Chosen:</strong> Haar cascade —— 模型随 opencv 分发免下载、CPU 毫秒级、证件照正脸场景足够；SPEC 已把"侧脸检出有限"列为已知风险（前端提供跳过美化兜底）。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> mypy overrides 用 follow_imports=skip</h3>
+      <p><strong>Alternatives:</strong> 仅 <code>ignore_missing_imports</code>；或安装类型存根。</p>
+      <p><strong>Chosen:</strong> cv2/rembg/numpy 三者 <code>ignore_missing_imports + follow_imports=skip</code>：本地未安装这些包时 mypy strict 不会因跟进导入失败；代价是这三个库的调用不做类型检查——它们本就在懒加载接缝内，面积很小。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 构图参数（人脸 40%、头顶留白 7%）需真人样张标定</h3>
+      <p>常数取自 SPEC 的近似值，未经真实照片视觉验收。建议 #035 前端联调时用 2-3 张真人照片确认构图观感，必要时微调 <code>FACE_HEIGHT_RATIO</code> / <code>HEAD_MARGIN_RATIO</code>。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> Docker 构建期 rembg 模型预热尚未落地</h3>
+      <p>SPEC 假设镜像构建期预热 u2net（约 170MB）。infra/docker 的 Dockerfile 尚未加 <code>python -c "from rembg import new_session; new_session()"</code>，首次线上请求会现场下载。属部署事项，未纳入 #032~#035 任一 issue，需确认归属。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
