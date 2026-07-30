@@ -9,12 +9,14 @@ SPEC Reference: specs/RIP-004-resume-builder/spec.md「模板渲染」
 
 ## Acceptance Criteria
 
-- [ ] classic / modern / compact 三套模板均支持头像区块（位置随模板风格，295:413 比例展示）
-- [ ] `identity.photo` 为空时模板渲染结果与现状一致（回归单测保证）
-- [ ] PDF 导出：MinIO 读取照片 → base64 data URI 内联进 HTML，无外部网络请求
-- [ ] 带照片场景下 4 档密度自动一页逻辑仍正确（1123px 阈值判定不回归）
-- [ ] 单测：有照片/无照片 × 3 模板渲染快照；PDF 导出含照片路径
-- [ ] Lint / mypy 通过
+- [x] classic / modern / compact 三套模板均支持头像区块（位置随模板风格，295:413 比例展示）
+- [x] `identity.photo` 为空时模板渲染结果与现状一致（回归单测保证）
+- [x] PDF 导出：MinIO 读取照片 → base64 data URI 内联进 HTML，无外部网络请求
+- [x] 带照片场景下 4 档密度自动一页逻辑仍正确（1123px 阈值判定不回归）
+- [x] 单测：有照片/无照片 × 3 模板渲染快照；PDF 导出含照片路径
+- [x] Lint / mypy 通过
+
+> Shipped: PR #13（squash 入 main c68a37d）
 
 ## Dependencies
 
