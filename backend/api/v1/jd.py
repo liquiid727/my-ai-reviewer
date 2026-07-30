@@ -1,9 +1,9 @@
-"""JD 匹配相关 API 端点 —— 创建 JD、触发匹配、查询匹配结果。"""
+"""JD 匹配相关 API 端点 —— 创建 JD（支持 LLM 自动抽取）、触发匹配、查询匹配结果。"""
 
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,8 +21,18 @@ from backend.infrastructure.db.models import (
     JobDescriptionModel,
     ResumeModel,
 )
+from backend.infrastructure.extractors.jd_extractor import (
+    JDExtractionError,
+    JDExtractor,
+)
+from backend.infrastructure.llm.gateway import LLMGateway
 
 router = APIRouter(prefix="/jd", tags=["jd"])
+
+
+def _get_extractor() -> JDExtractor:
+    """构建 JD 抽取器（模块级 helper，便于测试 monkeypatch）。"""
+    return JDExtractor(gateway=LLMGateway.from_settings())
 
 
 @router.post("", response_model=APIResponse)
@@ -30,16 +40,50 @@ async def create_job_description(
     payload: JobDescriptionInput,
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:
-    """创建职位描述（JD），返回其 id。"""
-    required_skills = [
-        {"name": name, "critical": name in (payload.critical_skills or [])}
-        for name in payload.required_skills
-    ]
+    """创建职位描述（JD），返回其 id。
+
+    未显式传入 required_skills 且 raw_text 非空时，调用 LLM 自动抽取
+    技能清单（extraction_source="llm"）；抽取失败返回 502，不落库。
+    """
+    responsibilities: list[str] = []
+    seniority: str | None = None
+    extraction_source = "manual"
+    # 显式传入 required_skills（含空列表）即视为手动模式，不触发 LLM 抽取
+    skills_explicit = "required_skills" in payload.model_fields_set
+
+    if payload.required_skills:
+        # 手动路径：显式传入技能清单，跳过 LLM 抽取
+        required_skills = [
+            {"name": name, "critical": name in (payload.critical_skills or [])}
+            for name in payload.required_skills
+        ]
+    elif not skills_explicit and payload.raw_text.strip():
+        # 自动抽取路径：先抽取后落库，失败不产生脏数据
+        try:
+            extraction = await _get_extractor().extract(payload.raw_text)
+        except JDExtractionError as exc:
+            raise HTTPException(
+                status_code=502, detail="JD_EXTRACTION_FAILED"
+            ) from exc
+        required_skills = [
+            {"name": s.name, "critical": s.critical, "evidence": s.evidence}
+            for s in extraction.required_skills
+        ]
+        responsibilities = extraction.responsibilities
+        seniority = extraction.seniority
+        extraction_source = "llm"
+    else:
+        # 显式传入空清单，或无清单且原文为空：保持既有空技能 manual 行为
+        required_skills = []
+
     jd = JobDescriptionModel(
         title=payload.title,
         company=payload.company,
         raw_text=payload.raw_text,
         required_skills=required_skills,
+        responsibilities=responsibilities,
+        seniority=seniority,
+        extraction_source=extraction_source,
     )
     session.add(jd)
     await session.flush()
@@ -50,6 +94,9 @@ async def create_job_description(
         company=jd.company,
         raw_text=jd.raw_text,
         required_skills=jd.required_skills,
+        responsibilities=jd.responsibilities,
+        seniority=jd.seniority,
+        extraction_source=jd.extraction_source,
         created_at=jd.created_at,
     )
     await session.commit()
@@ -72,6 +119,9 @@ async def get_job_description(
         company=jd.company,
         raw_text=jd.raw_text,
         required_skills=jd.required_skills,
+        responsibilities=jd.responsibilities,
+        seniority=jd.seniority,
+        extraction_source=jd.extraction_source,
         created_at=jd.created_at,
     )
     return APIResponse(data=data.model_dump(mode="json"))

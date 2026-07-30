@@ -115,3 +115,14 @@ async def test_extract_truncates_long_text():
     user_content = messages[1]["content"]
     assert "x" * MAX_TEXT_LENGTH in user_content
     assert "x" * (MAX_TEXT_LENGTH + 1) not in user_content
+
+
+@pytest.mark.asyncio
+async def test_extract_wraps_gateway_error():
+    """网关层异常（网络/鉴权/超时）包装为 JDExtractionError，不穿透裸异常。"""
+    gateway = AsyncMock()
+    gateway.complete = AsyncMock(side_effect=ConnectionError("connection refused"))
+    extractor = JDExtractor(gateway)
+
+    with pytest.raises(JDExtractionError, match="LLM gateway error"):
+        await extractor.extract("JD text")
