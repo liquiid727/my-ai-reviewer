@@ -94,6 +94,9 @@ class JobDescriptionData(BaseModel):
     company: str | None = None
     raw_text: str
     required_skills: list[Any] | dict[str, Any] | None = None
+    responsibilities: list[Any] | None = None      # 岗位职责（LLM 抽取）
+    seniority: str | None = None                   # junior/mid/senior/expert
+    extraction_source: str | None = None           # manual | llm
     created_at: datetime
 
 

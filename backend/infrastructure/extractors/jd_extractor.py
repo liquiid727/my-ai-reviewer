@@ -56,10 +56,16 @@ class JDExtractor:
         last_error: Exception | None = None
 
         for attempt in range(MAX_RETRIES + 1):
-            response = await self._gateway.complete(
-                messages=messages,
-                response_format={"type": "json_object"},
-            )
+            try:
+                response = await self._gateway.complete(
+                    messages=messages,
+                    response_format={"type": "json_object"},
+                )
+            except Exception as exc:
+                # 网关层异常（网络/鉴权/超时）统一包装，便于调用方按契约处理
+                raise JDExtractionError(
+                    f"LLM gateway error during JD extraction: {exc}"
+                ) from exc
 
             self.token_usage = response.usage
             self.model_info = response.model

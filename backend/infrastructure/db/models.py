@@ -371,7 +371,14 @@ class JobDescriptionModel(Base):
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)                 # JD 原文
     required_skills: Mapped[list[Any]] = mapped_column(
         JSONB, nullable=False, default=list,
-    )  # 必备技能 [{name, critical}]
+    )  # 必备技能 [{name, critical, evidence?}]
+    responsibilities: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, default=list,
+    )  # 岗位职责（LLM 抽取）
+    seniority: Mapped[str | None] = mapped_column(String(20), nullable=True)  # junior/mid/senior/expert
+    extraction_source: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="manual",
+    )  # 技能清单来源：manual | llm
     structured: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)        # 结构化 JD（可选，LLM 解析）
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

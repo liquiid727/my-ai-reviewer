@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Implementation Notes — Issue #0037</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #FAF9F6;
+      color: #1a1a1a;
+      padding: 2.5rem 2rem;
+      line-height: 1.7;
+    }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 1.375rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .meta { color: #8B8680; font-size: 0.8125rem; margin-bottom: 2rem; }
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-top: 2rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.375rem;
+      border-bottom: 1px solid #E8E4DE;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+    .dot.design { background: #5B8A72; }
+    .dot.deviation { background: #D97757; }
+    .dot.tradeoff { background: #4A6FA5; }
+    .dot.question { background: #D4A843; }
+    .item {
+      background: #FFFFFF;
+      border: 1px solid #E8E4DE;
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 0.75rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+    }
+    .item h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.375rem; }
+    .item p { font-size: 0.8125rem; color: #4A4540; margin-bottom: 0.375rem; }
+    .label {
+      display: inline-block;
+      font-size: 0.6875rem;
+      font-weight: 500;
+      padding: 0.125rem 0.5rem;
+      border-radius: 4px;
+      margin-right: 0.375rem;
+    }
+    .label-design { background: #F5F8F6; color: #5B8A72; border: 1px solid #5B8A72; }
+    .label-deviation { background: #FFF5F0; color: #D97757; border: 1px solid #D97757; }
+    .label-tradeoff { background: #F0F4F8; color: #4A6FA5; border: 1px solid #4A6FA5; }
+    .label-question { background: #FDF8F0; color: #D4A843; border: 1px solid #D4A843; }
+    .none { color: #B0AAA4; font-style: italic; font-size: 0.8125rem; }
+    .footer {
+      text-align: center; margin-top: 2.5rem; color: #B0AAA4;
+      font-size: 0.6875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Implementation Notes</h1>
+    <p class="meta">Issue <a href="../tasks/issues/issue-037-jd-auto-extraction-integration.md">#0037</a> &mdash; POST /jd 自动抽取集成 + Alembic 迁移 &mdash; 2026-07-30</p>
+
+    <h2><span class="dot design"></span> Design Decisions</h2>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> model_fields_set 区分「省略」与「显式空列表」</h3>
+      <p><strong>Ambiguity:</strong> 需求说「未显式传入 required_skills 时自动抽取」，但 <code>JobDescriptionInput.required_skills</code> 默认 <code>[]</code>，真值判断无法区分 <code>{"raw_text": "..."}</code> 与 <code>{"raw_text": "...", "required_skills": []}</code>。</p>
+      <p><strong>Choice:</strong> <code>skills_explicit = "required_skills" in payload.model_fields_set</code>；显式空列表走 manual 空技能分支，不触发 LLM。</p>
+      <p><strong>Rationale:</strong> review 第 1 轮 finding：main 上传空列表的存量调用方原本「空技能、立即落库」，若误触发抽取会引入延迟、成本和 502 风险，属于隐性契约破坏。单测 test_explicit_empty_skills_skip_extraction 固化。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 先抽取后 session.add，保证失败不落库</h3>
+      <p><strong>Ambiguity:</strong> 验收要求「抽取失败返回 502 且不落库」，实现顺序可以是先建 ORM 行再抽取回填，或先抽取再建行。</p>
+      <p><strong>Choice:</strong> <code>_get_extractor().extract()</code> 在任何 <code>session.add</code> 之前执行，JDExtractionError → HTTPException(502) 时会话干净，无需回滚。</p>
+      <p><strong>Rationale:</strong> 依赖异常触发 rollback 的写法对 _FakeSession 类测试不友好，也易在中间件层残留半提交状态；顺序前置最简单且可用 <code>session.added == []</code> 直接断言。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 502 用 HTTPException 而非 APIResponse(code=502)</h3>
+      <p><strong>Ambiguity:</strong> jd.py 既有端点 404 走 <code>APIResponse(code=404, ...)</code> 信封模式（HTTP 仍 200）；照片 API 则用真实 HTTP 状态码。</p>
+      <p><strong>Choice:</strong> <code>raise HTTPException(status_code=502, detail="JD_EXTRACTION_FAILED")</code>。</p>
+      <p><strong>Rationale:</strong> 502 语义是「上游依赖故障」，网关/监控/前端重试策略都依赖真实状态码；信封 200 会让基础设施层无法感知 LLM 故障。与验收条件「返回 502」的字面口径一致。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-design">Decision</span> 网关层异常在 extractor 内包装为 JDExtractionError</h3>
+      <p><strong>Ambiguity:</strong> #036 的 extract 只把 JSON/schema 校验失败包装为 JDExtractionError，gateway.complete 的网络/鉴权/超时异常会穿透为裸 500。</p>
+      <p><strong>Choice:</strong> extract 循环内对 <code>gateway.complete</code> 加 <code>except Exception</code> 统一包装（<code>CancelledError</code> 继承 BaseException 不受影响），端点侧只需 catch 一种异常。</p>
+      <p><strong>Rationale:</strong> review 第 1 轮 NIT：语义上「LLM 不可用」确属抽取失败，前端应按同一 502 契约处理；在 extractor 收口比在每个调用方重复 catch 更稳。网关错误不消耗输出格式重试次数——网络重试是 gateway 自身的职责。</p>
+    </div>
+
+    <h2><span class="dot deviation"></span> Deviations</h2>
+    <p class="none">None — implementation followed the issue as written.（三列迁移接续 d4e5f6a7b8c9、server_default 兼容存量行、三路径单测、alembic upgrade head 本地验证均按验收条件执行）</p>
+
+    <h2><span class="dot tradeoff"></span> Tradeoffs</h2>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> _get_extractor 模块级 helper vs FastAPI Depends 注入</h3>
+      <p><strong>Alternatives:</strong> ① <code>Depends(get_jd_extractor)</code> 依赖注入；② 模块级 <code>_get_extractor()</code> 工厂函数。</p>
+      <p><strong>Chosen:</strong> ②。项目单测惯例是直调端点函数 + monkeypatch（test_photo_api.py 模式），Depends 参数会迫使每个测试手动传 extractor 实例；模块级工厂 monkeypatch 一行搞定，且每请求新建实例避免 token_usage 等可变状态跨请求串扰。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-tradeoff">Tradeoff</span> match_resume_to_jd 现场创建 JD 未接入自动抽取</h3>
+      <p><strong>Alternatives:</strong> ① POST /jd/match 的 inline jd 分支也走抽取；② 仅 POST /jd 接入。</p>
+      <p><strong>Chosen:</strong> ②。issue 验收范围只覆盖 POST /jd；match 场景调用方通常已带技能清单，inline 空技能 JD 依赖 ORM Python-side default（extraction_source="manual"）自动补齐新列，行为不变。若后续需要可复用 _get_extractor 低成本扩展。</p>
+    </div>
+
+    <h2><span class="dot question"></span> Open Questions</h2>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> 自动抽取的同步等待是否需要改异步任务？</h3>
+      <p>当前 POST /jd 同步等待 LLM 抽取（含 1 次格式重试最多 2 次调用），长 JD 下响应可能达数十秒，受 uvicorn/网关超时约束。若产品要求快速返回，可改为 Celery 任务 + 状态轮询（项目已有 tasks 基建），但会改变 API 契约——待前端接入后按真实耗时评估。</p>
+    </div>
+    <div class="item">
+      <h3><span class="label label-question">Question</span> extraction_source 是否需要第三个取值 "mixed"？</h3>
+      <p>当前二值 manual | llm。若后续支持「LLM 抽取后人工修订技能清单」（PATCH /jd），修订后的来源语义既非纯 manual 也非纯 llm，届时可能需要 "mixed" 或 reviewed_at 字段——迁移已用 String(20) 预留空间。</p>
+    </div>
+
+    <p class="footer">Generated by goal-workflow /note-it</p>
+  </div>
+</body>
+</html>
