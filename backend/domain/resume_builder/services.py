@@ -256,6 +256,30 @@ async def update_draft(
     return model
 
 
+async def set_draft_photo(
+    session: AsyncSession,
+    draft_id: uuid.UUID,
+    object_name: str | None,
+) -> ResumeDraftModel:
+    """设置或清除草稿的证件照引用（identity.photo 存 MinIO 对象名）。
+
+    object_name 为 None 时移除 photo 字段；仅改 photo，不触碰 identity 其他字段。
+    """
+    model = await get_draft(session, draft_id)
+    content = dict(model.content or {})
+    identity = dict(content.get("identity") or {})
+    if object_name is None:
+        identity.pop("photo", None)
+    else:
+        identity["photo"] = object_name
+    content["identity"] = identity
+    model.content = content
+
+    await session.commit()
+    await session.refresh(model)
+    return model
+
+
 async def polish_draft_section(
     gateway: LLMGateway,
     section_type: ResumeSectionType,

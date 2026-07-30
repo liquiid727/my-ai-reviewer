@@ -1,9 +1,11 @@
-"""MinIO 对象存储客户端 —— 封装文件上传和下载操作。"""
+"""MinIO 对象存储客户端 —— 封装文件上传、下载和预签名链接操作。"""
 
 import io
+from datetime import timedelta
 from functools import lru_cache
 
 from minio import Minio
+from minio.error import S3Error
 
 from backend.config import get_settings
 
@@ -54,3 +56,23 @@ def download_file(bucket: str, object_name: str) -> bytes:
     finally:
         response.close()
         response.release_conn()
+
+
+def object_exists(bucket: str, object_name: str) -> bool:
+    """检查对象是否存在于 MinIO 中。"""
+    client = get_minio_client()
+    try:
+        client.stat_object(bucket_name=bucket, object_name=object_name)
+    except S3Error:
+        return False
+    return True
+
+
+def presigned_url(bucket: str, object_name: str, expires_seconds: int = 3600) -> str:
+    """生成对象的预签名下载链接（默认 1 小时有效）。"""
+    client = get_minio_client()
+    return client.presigned_get_object(
+        bucket_name=bucket,
+        object_name=object_name,
+        expires=timedelta(seconds=expires_seconds),
+    )
