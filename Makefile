@@ -22,6 +22,11 @@ GEAR    := ⚙️
 BRAIN   := 🧠
 ART     := 🎨
 FIRE    := 🔥
+BOLT    := ⚡
+DB      := 💾
+DOCKER  := 🐳
+PKG     := 📦
+STOP    := 🛑
 
 # 成功输出宏：在 recipe 中通过 $(call ok,消息) 调用
 define ok
@@ -36,141 +41,171 @@ FRONTEND_BUILD = cd frontend && pnpm build
 FRONTEND_RUN = cd frontend && pnpm preview --host $(FRONTEND_HOST) --port $(FRONTEND_PORT)
 FRONTEND_HOT = cd frontend && pnpm dev --host $(FRONTEND_HOST) --port $(FRONTEND_PORT)
 
-.PHONY: help setup infra infra-down db-migrate \
-       start start-backend start-worker start-frontend \
-       hot hot-backend hot-frontend \
-       backend backend-worker frontend \
-       dev stop dev-stop install lint test clean
+# 后端健康检查等待宏
+define wait_backend
+	{ for i in $$(seq 1 40); do \
+		if curl -sf http://localhost:$(BACKEND_PORT)/api/health >/dev/null 2>&1; then \
+			printf "$(GREEN)$(OK) 后端已就绪 -> http://localhost:$(BACKEND_PORT)/api/health$(RESET)\n"; break; \
+		fi; sleep 1; \
+	done; }
+endef
 
-help: ## 显示所有可用命令
+# 前端就绪检查等待宏
+define wait_frontend
+	{ for i in $$(seq 1 40); do \
+		if curl -sf http://localhost:$(FRONTEND_PORT)/ >/dev/null 2>&1; then \
+			printf "$(GREEN)$(OK) 前端已就绪 -> http://localhost:$(FRONTEND_PORT)$(RESET)\n"; break; \
+		fi; sleep 1; \
+	done; }
+endef
+
+.PHONY: help setup install \
+       start hot dev \
+       backend-up frontend-up \
+       infra infra-down db-migrate \
+       start-backend hot-backend start-worker backend backend-worker \
+       start-frontend hot-frontend frontend \
+       stop dev-stop lint test clean
+
+# ── 帮助 ─────────────────────────────────────────
+
+help: ## 📖 显示所有可用命令（按分组展示）
 	@printf "\n$(PURPLE)$(STAR)  AI Reviewer Make Console$(RESET)\n"
-	@printf "    $(BRAIN) backend: http://localhost:%s  $(ART) frontend: http://localhost:%s\n\n" "$(BACKEND_PORT)" "$(FRONTEND_PORT)"
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*## "}; {printf "  $(STAR) \033[36m%-18s\033[0m %s\n", $$1, $$2}'
+	@printf "    $(BRAIN) backend: http://localhost:%s   $(ART) frontend: http://localhost:%s\n" "$(BACKEND_PORT)" "$(FRONTEND_PORT)"
+	@awk 'BEGIN {FS = ":.*?## "} \
+		/^##@/ { printf "\n\033[1;33m%s\033[0m\n", substr($$0, 5); next } \
+		/^[a-zA-Z_-]+:.*?## / { printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@printf "\n"
 
-# ── 初始化 ─────────────────────────────────────────
+##@ 🎉 一键启动（前端 + 后端 + 基础设施）
 
-setup: ## 一键初始化项目 (新机器首次运行)
-	bash scripts/setup.sh
-	$(call ok,项目初始化完成)
-
-# ── 基础设施 ─────────────────────────────────────
-
-infra: ## 启动 Postgres + Redis + MinIO
-	docker compose up -d
-	$(call ok,基础设施已启动 (Postgres/Redis/MinIO))
-
-infra-down: ## 停止基础设施
-	docker compose down
-	$(call ok,基础设施已停止)
-
-db-migrate: ## 运行数据库迁移
-	PYTHONPATH=. uv run --project backend alembic -c alembic.ini upgrade head
-	$(call ok,数据库迁移完成)
-
-# ── 后端 ─────────────────────────────────────────
-
-start-backend: ## 🧠 启动 FastAPI 后端 (无热编译)
-	@printf "$(PURPLE)$(BRAIN) 启动 FastAPI 后端 -> http://localhost:$(BACKEND_PORT)$(RESET)\n"
-	@trap 'printf "\n$(RED)🛑 后端已停止$(RESET)\n"; kill 0' INT TERM; \
-		($(BACKEND_RUN)) & \
-		{ for i in $$(seq 1 40); do \
-			if curl -sf http://localhost:$(BACKEND_PORT)/api/health >/dev/null 2>&1; then \
-				printf "$(GREEN)$(OK) 后端已就绪 -> http://localhost:$(BACKEND_PORT)/api/health$(RESET)\n"; break; \
-			fi; sleep 1; \
-		done; }; \
-		wait
-
-hot-backend: ## 🔥 启动 FastAPI 后端热编译
-	@printf "$(PURPLE)$(FIRE) 启动 FastAPI 后端热编译 -> http://localhost:$(BACKEND_PORT)$(RESET)\n"
-	@trap 'printf "\n$(RED)🛑 后端已停止$(RESET)\n"; kill 0' INT TERM; \
-		($(BACKEND_HOT)) & \
-		{ for i in $$(seq 1 40); do \
-			if curl -sf http://localhost:$(BACKEND_PORT)/api/health >/dev/null 2>&1; then \
-				printf "$(GREEN)$(OK) 后端热编译已就绪 -> http://localhost:$(BACKEND_PORT)/api/health$(RESET)\n"; break; \
-			fi; sleep 1; \
-		done; }; \
-		wait
-
-start-worker: ## ⚙️ 启动 Celery worker
-	@printf "$(YELLOW)$(GEAR) 启动 Celery worker$(RESET)\n"
-	@trap 'printf "\n$(RED)🛑 Worker 已停止$(RESET)\n"; kill 0' INT TERM; \
-		$(WORKER_RUN)
-
-backend: hot-backend ## 🔥 后端热编译快捷入口
-
-backend-worker: start-worker ## ⚙️ Worker 快捷入口
-
-# ── 前端 ─────────────────────────────────────────
-
-start-frontend: ## 🎨 构建并启动 Vite preview (无热编译)
-	@printf "$(BLUE)$(ART) 构建并启动前端 preview -> http://localhost:$(FRONTEND_PORT)$(RESET)\n"
-	$(FRONTEND_BUILD)
-	$(call ok,前端构建完成)
-	@trap 'printf "\n$(RED)🛑 前端已停止$(RESET)\n"; kill 0' INT TERM; \
-		($(FRONTEND_RUN)) & \
-		{ for i in $$(seq 1 40); do \
-			if curl -sf http://localhost:$(FRONTEND_PORT)/ >/dev/null 2>&1; then \
-				printf "$(GREEN)$(OK) 前端已就绪 -> http://localhost:$(FRONTEND_PORT)$(RESET)\n"; break; \
-			fi; sleep 1; \
-		done; }; \
-		wait
-
-hot-frontend: ## ⚡ 启动 Vite 前端热编译
-	@printf "$(BLUE)⚡ 启动 Vite 前端 HMR -> http://localhost:$(FRONTEND_PORT)$(RESET)\n"
-	@trap 'printf "\n$(RED)🛑 前端已停止$(RESET)\n"; kill 0' INT TERM; \
-		($(FRONTEND_HOT)) & \
-		{ for i in $$(seq 1 40); do \
-			if curl -sf http://localhost:$(FRONTEND_PORT)/ >/dev/null 2>&1; then \
-				printf "$(GREEN)$(OK) 前端 HMR 已就绪 -> http://localhost:$(FRONTEND_PORT)$(RESET)\n"; break; \
-			fi; sleep 1; \
-		done; }; \
-		wait
-
-frontend: hot-frontend ## ⚡ 前端热编译快捷入口
-
-# ── 组合命令 ─────────────────────────────────────
-
-start: ## 🎉 启动全部服务 (infra + backend + worker + frontend preview)
+start: ## 🚀 一键启动全栈（生产模式：infra + 后端 + worker + 前端构建/preview）
 	@printf "$(PURPLE)$(DONE) 启动全栈 (start 模式)$(RESET)\n"
 	docker compose up -d
 	@printf "$(CYAN)⏳ 等待基础设施就绪$(RESET)\n"; sleep 3
-	@printf "$(YELLOW)📦 构建前端$(RESET)\n"
+	@printf "$(YELLOW)$(PKG) 构建前端$(RESET)\n"
 	$(FRONTEND_BUILD)
 	$(call ok,前端构建完成)
 	@printf "$(PURPLE)$(BRAIN) 后端 + $(GEAR) Worker + $(ART) 前端 preview (Ctrl+C 停止)$(RESET)\n"
-	@trap 'printf "\n$(RED)🛑 全栈已停止$(RESET)\n"; kill 0' INT TERM; \
+	@trap 'printf "\n$(RED)$(STOP) 全栈已停止$(RESET)\n"; kill 0' INT TERM; \
 		($(BACKEND_RUN)) & \
 		($(WORKER_RUN)) & \
 		($(FRONTEND_RUN)) & \
-		{ for i in $$(seq 1 40); do \
-			if curl -sf http://localhost:$(BACKEND_PORT)/api/health >/dev/null 2>&1; then \
-				printf "$(GREEN)$(OK) 后端已就绪 -> http://localhost:$(BACKEND_PORT)/api/health$(RESET)\n"; break; \
-			fi; sleep 1; \
-		done; \
-		printf "$(GREEN)$(OK) 全栈启动完成 | 前端 http://localhost:$(FRONTEND_PORT) | 后端 http://localhost:$(BACKEND_PORT)$(RESET)\n"; }; \
+		$(call wait_backend); \
+		printf "$(GREEN)$(OK) 全栈启动完成 | 前端 http://localhost:$(FRONTEND_PORT) | 后端 http://localhost:$(BACKEND_PORT)$(RESET)\n"; \
 		wait
 
-hot: ## 🔥 启动全部服务热编译 (infra + backend reload + worker + frontend HMR)
+hot: ## 🔥 一键启动全栈热重载（infra + 后端 reload + worker + 前端 HMR）
 	@printf "$(PURPLE)$(FIRE) 启动全栈 (hot 模式)$(RESET)\n"
 	docker compose up -d
 	@printf "$(CYAN)⏳ 等待基础设施就绪$(RESET)\n"; sleep 3
-	@printf "$(PURPLE)$(BRAIN) 后端热编译 + $(GEAR) Worker + ⚡ 前端 HMR (Ctrl+C 停止)$(RESET)\n"
-	@trap 'printf "\n$(RED)🛑 全栈已停止$(RESET)\n"; kill 0' INT TERM; \
+	@printf "$(PURPLE)$(BRAIN) 后端热重载 + $(GEAR) Worker + $(BOLT) 前端 HMR (Ctrl+C 停止)$(RESET)\n"
+	@trap 'printf "\n$(RED)$(STOP) 全栈已停止$(RESET)\n"; kill 0' INT TERM; \
 		($(BACKEND_HOT)) & \
 		($(WORKER_RUN)) & \
 		($(FRONTEND_HOT)) & \
-		{ for i in $$(seq 1 40); do \
-			if curl -sf http://localhost:$(BACKEND_PORT)/api/health >/dev/null 2>&1; then \
-				printf "$(GREEN)$(OK) 后端已就绪 -> http://localhost:$(BACKEND_PORT)/api/health$(RESET)\n"; break; \
-			fi; sleep 1; \
-		done; \
-		printf "$(GREEN)$(OK) 全栈热编译启动完成 | 前端 http://localhost:$(FRONTEND_PORT) | 后端 http://localhost:$(BACKEND_PORT)$(RESET)\n"; }; \
+		$(call wait_backend); \
+		printf "$(GREEN)$(OK) 全栈热重载启动完成 | 前端 http://localhost:$(FRONTEND_PORT) | 后端 http://localhost:$(BACKEND_PORT)$(RESET)\n"; \
 		wait
 
-dev: hot ## 🔥 全量热编译快捷入口
+dev: hot ## 🔥 全栈热重载快捷入口（等价 make hot）
 
-stop: ## 🛑 停止所有服务
+##@ 🧩 前后端分离启动（后端一套 / 前端一套）
+
+backend-up: ## 🧠 启动后端整套（infra + 后端热重载 + Celery worker）
+	@printf "$(PURPLE)$(BRAIN) 启动后端整套服务$(RESET)\n"
+	docker compose up -d
+	@printf "$(CYAN)⏳ 等待基础设施就绪$(RESET)\n"; sleep 3
+	@printf "$(PURPLE)$(FIRE) 后端热重载 + $(GEAR) Worker (Ctrl+C 停止)$(RESET)\n"
+	@trap 'printf "\n$(RED)$(STOP) 后端整套已停止$(RESET)\n"; kill 0' INT TERM; \
+		($(BACKEND_HOT)) & \
+		($(WORKER_RUN)) & \
+		$(call wait_backend); \
+		wait
+
+frontend-up: ## 🎨 独立启动前端（Vite HMR，/api 代理到后端 8000）
+	@printf "$(BLUE)$(ART) 独立启动前端 HMR -> http://localhost:$(FRONTEND_PORT)$(RESET)\n"
+	@trap 'printf "\n$(RED)$(STOP) 前端已停止$(RESET)\n"; kill 0' INT TERM; \
+		($(FRONTEND_HOT)) & \
+		$(call wait_frontend); \
+		wait
+
+##@ ⚙️ 组件独立启动（基础设施 / 后端 / 前端 / Worker）
+
+infra: ## 🐳 启动基础设施（Postgres + Redis + MinIO）
+	docker compose up -d
+	$(call ok,基础设施已启动 (Postgres/Redis/MinIO))
+
+infra-down: ## 🐳 停止基础设施
+	docker compose down
+	$(call ok,基础设施已停止)
+
+db-migrate: ## 💾 运行数据库迁移（Alembic upgrade head）
+	PYTHONPATH=. uv run --project backend alembic -c alembic.ini upgrade head
+	$(call ok,数据库迁移完成)
+
+start-backend: ## 🧠 启动 FastAPI 后端（无热重载）
+	@printf "$(PURPLE)$(BRAIN) 启动 FastAPI 后端 -> http://localhost:$(BACKEND_PORT)$(RESET)\n"
+	@trap 'printf "\n$(RED)$(STOP) 后端已停止$(RESET)\n"; kill 0' INT TERM; \
+		($(BACKEND_RUN)) & \
+		$(call wait_backend); \
+		wait
+
+hot-backend: ## 🔥 启动 FastAPI 后端热重载
+	@printf "$(PURPLE)$(FIRE) 启动 FastAPI 后端热重载 -> http://localhost:$(BACKEND_PORT)$(RESET)\n"
+	@trap 'printf "\n$(RED)$(STOP) 后端已停止$(RESET)\n"; kill 0' INT TERM; \
+		($(BACKEND_HOT)) & \
+		$(call wait_backend); \
+		wait
+
+start-worker: ## ⚙️ 启动 Celery worker（异步任务：简历解析等）
+	@printf "$(YELLOW)$(GEAR) 启动 Celery worker$(RESET)\n"
+	@trap 'printf "\n$(RED)$(STOP) Worker 已停止$(RESET)\n"; kill 0' INT TERM; \
+		$(WORKER_RUN)
+
+backend: hot-backend ## 🔥 后端热重载快捷入口
+
+backend-worker: start-worker ## ⚙️ Worker 快捷入口
+
+start-frontend: ## 🎨 构建并启动前端 preview（无热重载）
+	@printf "$(BLUE)$(ART) 构建并启动前端 preview -> http://localhost:$(FRONTEND_PORT)$(RESET)\n"
+	$(FRONTEND_BUILD)
+	$(call ok,前端构建完成)
+	@trap 'printf "\n$(RED)$(STOP) 前端已停止$(RESET)\n"; kill 0' INT TERM; \
+		($(FRONTEND_RUN)) & \
+		$(call wait_frontend); \
+		wait
+
+hot-frontend: ## ⚡ 启动 Vite 前端热重载（HMR）
+	@printf "$(BLUE)$(BOLT) 启动 Vite 前端 HMR -> http://localhost:$(FRONTEND_PORT)$(RESET)\n"
+	@trap 'printf "\n$(RED)$(STOP) 前端已停止$(RESET)\n"; kill 0' INT TERM; \
+		($(FRONTEND_HOT)) & \
+		$(call wait_frontend); \
+		wait
+
+frontend: hot-frontend ## ⚡ 前端热重载快捷入口
+
+##@ 🛠 初始化与开发工具
+
+setup: ## 🚀 一键初始化项目（新机器首次运行）
+	bash scripts/setup.sh
+	$(call ok,项目初始化完成)
+
+install: ## 📦 安装前后端依赖（uv sync + pnpm install）
+	cd backend && uv sync
+	cd frontend && pnpm install
+	$(call ok,前后端依赖安装完成)
+
+lint: ## 🧹 运行 lint 检查（ruff + pnpm lint）
+	PYTHONPATH=. uv run --project backend ruff check backend
+	cd frontend && pnpm lint
+	$(call ok,Lint 检查通过)
+
+test: ## 🧪 运行后端测试（pytest）
+	PYTHONPATH=. uv run --project backend pytest backend
+	$(call ok,测试通过)
+
+stop: ## 🛑 停止所有服务（infra + 后端 + worker + 前端）
 	docker compose down
 	@-pkill -f "uvicorn backend.main:app" 2>/dev/null || true
 	@-pkill -f "celery.*backend" 2>/dev/null || true
@@ -179,23 +214,7 @@ stop: ## 🛑 停止所有服务
 
 dev-stop: stop ## 🛑 停止服务快捷入口
 
-# ── 开发工具 ─────────────────────────────────────
-
-install: ## 安装前后端依赖
-	cd backend && uv sync
-	cd frontend && pnpm install
-	$(call ok,前后端依赖安装完成)
-
-lint: ## 运行 lint 检查
-	PYTHONPATH=. uv run --project backend ruff check backend
-	cd frontend && pnpm lint
-	$(call ok,Lint 检查通过)
-
-test: ## 运行后端测试
-	PYTHONPATH=. uv run --project backend pytest backend
-	$(call ok,测试通过)
-
-clean: ## 清理构建产物
+clean: ## 🗑  清理构建产物（frontend/dist + __pycache__）
 	rm -rf frontend/dist
 	find backend -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	$(call ok,构建产物已清理)
