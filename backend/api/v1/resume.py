@@ -17,6 +17,7 @@ from backend.api.v1.schemas import (
     ResumeStatusData,
     ResumeUploadData,
 )
+from backend.application.llm_config_service import has_verified_config
 from backend.application.resume_service import upload_resume
 from backend.domain.resume.enums import ResumeStatus
 from backend.domain.resume.services import snapshot_and_reset_for_reparse
@@ -41,6 +42,11 @@ STATUS_TO_STEP_INDEX: dict[str, int] = {
     ResumeStatus.CLASSIFIED.value: 2,
     ResumeStatus.EVALUATED.value: 3,
 }
+
+
+# LLM 未就绪（无已激活且已验证配置）时的门禁错误码，供前端识别引导配置
+LLM_NOT_READY_CODE = 428
+LLM_NOT_READY_MESSAGE = "LLM not configured or not verified"
 
 
 def _completed_steps(status: str) -> list[str]:
@@ -78,7 +84,14 @@ async def upload_resume_endpoint(
     file: UploadFile,
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:
-    """上传简历文件，自动触发处理流水线。"""
+    """上传简历文件，自动触发处理流水线。
+
+    硬门禁：必须存在已激活且已验证的 LLM 配置，否则拒绝上传，
+    避免后续解析/评估管道必然失败的无效上传。
+    """
+    if not await has_verified_config(session):
+        return APIResponse(code=LLM_NOT_READY_CODE, message=LLM_NOT_READY_MESSAGE)
+
     file_data = await file.read()
     result = await upload_resume(
         session=session,
@@ -215,6 +228,10 @@ async def retry_resume(
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """重试失败的简历处理流水线。"""
+    # 重跑流水线同样依赖 LLM，与上传保持一致的硬门禁
+    if not await has_verified_config(session):
+        return APIResponse(code=LLM_NOT_READY_CODE, message=LLM_NOT_READY_MESSAGE)
+
     resume = await session.get(ResumeModel, resume_id)
     if resume is None:
         return APIResponse(code=404, message="Resume not found")

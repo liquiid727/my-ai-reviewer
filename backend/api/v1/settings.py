@@ -34,7 +34,7 @@ class LLMConfigUpdate(BaseModel):
 class LLMConfigTestRequest(BaseModel):
     """测试 LLM 连通性的请求体。"""
     provider: str
-    api_key: str
+    api_key: str | None = None  # 为空且传了 config_id 时，使用已保存配置的 Key
     model_name: str
     base_url: str | None = None
     config_id: uuid.UUID | None = None  # 命中已保存配置时根据测试结果落库（可选）
@@ -95,8 +95,11 @@ async def test_llm_connection(
     """测试 LLM 提供商连通性。
 
     未传 ``config_id`` 时仅测试不落库；命中已保存配置时，测试通过将
-    其标记为已验证，失败则处于未验证。
+    其标记为已验证，失败则处于未验证。``api_key`` 为空时需携带
+    ``config_id``，此时使用已保存配置的 Key 测试。
     """
+    if not body.api_key and body.config_id is None:
+        return APIResponse(code=400, message="api_key or config_id is required")
     result = await llm_config_service.test_connection(
         body.provider, body.api_key, body.model_name, body.base_url,
         session=session, config_id=body.config_id,

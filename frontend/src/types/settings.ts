@@ -5,6 +5,8 @@ export interface LLMConfig {
   model_name: string
   base_url: string | null
   is_active: boolean
+  verified: boolean
+  last_verified_at: string | null
   created_at: string
   updated_at: string
 }

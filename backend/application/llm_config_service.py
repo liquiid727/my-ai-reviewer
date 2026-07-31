@@ -39,6 +39,17 @@ async def list_configs(session: AsyncSession) -> list[LLMConfigModel]:
     return list(result.scalars().all())
 
 
+async def has_verified_config(session: AsyncSession) -> bool:
+    """是否存在"已激活且已验证"的 LLM 配置（上传门禁的判定依据）。"""
+    stmt = (
+        select(LLMConfigModel.id)
+        .where(LLMConfigModel.is_active.is_(True), LLMConfigModel.verified.is_(True))
+        .limit(1)
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none() is not None
+
+
 async def update_config(
     session: AsyncSession,
     config_id: uuid.UUID,
@@ -88,7 +99,7 @@ async def delete_config(session: AsyncSession, config_id: uuid.UUID) -> bool:
 
 async def test_connection(
     provider: str,
-    api_key: str,
+    api_key: str | None,
     model_name: str,
     base_url: str | None = None,
     *,
@@ -100,7 +111,17 @@ async def test_connection(
     传入 ``session`` 与 ``config_id`` 且命中已保存配置时，根据测试结果落库：
     测试通过则置 ``verified=true`` 并更新 ``last_verified_at``；测试失败置
     ``verified=false``。不传 ``config_id`` 时仅测试不落库。
+
+    ``api_key`` 为空且命中已保存配置时，自动解密使用存储的 Key（前端
+    只持有脱敏 Key，验证已保存配置时无需重新输入）。
     """
+    if not api_key and session is not None and config_id is not None:
+        stored = await session.get(LLMConfigModel, config_id)
+        if stored is not None:
+            api_key = get_encryptor().decrypt(stored.api_key_encrypted)
+    if not api_key:
+        return {"success": False, "error": "API key is required"}
+
     result = await _run_connection_test(provider, api_key, model_name, base_url)
     if session is not None and config_id is not None:
         config = await session.get(LLMConfigModel, config_id)

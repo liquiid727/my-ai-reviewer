@@ -43,9 +43,10 @@ export async function deleteLLMConfig(
 
 export async function testLLMConnection(data: {
   provider: string
-  api_key: string
+  api_key?: string // 留空且携带 config_id 时，后端使用已保存的 Key
   model_name: string
   base_url?: string | null
+  config_id?: string // 命中已保存配置时，测试结果会更新 verified 状态
 }): Promise<APIResponse<LLMTestResult>> {
   return apiRequest('/settings/llm/test', {
     method: 'POST',
