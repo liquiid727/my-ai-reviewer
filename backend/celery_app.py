@@ -7,10 +7,15 @@ from backend.config import get_settings
 settings = get_settings()
 
 # 创建 Celery 实例，使用 Redis 作为消息中间件和结果存储
+# include 显式导入任务模块，确保 worker 启动时注册所有任务
 celery = Celery(
     "ai_interview",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
+    include=[
+        "backend.tasks.resume_tasks",
+        "backend.tasks.interview_tasks",
+    ],
 )
 
 # 序列化与时区配置
