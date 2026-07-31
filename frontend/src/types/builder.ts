@@ -71,6 +71,25 @@ export interface TemplateOptions {
   densities: { id: LayoutDensity }[]
 }
 
+/** 内置参考简历模板（可一键创建可编辑草稿） */
+export interface ReferenceTemplateItem {
+  key: string
+  name: string
+  description: string
+  tags: string[]
+}
+
+/** 草稿列表项（简历列表页展示用的概要） */
+export interface DraftListItem {
+  draft_id: string
+  resume_id: string | null
+  title: string
+  template_id: TemplateId
+  status: string
+  created_at: string
+  updated_at: string
+}
+
 export interface UpdateDraftPayload {
   title?: string
   identity?: DraftIdentity

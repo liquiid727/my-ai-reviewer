@@ -1,10 +1,12 @@
 import { apiRequest } from './client'
 import type { APIResponse } from '@/types/resume'
 import type {
+  DraftListItem,
   ExportPayload,
   PhotoBgColor,
   PhotoUploadResult,
   PolishResult,
+  ReferenceTemplateItem,
   ResumeDraftData,
   ScoreResult,
   TemplateOptions,
@@ -15,6 +17,20 @@ const BASE = '/api/v1/builder'
 
 export async function getTemplateOptions(): Promise<APIResponse<TemplateOptions>> {
   return apiRequest('/builder/templates')
+}
+
+export async function listReferenceTemplates(): Promise<APIResponse<ReferenceTemplateItem[]>> {
+  return apiRequest('/builder/reference-templates')
+}
+
+export async function listDrafts(): Promise<APIResponse<DraftListItem[]>> {
+  return apiRequest('/builder/drafts')
+}
+
+export async function createDraftFromReference(
+  templateKey: string,
+): Promise<APIResponse<{ draft_id: string }>> {
+  return apiRequest(`/builder/from-reference/${templateKey}`, { method: 'POST' })
 }
 
 export async function createDraftFromResume(

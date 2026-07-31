@@ -1,6 +1,6 @@
 import { Link, Outlet, useLocation } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { Settings, ClipboardList } from 'lucide-react'
+import { Settings, ClipboardList, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LanguageSwitcher } from '@/components/LanguageSwitcher'
 
@@ -19,6 +19,12 @@ export function Layout() {
             <LanguageSwitcher />
             <Button asChild variant={location.pathname === '/upload' ? 'default' : 'neutral'} size="sm">
               <Link to="/upload">{t('nav.upload')}</Link>
+            </Button>
+            <Button asChild variant={location.pathname === '/resumes' ? 'default' : 'neutral'} size="sm">
+              <Link to="/resumes">
+                <FileText className="size-4 mr-1" />
+                {t('nav.resumes')}
+              </Link>
             </Button>
             <Button asChild variant={location.pathname === '/interviews' ? 'default' : 'neutral'} size="sm">
               <Link to="/interviews">

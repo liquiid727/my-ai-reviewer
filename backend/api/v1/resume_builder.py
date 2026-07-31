@@ -17,6 +17,7 @@ from backend.config import get_settings
 from backend.domain.resume.enums import ResumeSectionType
 from backend.domain.resume_builder import services
 from backend.domain.resume_builder.enums import LayoutDensity, TemplateId
+from backend.domain.resume_builder.reference_templates import list_reference_templates
 from backend.domain.resume_builder.schemas import ExportOptions
 from backend.infrastructure.db.database import get_db
 from backend.infrastructure.imaging import (
@@ -104,6 +105,51 @@ async def list_templates() -> APIResponse:
         "templates": [{"id": t.value} for t in TemplateId],
         "densities": [{"id": d.value} for d in LayoutDensity],
     })
+
+
+@router.get("/reference-templates")
+async def list_reference_template_options() -> APIResponse:
+    """返回内置参考简历模板列表（供用户一键创建可编辑草稿）。"""
+    return APIResponse(data=[
+        {
+            "key": t.key,
+            "name": t.name,
+            "description": t.description,
+            "tags": list(t.tags),
+        }
+        for t in list_reference_templates()
+    ])
+
+
+@router.get("/drafts")
+async def list_drafts(session: AsyncSession = Depends(get_db)) -> APIResponse:
+    """返回全部简历草稿概要，按更新时间倒序（供简历列表页展示）。"""
+    models = await services.list_drafts(session)
+    return APIResponse(data=[
+        {
+            "draft_id": str(m.id),
+            "resume_id": str(m.resume_id) if m.resume_id else None,
+            "title": m.title,
+            "template_id": m.template_id,
+            "status": m.status,
+            "created_at": m.created_at.isoformat(),
+            "updated_at": m.updated_at.isoformat(),
+        }
+        for m in models
+    ])
+
+
+@router.post("/from-reference/{template_key}")
+async def create_from_reference(
+    template_key: str,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """从内置参考模板创建独立草稿，返回 draft_id。"""
+    try:
+        model = await services.create_draft_from_reference(session, template_key)
+    except ValueError:
+        return APIResponse(code=404, message="Reference template not found")
+    return APIResponse(data={"draft_id": str(model.id)})
 
 
 @router.post("/from-resume/{resume_id}")

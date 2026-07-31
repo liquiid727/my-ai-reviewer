@@ -17,6 +17,7 @@ import {
   XCircle,
   Loader2,
   RefreshCw,
+  CircleAlert,
 } from 'lucide-react'
 
 import { getInterviewReport } from '@/api/interview'
@@ -120,11 +121,12 @@ export function InterviewReportPage() {
   if (error) {
     return (
       <div className="max-w-4xl mx-auto py-8 px-4">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-red-600 font-bold">{t('interviewReport.error', { msg: error })}</p>
-          </CardContent>
-        </Card>
+        <Alert variant="destructive">
+          <CircleAlert />
+          <AlertDescription>
+            {t('interviewReport.error', { msg: error })}
+          </AlertDescription>
+        </Alert>
       </div>
     )
   }

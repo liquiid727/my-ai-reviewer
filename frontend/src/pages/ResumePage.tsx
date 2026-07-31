@@ -15,6 +15,7 @@ import type {
   Certificate,
 } from '@/types/resume'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -40,6 +41,7 @@ import {
   MessageSquare,
   FileEdit,
   X,
+  CircleAlert,
 } from 'lucide-react'
 
 function isSafeUrl(url: string): boolean {
@@ -374,11 +376,12 @@ export function ResumePage() {
   if (error) {
     return (
       <div className="max-w-4xl mx-auto py-8 px-4">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-red-600 font-bold">{t('resume.error', { msg: error })}</p>
-          </CardContent>
-        </Card>
+        <Alert variant="destructive">
+          <CircleAlert />
+          <AlertDescription>
+            {t('resume.error', { msg: error })}
+          </AlertDescription>
+        </Alert>
       </div>
     )
   }

@@ -59,6 +59,8 @@ select = ["E", "F", "I", "N", "W"]
 [tool.ruff.lint.per-file-ignores]
 # 提示词为面向 LLM 的自然语言文本，位于字符串字面量内，不受行宽限制
 "infrastructure/llm/prompts/*.py" = ["E501"]
+# 参考简历模板为结构化的自然语言范本内容，位于字符串字面量内，不受行宽限制
+"domain/resume_builder/reference_templates/*.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"

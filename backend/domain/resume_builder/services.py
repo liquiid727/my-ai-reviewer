@@ -223,6 +223,42 @@ async def create_draft_from_profile(
     return model
 
 
+async def create_draft_from_reference(
+    session: AsyncSession,
+    template_key: str,
+) -> ResumeDraftModel:
+    """从内置参考模板创建独立草稿（resume_id 为空），不存在抛 ValueError。"""
+    # 延迟导入避免循环依赖（reference_templates 依赖本包 schemas）
+    from backend.domain.resume_builder.reference_templates import get_reference_template
+
+    template = get_reference_template(template_key)
+    if template is None:
+        raise ValueError(f"Reference template not found: {template_key}")
+
+    draft = template.build_draft()
+    model = ResumeDraftModel(
+        resume_id=None,
+        title=draft.title,
+        content=_draft_content(draft),
+        template_id=draft.template_id.value,
+        design_tokens=draft.design_tokens.model_dump(mode="json"),
+        auto_one_page=False,
+        status="draft",
+    )
+    session.add(model)
+    await session.commit()
+    await session.refresh(model)
+    return model
+
+
+async def list_drafts(session: AsyncSession) -> list[ResumeDraftModel]:
+    """返回全部草稿，按更新时间倒序（最近编辑的在前）。"""
+    result = await session.execute(
+        select(ResumeDraftModel).order_by(ResumeDraftModel.updated_at.desc()),
+    )
+    return list(result.scalars().all())
+
+
 async def get_draft(session: AsyncSession, draft_id: uuid.UUID) -> ResumeDraftModel:
     """按 id 获取草稿，不存在抛 ValueError。"""
     model = await session.get(ResumeDraftModel, draft_id)

@@ -5,10 +5,11 @@ import { formatDateTime } from '@/i18n'
 import { listInterviews } from '@/api/interview'
 import type { InterviewListItem } from '@/types/interview'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ArrowRight, Calendar, Hash } from 'lucide-react'
+import { ArrowRight, Calendar, Hash, CircleAlert } from 'lucide-react'
 
 const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-gray-300 text-gray-800 border-gray-500',
@@ -60,11 +61,12 @@ export function InterviewListPage() {
   if (error) {
     return (
       <div className="max-w-4xl mx-auto py-8 px-4">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-red-600 font-bold">{t('interviewList.error', { msg: error })}</p>
-          </CardContent>
-        </Card>
+        <Alert variant="destructive">
+          <CircleAlert />
+          <AlertDescription>
+            {t('interviewList.error', { msg: error })}
+          </AlertDescription>
+        </Alert>
       </div>
     )
   }

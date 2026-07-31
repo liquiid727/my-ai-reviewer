@@ -26,6 +26,7 @@ import {
   X,
   Check,
   Camera,
+  CircleAlert,
 } from 'lucide-react'
 
 import {
@@ -53,6 +54,7 @@ import type {
   PhotoUploadResult,
 } from '@/types/builder'
 import { Card, CardContent } from '@/components/ui/card'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -637,7 +639,10 @@ export function BuilderPage() {
     return (
       <div className="mx-auto max-w-4xl space-y-4">
         <h1 className="text-3xl font-black">{t('builder.title')}</h1>
-        <p className="text-red-600">{error ?? t('builder.loadFailed')}</p>
+        <Alert variant="destructive">
+          <CircleAlert />
+          <AlertDescription>{error ?? t('builder.loadFailed')}</AlertDescription>
+        </Alert>
         <Button variant="neutral" onClick={() => navigate(-1)}>
           <ArrowLeft className="h-4 w-4" />
           {t('common.back')}
@@ -869,7 +874,12 @@ export function BuilderPage() {
                 </div>
               )}
 
-              {photoError && <p className="text-sm text-red-600">{photoError}</p>}
+              {photoError && (
+                <Alert variant="destructive">
+                  <CircleAlert />
+                  <AlertDescription>{photoError}</AlertDescription>
+                </Alert>
+              )}
             </CardContent>
           </Card>
 
