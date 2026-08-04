@@ -40,24 +40,8 @@ WORKER_RUN = PYTHONPATH=. uv run --project backend celery -A backend.celery_app:
 FRONTEND_BUILD = cd frontend && pnpm build
 FRONTEND_RUN = cd frontend && pnpm preview --host $(FRONTEND_HOST) --port $(FRONTEND_PORT)
 FRONTEND_HOT = cd frontend && pnpm dev --host $(FRONTEND_HOST) --port $(FRONTEND_PORT)
-
-# 后端健康检查等待宏
-define wait_backend
-	{ for i in $$(seq 1 40); do \
-		if curl -sf http://localhost:$(BACKEND_PORT)/api/health >/dev/null 2>&1; then \
-			printf "$(GREEN)$(OK) 后端已就绪 -> http://localhost:$(BACKEND_PORT)/api/health$(RESET)\n"; break; \
-		fi; sleep 1; \
-	done; }
-endef
-
-# 前端就绪检查等待宏
-define wait_frontend
-	{ for i in $$(seq 1 40); do \
-		if curl -sf http://localhost:$(FRONTEND_PORT)/ >/dev/null 2>&1; then \
-			printf "$(GREEN)$(OK) 前端已就绪 -> http://localhost:$(FRONTEND_PORT)$(RESET)\n"; break; \
-		fi; sleep 1; \
-	done; }
-endef
+# Keep each service in its own process group so Ctrl+C can clean up descendants.
+DEV_SERVICES = python3 scripts/dev_services.py
 
 .PHONY: help setup install \
        start hot dev \
@@ -87,26 +71,22 @@ start: ## 🚀 一键启动全栈（生产模式：infra + 后端 + worker + 前
 	$(FRONTEND_BUILD)
 	$(call ok,前端构建完成)
 	@printf "$(PURPLE)$(BRAIN) 后端 + $(GEAR) Worker + $(ART) 前端 preview (Ctrl+C 停止)$(RESET)\n"
-	@trap 'printf "\n$(RED)$(STOP) 全栈已停止$(RESET)\n"; kill 0' INT TERM; \
-		($(BACKEND_RUN)) & \
-		($(WORKER_RUN)) & \
-		($(FRONTEND_RUN)) & \
-		$(call wait_backend); \
-		printf "$(GREEN)$(OK) 全栈启动完成 | 前端 http://localhost:$(FRONTEND_PORT) | 后端 http://localhost:$(BACKEND_PORT)$(RESET)\n"; \
-		wait
+	@exec $(DEV_SERVICES) \
+		--ready-url "http://localhost:$(BACKEND_PORT)/api/health" \
+		--service "backend=$(BACKEND_RUN)" \
+		--service "worker=$(WORKER_RUN)" \
+		--service "frontend=$(FRONTEND_RUN)"
 
 hot: ## 🔥 一键启动全栈热重载（infra + 后端 reload + worker + 前端 HMR）
 	@printf "$(PURPLE)$(FIRE) 启动全栈 (hot 模式)$(RESET)\n"
 	docker compose up -d
 	@printf "$(CYAN)⏳ 等待基础设施就绪$(RESET)\n"; sleep 3
 	@printf "$(PURPLE)$(BRAIN) 后端热重载 + $(GEAR) Worker + $(BOLT) 前端 HMR (Ctrl+C 停止)$(RESET)\n"
-	@trap 'printf "\n$(RED)$(STOP) 全栈已停止$(RESET)\n"; kill 0' INT TERM; \
-		($(BACKEND_HOT)) & \
-		($(WORKER_RUN)) & \
-		($(FRONTEND_HOT)) & \
-		$(call wait_backend); \
-		printf "$(GREEN)$(OK) 全栈热重载启动完成 | 前端 http://localhost:$(FRONTEND_PORT) | 后端 http://localhost:$(BACKEND_PORT)$(RESET)\n"; \
-		wait
+	@exec $(DEV_SERVICES) \
+		--ready-url "http://localhost:$(BACKEND_PORT)/api/health" \
+		--service "backend=$(BACKEND_HOT)" \
+		--service "worker=$(WORKER_RUN)" \
+		--service "frontend=$(FRONTEND_HOT)"
 
 dev: hot ## 🔥 全栈热重载快捷入口（等价 make hot）
 
@@ -117,18 +97,16 @@ backend-up: ## 🧠 启动后端整套（infra + 后端热重载 + Celery worker
 	docker compose up -d
 	@printf "$(CYAN)⏳ 等待基础设施就绪$(RESET)\n"; sleep 3
 	@printf "$(PURPLE)$(FIRE) 后端热重载 + $(GEAR) Worker (Ctrl+C 停止)$(RESET)\n"
-	@trap 'printf "\n$(RED)$(STOP) 后端整套已停止$(RESET)\n"; kill 0' INT TERM; \
-		($(BACKEND_HOT)) & \
-		($(WORKER_RUN)) & \
-		$(call wait_backend); \
-		wait
+	@exec $(DEV_SERVICES) \
+		--ready-url "http://localhost:$(BACKEND_PORT)/api/health" \
+		--service "backend=$(BACKEND_HOT)" \
+		--service "worker=$(WORKER_RUN)"
 
 frontend-up: ## 🎨 独立启动前端（Vite HMR，/api 代理到后端 8000）
 	@printf "$(BLUE)$(ART) 独立启动前端 HMR -> http://localhost:$(FRONTEND_PORT)$(RESET)\n"
-	@trap 'printf "\n$(RED)$(STOP) 前端已停止$(RESET)\n"; kill 0' INT TERM; \
-		($(FRONTEND_HOT)) & \
-		$(call wait_frontend); \
-		wait
+	@exec $(DEV_SERVICES) \
+		--ready-url "http://localhost:$(FRONTEND_PORT)/" \
+		--service "frontend=$(FRONTEND_HOT)"
 
 ##@ ⚙️ 组件独立启动（基础设施 / 后端 / 前端 / Worker）
 
@@ -146,22 +124,19 @@ db-migrate: ## 💾 运行数据库迁移（Alembic upgrade head）
 
 start-backend: ## 🧠 启动 FastAPI 后端（无热重载）
 	@printf "$(PURPLE)$(BRAIN) 启动 FastAPI 后端 -> http://localhost:$(BACKEND_PORT)$(RESET)\n"
-	@trap 'printf "\n$(RED)$(STOP) 后端已停止$(RESET)\n"; kill 0' INT TERM; \
-		($(BACKEND_RUN)) & \
-		$(call wait_backend); \
-		wait
+	@exec $(DEV_SERVICES) \
+		--ready-url "http://localhost:$(BACKEND_PORT)/api/health" \
+		--service "backend=$(BACKEND_RUN)"
 
 hot-backend: ## 🔥 启动 FastAPI 后端热重载
 	@printf "$(PURPLE)$(FIRE) 启动 FastAPI 后端热重载 -> http://localhost:$(BACKEND_PORT)$(RESET)\n"
-	@trap 'printf "\n$(RED)$(STOP) 后端已停止$(RESET)\n"; kill 0' INT TERM; \
-		($(BACKEND_HOT)) & \
-		$(call wait_backend); \
-		wait
+	@exec $(DEV_SERVICES) \
+		--ready-url "http://localhost:$(BACKEND_PORT)/api/health" \
+		--service "backend=$(BACKEND_HOT)"
 
 start-worker: ## ⚙️ 启动 Celery worker（异步任务：简历解析等）
 	@printf "$(YELLOW)$(GEAR) 启动 Celery worker$(RESET)\n"
-	@trap 'printf "\n$(RED)$(STOP) Worker 已停止$(RESET)\n"; kill 0' INT TERM; \
-		$(WORKER_RUN)
+	@exec $(DEV_SERVICES) --service "worker=$(WORKER_RUN)"
 
 backend: hot-backend ## 🔥 后端热重载快捷入口
 
@@ -171,17 +146,15 @@ start-frontend: ## 🎨 构建并启动前端 preview（无热重载）
 	@printf "$(BLUE)$(ART) 构建并启动前端 preview -> http://localhost:$(FRONTEND_PORT)$(RESET)\n"
 	$(FRONTEND_BUILD)
 	$(call ok,前端构建完成)
-	@trap 'printf "\n$(RED)$(STOP) 前端已停止$(RESET)\n"; kill 0' INT TERM; \
-		($(FRONTEND_RUN)) & \
-		$(call wait_frontend); \
-		wait
+	@exec $(DEV_SERVICES) \
+		--ready-url "http://localhost:$(FRONTEND_PORT)/" \
+		--service "frontend=$(FRONTEND_RUN)"
 
 hot-frontend: ## ⚡ 启动 Vite 前端热重载（HMR）
 	@printf "$(BLUE)$(BOLT) 启动 Vite 前端 HMR -> http://localhost:$(FRONTEND_PORT)$(RESET)\n"
-	@trap 'printf "\n$(RED)$(STOP) 前端已停止$(RESET)\n"; kill 0' INT TERM; \
-		($(FRONTEND_HOT)) & \
-		$(call wait_frontend); \
-		wait
+	@exec $(DEV_SERVICES) \
+		--ready-url "http://localhost:$(FRONTEND_PORT)/" \
+		--service "frontend=$(FRONTEND_HOT)"
 
 frontend: hot-frontend ## ⚡ 前端热重载快捷入口
 
