@@ -1,20 +1,20 @@
 # Handoff
 
-**Last Updated**: 2026-06-25
+**Last Updated**: 2026-08-02
 
 ---
 
 ## 当前状态摘要
 
-项目刚完成 LiteSpec 初始化，尚无代码实现。
+项目已有可运行的后端、前端和简历处理链路。当前 issue #038 已完成本地实现，等待测试结果确认、评审和发布。
 
 **下一个 Agent 或开发者接手时，请按顺序读取**：
 
 1. `README.md` — 项目总览
-2. `current/project-status.md` — 当前在 Phase 1，未开始
-3. `current/active-feature.md` — 当前功能 AIP-001
-4. `specs/AIP-001-mvp-interview/spec.md` — 功能规格
-5. `specs/AIP-001-mvp-interview/tasks.md` — 任务清单
+2. `current/project-status.md` — 当前阶段和健康状态
+3. `current/active-feature.md` — 当前功能 RIP-001 / issue #038
+4. `specs/RIP-001-resume-multiformat-parsers/spec.md` — 功能规格
+5. `tasks/issues/issue-038-txt-md-encoding-fallback.md` — issue 验收清单
 6. `design/architecture.md` — 技术架构
 7. `design/coding-guidelines.md` — 编码规范
 
@@ -22,8 +22,8 @@
 
 ## 上次停止位置
 
-初始化完成，尚未开始任何编码工作。
+完成 `read_text_with_fallback`、相关文档和测试；parser 范围检查已通过，全库 `mypy` 仍受既有 35 个错误阻塞。
 
 ## 下一步
 
-开始实现 `AIP-001 Task 1`：初始化 FastAPI 项目骨架。
+保留全库 `mypy` 阻塞记录，先完成 review，再决定是否单独清理既有类型问题后 ship。不要覆盖现有未提交的 Builder/UI 改动。

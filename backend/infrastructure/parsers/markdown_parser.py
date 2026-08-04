@@ -10,6 +10,7 @@ from backend.infrastructure.parsers.base import (
     ParsedResumeText,
     ResumeParser,
     TextBlock,
+    read_text_with_fallback,
 )
 
 
@@ -21,8 +22,7 @@ class MarkdownResumeParser(ResumeParser):
         return "markdown-v1"
 
     def parse(self, file_path: str) -> ParsedResumeText:
-        with open(file_path, encoding="utf-8", errors="ignore") as f:
-            content = f.read()
+        content = read_text_with_fallback(file_path)
 
         # 统一换行符为 \n，去除每行行尾空白，保留空行结构
         lines = [line.rstrip() for line in content.splitlines()]

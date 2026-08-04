@@ -1,5 +1,11 @@
-"""解析器单元测试 —— 覆盖新增的 HTML / Markdown / DOC 解析器与扩展名映射。"""
+"""解析器单元测试 —— 覆盖六种格式、编码兜底和扩展名映射。"""
 
+import codecs
+import logging
+
+import pytest
+
+import backend.infrastructure.parsers.base as parser_base
 from backend.infrastructure.parsers import (
     DocResumeParser,
     HtmlResumeParser,
@@ -26,6 +32,12 @@ MARKDOWN_SAMPLE = """# 李四
 - 公司 A：后端开发
 - 公司 B：基础架构
 """
+
+LEGACY_TEXT = (
+    "张三\n"
+    "高级后端工程师\n"
+    "熟悉 Python、Redis、PostgreSQL、分布式系统\n"
+) * 8
 
 
 def test_get_parser_mapping():
@@ -83,3 +95,43 @@ def test_text_parser_reads_plain_text(tmp_path):
 
     result = TextResumeParser().parse(str(f))
     assert "纯文本简历内容" in result.raw_text
+
+
+@pytest.mark.parametrize("parser_cls", [TextResumeParser, MarkdownResumeParser])
+def test_text_parsers_strip_utf8_bom(tmp_path, parser_cls):
+    f = tmp_path / "resume.txt"
+    f.write_bytes(codecs.BOM_UTF8 + "张三\nPython".encode("utf-8"))
+
+    result = parser_cls().parse(str(f))
+
+    assert result.raw_text.startswith("张三")
+    assert "Python" in result.raw_text
+    assert "\ufeff" not in result.raw_text
+
+
+@pytest.mark.parametrize("parser_cls", [TextResumeParser, MarkdownResumeParser])
+@pytest.mark.parametrize("encoding", ["gbk", "gb18030"])
+def test_text_parsers_detect_legacy_chinese_encodings(tmp_path, parser_cls, encoding):
+    f = tmp_path / "resume.txt"
+    f.write_bytes(LEGACY_TEXT.encode(encoding))
+
+    result = parser_cls().parse(str(f))
+
+    assert "高级后端工程师" in result.raw_text
+    assert "分布式系统" in result.raw_text
+
+
+@pytest.mark.parametrize("parser_cls", [TextResumeParser, MarkdownResumeParser])
+def test_text_parsers_replace_bytes_when_encoding_detection_fails(
+    tmp_path, monkeypatch, caplog, parser_cls
+):
+    f = tmp_path / "malformed.txt"
+    f.write_bytes(b"Resume\xff\xfe\xfa\xfb")
+    monkeypatch.setattr(parser_base.charset_normalizer, "from_path", lambda _: [])
+
+    with caplog.at_level(logging.WARNING, logger=parser_base.__name__):
+        result = parser_cls().parse(str(f))
+
+    assert "Resume" in result.raw_text
+    assert "\ufffd" in result.raw_text
+    assert "replacement decoding" in caplog.text

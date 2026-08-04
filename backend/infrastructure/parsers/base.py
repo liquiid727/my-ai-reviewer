@@ -1,8 +1,14 @@
 """文件解析器基类 —— 定义解析结果数据结构和解析器抽象接口。"""
 
+import logging
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from pathlib import Path
+
+import charset_normalizer
+
+logger = logging.getLogger(__name__)
 
 # 块类型：段落 / 标题 / 通用块
 BLOCK_PARAGRAPH = "paragraph"
@@ -58,6 +64,45 @@ def blocks_from_text(text: str, page: int | None = None) -> list[TextBlock]:
         else:
             blocks.append(TextBlock(type=BLOCK_PARAGRAPH, text=chunk, page=page))
     return blocks
+
+
+def read_text_with_fallback(file_path: str | Path) -> str:
+    """Read text using UTF-8, detected legacy encodings, then replacement decoding.
+
+    The final replacement pass keeps a malformed document processable while the
+    warning preserves enough context for operators to investigate the source.
+    """
+    path = Path(file_path)
+
+    try:
+        return path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError:
+        pass
+
+    detected_encoding: str | None = None
+    try:
+        matches = charset_normalizer.from_path(path)
+        best = matches.best() if matches else None
+        detected_encoding = best.encoding if best is not None else None
+    except (OSError, UnicodeError):
+        # The final read below still reports filesystem errors normally.
+        detected_encoding = None
+
+    if detected_encoding:
+        try:
+            return path.read_text(encoding=detected_encoding)
+        except (LookupError, UnicodeDecodeError):
+            logger.warning(
+                "Detected encoding %s could not decode %s; using replacement decoding",
+                detected_encoding,
+                path,
+            )
+
+    logger.warning(
+        "Unable to decode %s with UTF-8 or a detected encoding; using replacement decoding",
+        path,
+    )
+    return path.read_text(encoding="utf-8", errors="replace")
 
 
 class ResumeParser(ABC):

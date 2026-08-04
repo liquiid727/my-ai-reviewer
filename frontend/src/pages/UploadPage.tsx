@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
+import { ArrowRight, Lightbulb, TriangleAlert } from 'lucide-react'
 import { FileUploader } from '@/components/FileUploader'
 import { LLMGateDialog } from '@/components/LLMGateDialog'
 import { Progress } from '@/components/ui/progress'
@@ -255,24 +256,37 @@ export function UploadPage() {
       {!resumeId && !uploading && (
         llmBlocked ? (
           <Alert variant="destructive">
+            <TriangleAlert />
             <AlertTitle>{t('llmGate.title')}</AlertTitle>
             <AlertDescription>
-              {t('llmGate.description')}{' '}
-              <button
-                type="button"
-                onClick={() => setGateOpen(true)}
-                className="font-bold underline"
-              >
-                {t('llmGate.configureNow')}
-              </button>
+              <p>
+                {t('llmGate.description')}{' '}
+                <button
+                  type="button"
+                  onClick={() => setGateOpen(true)}
+                  className="inline-flex items-center gap-1 font-bold underline underline-offset-2 hover:opacity-80"
+                >
+                  {t('llmGate.configureNow')}
+                  <ArrowRight className="size-3.5" />
+                </button>
+              </p>
             </AlertDescription>
           </Alert>
         ) : (
           <Alert>
+            <Lightbulb />
             <AlertTitle>{t('upload.tipTitle')}</AlertTitle>
             <AlertDescription>
-              {t('upload.tip')}{' '}
-              <a href="/settings" className="font-bold underline">{t('nav.settings')}</a>
+              <p>
+                {t('upload.tip')}{' '}
+                <Link
+                  to="/settings"
+                  className="inline-flex items-center gap-1 font-bold underline underline-offset-2 hover:opacity-80"
+                >
+                  {t('upload.goToSettings')}
+                  <ArrowRight className="size-3.5" />
+                </Link>
+              </p>
             </AlertDescription>
           </Alert>
         )

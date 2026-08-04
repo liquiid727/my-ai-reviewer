@@ -15,7 +15,7 @@
 
 @page {
   size: A4;
-  margin: 0;
+  margin: {{ css_vars.page_margin }};
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -34,10 +34,10 @@ body {
 }
 
 .page {
-  width: 210mm;
-  min-height: 297mm;
-  margin: 0 auto;
-  padding: var(--page-margin);
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
   background: #ffffff;
 }
 
@@ -72,6 +72,10 @@ body {
 }
 
 /* 区块 */
+.item {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
 .resume-section { margin-bottom: var(--section-gap); }
 .section-title {
   font-size: calc(15px * var(--font-scale));
@@ -80,6 +84,8 @@ body {
   border-bottom: 2px solid var(--accent);
   padding-bottom: 3px;
   margin-bottom: 6px;
+  break-after: avoid;
+  page-break-after: avoid;
 }
 .section-body { display: flex; flex-direction: column; gap: calc(var(--section-gap) * 0.5); }
 
@@ -93,9 +99,16 @@ body {
 .item-subheading { color: #4b5563; margin-left: 8px; }
 .item-date { color: #6b7280; font-size: calc(12px * var(--font-scale)); white-space: nowrap; }
 .bullets { list-style: disc; padding-left: 18px; margin-top: 2px; }
-.bullets li { margin-bottom: 2px; }
+.bullets li {
+  margin-bottom: 2px;
+  orphans: 2;
+  widows: 2;
+}
 
 {% block extra_style %}{% endblock %}
+
+/* 用户自定义 CSS（已经服务端清理，放在末尾以便覆盖默认样式） */
+{{ css_vars.custom_css | safe }}
 </style>
 </head>
 <body>

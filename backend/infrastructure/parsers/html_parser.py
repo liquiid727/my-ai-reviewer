@@ -94,3 +94,10 @@ class HtmlResumeParser(ResumeParser):
             page_count=None,  # HTML 无页码概念
             blocks=extractor.blocks,
         )
+
+
+def extract_visible_text(html_content: str) -> str:
+    """Extract visible text from an in-memory HTML response for URL imports."""
+    extractor = _HtmlTextExtractor()
+    extractor.feed(html_content)
+    return html.unescape(extractor.get_text())

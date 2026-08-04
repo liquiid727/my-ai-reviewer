@@ -15,7 +15,7 @@
 
 ### T2 — 模板渲染与导出（已完成）
 - [x] Jinja2 三模板：classic / modern / compact
-- [x] `PdfRenderer`：Playwright 打印 A4，四档密度自动一页
+- [x] `PdfRenderer`：Playwright 打印 A4（分页策略由 RIP-005 接管）
 - [x] `/preview`、`/export`（可持久化 MinIO）
 
 ### T3 — AI 润色与评分（已完成）
@@ -37,7 +37,7 @@
 
 ### T7 — 模板头像与测试
 - [ ] 三模板头像占位（无照片不留白）；导出 PDF 照片 data URI 内联
-- [ ] 单测：processor（人脸样张 fixture）、API、渲染快照、自动一页回归
+- [ ] 单测：processor（人脸样张 fixture）、API、渲染快照、自动分页回归
 - [ ] 前端 BuilderPage：照片上传 / 背景色选择 / 预览确认（Empty/Loading/Success/Failure 四态）
 
 ---

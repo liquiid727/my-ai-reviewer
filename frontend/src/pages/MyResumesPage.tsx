@@ -4,7 +4,15 @@ import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
 import { formatDateTime } from '@/i18n'
 import { getResumeStatus } from '@/api/resume'
-import { createDraftFromResume, createDraftFromReference, listDrafts, listReferenceTemplates } from '@/api/builder'
+import {
+  createDraftFromResume,
+  createDraftFromReference,
+  deleteDraft,
+  listDrafts,
+  listReferenceTemplates,
+  previewUrl,
+  reorderDrafts,
+} from '@/api/builder'
 import type { DraftListItem, ReferenceTemplateItem } from '@/types/builder'
 import { useResumeHistoryStore, MAX_HISTORY, type ResumeHistoryEntry } from '@/stores/resumeHistoryStore'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -23,13 +31,17 @@ import {
 } from '@/components/ui/dialog'
 import {
   ArrowRight,
+  ArrowDown,
+  ArrowUp,
   Calendar,
   CircleAlert,
+  ClipboardPlus,
   Eye,
   FileEdit,
   FileText,
   LayoutTemplate,
   Loader2,
+  Palette,
   Sparkles,
   Trash2,
   Upload,
@@ -118,6 +130,14 @@ function UploadedResumeCard({
               )}
               {t('myResumes.editPolish')}
             </Button>
+            {canBuild && (
+              <Button asChild size="sm" variant="neutral">
+                <Link to={`/plans/new?resume_id=${entry.resume_id}`}>
+                  <ClipboardPlus className="size-4" />
+                  {t('plans.create')}
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
       </CardContent>
@@ -136,6 +156,11 @@ export function MyResumesPage() {
   const [templatesLoading, setTemplatesLoading] = useState(true)
   const [creatingKey, setCreatingKey] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ResumeHistoryEntry | null>(null)
+  const [draftDeleteTarget, setDraftDeleteTarget] = useState<DraftListItem | null>(null)
+  const [previewTarget, setPreviewTarget] = useState<DraftListItem | null>(null)
+  const [previewState, setPreviewState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null)
+  const [movingDraftId, setMovingDraftId] = useState<string | null>(null)
 
   // 进入页面时逐条拉后端最新状态刷新本地缓存；单条失败回退本地缓存，不阻塞整页
   useEffect(() => {
@@ -208,6 +233,52 @@ export function MyResumesPage() {
     }
   }
 
+  const handleDeleteDraft = async () => {
+    if (!draftDeleteTarget) return
+    const target = draftDeleteTarget
+    setDeletingDraftId(target.draft_id)
+    try {
+      const res = await deleteDraft(target.draft_id)
+      if (res.code !== 0) {
+        throw new Error(res.message || t('myResumes.draftDeleteFailed'))
+      }
+      setDrafts((current) => current.filter((draft) => draft.draft_id !== target.draft_id))
+      setDraftDeleteTarget(null)
+      toast.success(t('myResumes.draftDeleted'))
+    } catch (err) {
+      toast.error((err as Error).message || t('myResumes.draftDeleteFailed'))
+    } finally {
+      setDeletingDraftId(null)
+    }
+  }
+
+  const handleMoveDraft = async (draftId: string, direction: -1 | 1) => {
+    if (movingDraftId) return
+    const currentIndex = drafts.findIndex((draft) => draft.draft_id === draftId)
+    const targetIndex = currentIndex + direction
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= drafts.length) return
+
+    const previous = drafts
+    const next = [...drafts]
+    const [moving] = next.splice(currentIndex, 1)
+    next.splice(targetIndex, 0, moving)
+    setDrafts(next)
+    setMovingDraftId(draftId)
+
+    try {
+      const res = await reorderDrafts(next.map((draft) => draft.draft_id))
+      if (res.code !== 0) {
+        throw new Error(res.message || t('myResumes.reorderFailed'))
+      }
+      setDrafts(res.data || next)
+    } catch (err) {
+      setDrafts(previous)
+      toast.error((err as Error).message || t('myResumes.reorderFailed'))
+    } finally {
+      setMovingDraftId(null)
+    }
+  }
+
   return (
     <div className="max-w-4xl mx-auto py-8 px-4 space-y-6">
       <div className="flex items-center justify-between">
@@ -233,6 +304,12 @@ export function MyResumesPage() {
           <TabsTrigger value="templates" className="gap-1">
             <LayoutTemplate className="size-4" />
             {t('myResumes.tabs.templates')}
+          </TabsTrigger>
+          <TabsTrigger value="styleTemplates" asChild className="gap-1">
+            <Link to="/resumes/style-templates">
+              <Palette className="size-4" />
+              {t('myResumes.tabs.styleTemplates')}
+            </Link>
           </TabsTrigger>
         </TabsList>
 
@@ -293,32 +370,85 @@ export function MyResumesPage() {
               </Card>
             ) : (
               <div className="grid gap-4">
-                {drafts.map((d) => (
+                {drafts.map((d, index) => (
                   <Card
                     key={d.draft_id}
                     className="hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none transition-all"
                   >
-                    <CardHeader>
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <FileEdit className="size-4 shrink-0" />
-                        <span className="truncate">{d.title}</span>
-                        <Badge variant="neutral">
-                          {t(`builder.template_${d.template_id}`, { defaultValue: d.template_id })}
-                        </Badge>
-                      </CardTitle>
+                    <CardHeader className="gap-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <CardTitle className="flex min-w-0 flex-1 items-center gap-2 text-base">
+                          <FileEdit className="size-4 shrink-0" />
+                          <span className="truncate">{d.title}</span>
+                          <Badge variant="neutral" className="shrink-0">
+                            {t(`builder.template_${d.template_id}`, { defaultValue: d.template_id })}
+                          </Badge>
+                        </CardTitle>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="neutral"
+                            title={t('myResumes.moveUp')}
+                            aria-label={t('myResumes.moveUp')}
+                            disabled={movingDraftId !== null || index === 0}
+                            onClick={() => handleMoveDraft(d.draft_id, -1)}
+                          >
+                            {movingDraftId === d.draft_id ? <Loader2 className="animate-spin" /> : <ArrowUp />}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="neutral"
+                            title={t('myResumes.moveDown')}
+                            aria-label={t('myResumes.moveDown')}
+                            disabled={movingDraftId !== null || index === drafts.length - 1}
+                            onClick={() => handleMoveDraft(d.draft_id, 1)}
+                          >
+                            {movingDraftId === d.draft_id ? <Loader2 className="animate-spin" /> : <ArrowDown />}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="neutral"
+                            className="text-red-700"
+                            title={t('myResumes.deleteDraft')}
+                            aria-label={t('myResumes.deleteDraft')}
+                            disabled={deletingDraftId !== null || movingDraftId !== null}
+                            onClick={() => setDraftDeleteTarget(d)}
+                          >
+                            <Trash2 />
+                          </Button>
+                        </div>
+                      </div>
                     </CardHeader>
                     <CardContent>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+                        <span className="flex min-w-0 items-center gap-1 text-sm text-muted-foreground">
                           <Calendar className="size-3" />
-                          {t('myResumes.updatedAt', { time: formatDateTime(d.updated_at) })}
+                          <span className="truncate">{t('myResumes.updatedAt', { time: formatDateTime(d.updated_at) })}</span>
                         </span>
-                        <Button asChild size="sm">
-                          <Link to={`/builder/${d.draft_id}`}>
-                            {t('myResumes.continueEditing')}
-                            <ArrowRight className="size-4" />
-                          </Link>
-                        </Button>
+                        <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="neutral"
+                            onClick={() => {
+                              setPreviewState('loading')
+                              setPreviewTarget(d)
+                            }}
+                          >
+                            <Eye className="size-4" />
+                            {t('myResumes.viewDraft')}
+                          </Button>
+                          <Button asChild size="sm">
+                            <Link to={`/builder/${d.draft_id}`}>
+                              <FileEdit className="size-4" />
+                              {t('myResumes.editDraft')}
+                              <ArrowRight className="size-4" />
+                            </Link>
+                          </Button>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -378,6 +508,71 @@ export function MyResumesPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={previewTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setPreviewTarget(null)
+        }}
+      >
+        <DialogContent className="h-[85vh] max-w-5xl grid-rows-[auto_minmax(0,1fr)_auto]">
+          <DialogHeader>
+            <DialogTitle>{t('myResumes.previewTitle', { name: previewTarget?.title ?? '' })}</DialogTitle>
+            <DialogDescription>{t('myResumes.updatedAt', { time: previewTarget ? formatDateTime(previewTarget.updated_at) : '' })}</DialogDescription>
+          </DialogHeader>
+          <div className="relative min-h-0 overflow-hidden rounded-base border-2 border-border bg-zinc-200 shadow-shadow">
+            {previewState === 'loading' && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-zinc-200 text-sm">
+                <Loader2 className="size-4 animate-spin" />
+                {t('common.loading')}
+              </div>
+            )}
+            {previewState === 'error' && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center p-6 text-center text-sm text-red-700">
+                {t('myResumes.previewFailed')}
+              </div>
+            )}
+            {previewTarget && (
+              <iframe
+                key={previewTarget.draft_id}
+                title={t('myResumes.previewTitle', { name: previewTarget.title })}
+                src={previewUrl(previewTarget.draft_id)}
+                className="h-full w-full bg-white"
+                onLoad={() => setPreviewState('ready')}
+                onError={() => setPreviewState('error')}
+              />
+            )}
+          </div>
+          <DialogFooter>
+            <Button asChild>
+              <Link to={previewTarget ? `/builder/${previewTarget.draft_id}` : '/resumes'} onClick={() => setPreviewTarget(null)}>
+                <FileEdit className="size-4" />
+                {t('myResumes.editDraft')}
+              </Link>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={draftDeleteTarget !== null} onOpenChange={(open) => !open && deletingDraftId === null && setDraftDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('myResumes.deleteDraftTitle')}</DialogTitle>
+            <DialogDescription>
+              {t('myResumes.deleteDraftDesc', { name: draftDeleteTarget?.title ?? '' })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="neutral" disabled={deletingDraftId !== null} onClick={() => setDraftDeleteTarget(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button className="bg-red-500 text-white" disabled={deletingDraftId !== null} onClick={handleDeleteDraft}>
+              {deletingDraftId ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+              {t('common.delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 删除本地记录二次确认（仅删 localStorage，不调用后端） */}
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}>

@@ -27,9 +27,12 @@ export const useSettingsStore = create<SettingsState>((set) => ({
           llmReady: res.data.some((c) => c.is_active && c.verified),
           loaded: true,
         })
+      } else {
+        set({ configs: [], llmReady: false, loaded: true })
       }
     } catch {
-      // 网络异常时保留现有状态，后端 428 门禁兜底
+      // 无法读取配置时失败关闭，避免将未知状态误判为可调用。
+      set({ configs: [], llmReady: false, loaded: true })
     } finally {
       set({ loading: false })
     }

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +74,15 @@ class HtmlRenderer:
         )
 
 
+def _sanitize_custom_css(css: str) -> str:
+    """清理用户自定义 CSS，阻断逃逸出 <style> 标签的注入。
+
+    CSS 本身不需要 HTML 转义（转义会破坏 > 选择器等写法），
+    因此以原文注入，仅移除可终止样式块的序列。
+    """
+    return re.sub(r"<\s*/?\s*(style|script)", "", css, flags=re.IGNORECASE)
+
+
 def _build_css_vars(tokens: DesignTokens, density: LayoutDensity) -> dict[str, Any]:
     """把设计令牌 + 密度参数合成为模板使用的 CSS 变量字典。"""
     params = density_params(density)
@@ -83,4 +93,5 @@ def _build_css_vars(tokens: DesignTokens, density: LayoutDensity) -> dict[str, A
         "font_scale": params["font_scale"],
         "line_height": params["line_height"],
         "section_gap": params["section_gap"],
+        "custom_css": _sanitize_custom_css(tokens.custom_css),
     }

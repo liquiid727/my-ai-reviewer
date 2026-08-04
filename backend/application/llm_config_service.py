@@ -50,6 +50,18 @@ async def has_verified_config(session: AsyncSession) -> bool:
     return result.scalar_one_or_none() is not None
 
 
+async def get_active_verified_config(session: AsyncSession) -> LLMConfigModel | None:
+    """返回当前实际用于 AI 调用的已激活且已验证配置。"""
+    stmt = (
+        select(LLMConfigModel)
+        .where(LLMConfigModel.is_active.is_(True), LLMConfigModel.verified.is_(True))
+        .order_by(LLMConfigModel.updated_at.desc(), LLMConfigModel.created_at.desc())
+        .limit(1)
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
 async def update_config(
     session: AsyncSession,
     config_id: uuid.UUID,

@@ -54,6 +54,16 @@ def test_design_tokens_injected_as_css_vars() -> None:
     assert f"--section-gap: {params['section_gap']};" in html
 
 
+def test_print_layout_repeats_page_margin_and_protects_content_blocks() -> None:
+    html = HtmlRenderer().render(_sample_draft())
+
+    assert "@page" in html
+    assert "margin: 48px;" in html
+    assert ".item {" in html
+    assert "break-inside: avoid;" in html
+    assert "break-after: avoid;" in html
+
+
 def test_density_override_takes_precedence() -> None:
     draft = _sample_draft(design_tokens=DesignTokens(density=LayoutDensity.LOOSE))
     html = HtmlRenderer().render(draft, density_override=LayoutDensity.COMPACT)

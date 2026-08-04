@@ -6,9 +6,12 @@ Each entry should stay small enough for a single `/goal` run to finish end to en
 
 | Issue | Spec ID | Status | Depends on |
 | --- | --- | --- | --- |
-| RIP-001 | specs/RIP-001-resume-multiformat-parsers | shipped | — |
+| RIP-001 | specs/RIP-001-resume-multiformat-parsers | in-review | — |
 | RIP-002 | specs/RIP-002-resume-fact-profile-persistence | shipped | RIP-001 |
 | RIP-003 | specs/RIP-003-jd-matching | shipped | RIP-002 |
+| RIP-005 | specs/RIP-005-resume-auto-pagination | in-progress | RIP-004 |
+
+Current incremental issue: `#038` (TXT/Markdown encoding fallback) is implemented locally and waiting for review / release.
 
 Status transitions map to the six-step loop:
 

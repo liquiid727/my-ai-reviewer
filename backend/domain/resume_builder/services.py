@@ -8,18 +8,20 @@ import logging
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
 from backend.domain.resume.enums import ResumeSectionType
-from backend.domain.resume_builder.enums import TemplateId
+from backend.domain.resume_builder.editing import DraftRevisionConflictError
+from backend.domain.resume_builder.enums import LayoutMode, TemplateId
 from backend.domain.resume_builder.schemas import (
     DesignTokens,
     DraftItem,
     DraftSection,
     ExportOptions,
     ExportResult,
+    LayoutPolicy,
     PolishResult,
     ResumeDraft,
 )
@@ -181,7 +183,28 @@ def draft_model_to_schema(model: ResumeDraftModel) -> ResumeDraft:
     """从 ORM 模型重建 ResumeDraft schema。"""
     content = dict(model.content or {})
     tokens = DesignTokens(**model.design_tokens) if model.design_tokens else DesignTokens()
-    sections = [DraftSection(**s) for s in content.get("sections", [])]
+    sections: list[DraftSection] = []
+    for section_index, raw_section in enumerate(content.get("sections", [])):
+        section_data = dict(raw_section)
+        section_data.setdefault(
+            "section_id",
+            str(uuid.uuid5(uuid.NAMESPACE_URL, f"resume-draft:{model.id}:section:{section_index}")),
+        )
+        items: list[dict[str, Any]] = []
+        for item_index, raw_item in enumerate(section_data.get("items", [])):
+            item_data = dict(raw_item)
+            item_data.setdefault(
+                "item_id",
+                str(
+                    uuid.uuid5(
+                        uuid.NAMESPACE_URL,
+                        f"resume-draft:{model.id}:section:{section_index}:item:{item_index}",
+                    ),
+                ),
+            )
+            items.append(item_data)
+        section_data["items"] = items
+        sections.append(DraftSection(**section_data))
     return ResumeDraft(
         title=model.title,
         identity=content.get("identity") or {},
@@ -189,6 +212,10 @@ def draft_model_to_schema(model: ResumeDraftModel) -> ResumeDraft:
         sections=sections,
         template_id=TemplateId(model.template_id),
         design_tokens=tokens,
+        layout_policy=LayoutPolicy(
+            mode=LayoutMode(model.layout_mode),
+            target_page_count=model.target_page_count,
+        ),
     )
 
 
@@ -208,14 +235,23 @@ async def create_draft_from_profile(
         raise ValueError(f"Candidate profile not found for resume: {resume_id}")
 
     draft = profile_to_draft(profile)
+    # 新建草稿放在列表首位，保持用户刚创建的草稿可立即找到。
+    await session.execute(
+        update(ResumeDraftModel).values(
+            sort_order=ResumeDraftModel.sort_order + 1,
+            updated_at=ResumeDraftModel.updated_at,
+        ),
+    )
     model = ResumeDraftModel(
         resume_id=resume_id,
         title=draft.title,
         content=_draft_content(draft),
         template_id=draft.template_id.value,
         design_tokens=draft.design_tokens.model_dump(mode="json"),
-        auto_one_page=False,
+        layout_mode=draft.layout_policy.mode.value,
+        target_page_count=draft.layout_policy.target_page_count,
         status="draft",
+        sort_order=0,
     )
     session.add(model)
     await session.commit()
@@ -236,14 +272,23 @@ async def create_draft_from_reference(
         raise ValueError(f"Reference template not found: {template_key}")
 
     draft = template.build_draft()
+    # 新建草稿放在列表首位，保持用户刚创建的草稿可立即找到。
+    await session.execute(
+        update(ResumeDraftModel).values(
+            sort_order=ResumeDraftModel.sort_order + 1,
+            updated_at=ResumeDraftModel.updated_at,
+        ),
+    )
     model = ResumeDraftModel(
         resume_id=None,
         title=draft.title,
         content=_draft_content(draft),
         template_id=draft.template_id.value,
         design_tokens=draft.design_tokens.model_dump(mode="json"),
-        auto_one_page=False,
+        layout_mode=draft.layout_policy.mode.value,
+        target_page_count=draft.layout_policy.target_page_count,
         status="draft",
+        sort_order=0,
     )
     session.add(model)
     await session.commit()
@@ -252,9 +297,13 @@ async def create_draft_from_reference(
 
 
 async def list_drafts(session: AsyncSession) -> list[ResumeDraftModel]:
-    """返回全部草稿，按更新时间倒序（最近编辑的在前）。"""
+    """返回全部草稿，按用户维护的列表顺序返回。"""
     result = await session.execute(
-        select(ResumeDraftModel).order_by(ResumeDraftModel.updated_at.desc()),
+        select(ResumeDraftModel).order_by(
+            ResumeDraftModel.sort_order.asc(),
+            ResumeDraftModel.updated_at.desc(),
+            ResumeDraftModel.created_at.desc(),
+        ),
     )
     return list(result.scalars().all())
 
@@ -271,9 +320,24 @@ async def update_draft(
     session: AsyncSession,
     draft_id: uuid.UUID,
     patch: dict[str, Any],
+    expected_revision: int | None = None,
 ) -> ResumeDraftModel:
-    """幂等更新草稿的 content / 模板 / 设计令牌 / 标题 / 自动一页。"""
-    model = await get_draft(session, draft_id)
+    """幂等更新草稿内容、模板、设计令牌、标题和分页策略。"""
+    model: ResumeDraftModel
+    if expected_revision is None:
+        model = await get_draft(session, draft_id)
+    else:
+        result = await session.execute(
+            select(ResumeDraftModel)
+            .where(ResumeDraftModel.id == draft_id)
+            .with_for_update(),
+        )
+        locked_model = result.scalar_one_or_none()
+        if locked_model is None:
+            raise ValueError(f"Resume draft not found: {draft_id}")
+        model = locked_model
+        if model.revision != expected_revision:
+            raise DraftRevisionConflictError(expected_revision, model.revision)
 
     if "title" in patch and patch["title"]:
         model.title = str(patch["title"])
@@ -281,8 +345,10 @@ async def update_draft(
         model.template_id = TemplateId(patch["template_id"]).value
     if "design_tokens" in patch and patch["design_tokens"] is not None:
         model.design_tokens = DesignTokens(**patch["design_tokens"]).model_dump(mode="json")
-    if "auto_one_page" in patch and patch["auto_one_page"] is not None:
-        model.auto_one_page = bool(patch["auto_one_page"])
+    if "layout_policy" in patch and patch["layout_policy"] is not None:
+        policy = LayoutPolicy(**patch["layout_policy"])
+        model.layout_mode = policy.mode.value
+        model.target_page_count = policy.target_page_count
 
     # content 相关字段（identity / summary / sections）合并进 content JSONB
     content = dict(model.content or {})
@@ -302,10 +368,47 @@ async def update_draft(
         validated = [DraftSection(**s) for s in patch["sections"]]
         content["sections"] = [s.model_dump(mode="json") for s in validated]
     model.content = content
+    model.revision = int(getattr(model, "revision", 0)) + 1
 
     await session.commit()
     await session.refresh(model)
     return model
+
+
+async def delete_draft(session: AsyncSession, draft_id: uuid.UUID) -> None:
+    """删除草稿及其级联导出记录。"""
+    model = await get_draft(session, draft_id)
+    await session.delete(model)
+    await session.commit()
+
+
+async def reorder_drafts(
+    session: AsyncSession,
+    draft_ids: list[uuid.UUID],
+) -> list[ResumeDraftModel]:
+    """按前端提交的完整 id 顺序持久化草稿列表。"""
+    if len(draft_ids) != len(set(draft_ids)):
+        raise ValueError("Draft order contains duplicate ids")
+
+    result = await session.execute(select(ResumeDraftModel))
+    models = list(result.scalars().all())
+    by_id = {model.id: model for model in models}
+    if set(by_id) != set(draft_ids):
+        raise ValueError("Draft order must include every draft exactly once")
+
+    for index, draft_id in enumerate(draft_ids):
+        await session.execute(
+            update(ResumeDraftModel)
+            .where(ResumeDraftModel.id == draft_id)
+            .values(
+                sort_order=index,
+                updated_at=ResumeDraftModel.updated_at,
+            ),
+        )
+
+    await session.commit()
+    session.expire_all()
+    return await list_drafts(session)
 
 
 async def set_draft_photo(
@@ -326,6 +429,7 @@ async def set_draft_photo(
         identity["photo"] = object_name
     content["identity"] = identity
     model.content = content
+    model.revision = int(getattr(model, "revision", 0)) + 1
 
     await session.commit()
     await session.refresh(model)
@@ -396,8 +500,11 @@ async def export_draft_pdf(
     # 照片以 data URI 内联，Playwright 离线打印无外部网络请求
     photo_data_uri = await asyncio.to_thread(draft_photo_data_uri, draft)
 
-    pdf_bytes, page_count, overflow = await PdfRenderer().render_pdf(
-        draft, auto_one_page=options.auto_one_page, photo_data_uri=photo_data_uri,
+    layout_policy = options.layout_policy or draft.layout_policy
+    pdf_bytes, page_count, target_met, applied_density = await PdfRenderer().render_pdf(
+        draft,
+        layout_policy=layout_policy,
+        photo_data_uri=photo_data_uri,
     )
 
     storage_path: str | None = None
@@ -416,9 +523,16 @@ async def export_draft_pdf(
             storage_path=storage_path,
             template_id=draft.template_id.value,
             page_count=page_count,
+            layout_mode=layout_policy.mode.value,
+            target_page_count=layout_policy.target_page_count,
+            applied_density=applied_density.value,
+            target_met=target_met,
         ))
         await session.commit()
 
     return pdf_bytes, ExportResult(
-        page_count=page_count, overflow=overflow, storage_path=storage_path,
+        page_count=page_count,
+        target_met=target_met,
+        applied_density=applied_density,
+        storage_path=storage_path,
     )

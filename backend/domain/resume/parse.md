@@ -1,172 +1,78 @@
-Parser：PDF / DOCX 转文本
-# app/infrastructure/parsers/base.py
+# Resume Parser
 
-from abc import ABC, abstractmethod
+## Scope
 
+The parser layer converts uploaded resume files into the common
+`ParsedResumeText` structure consumed by extraction and classification.
+Supported extensions are:
 
-class ParsedResumeText:
-    def __init__(self, raw_text: str, page_count: int | None = None):
-        self.raw_text = raw_text
-        self.page_count = page_count
+- `.pdf`
+- `.doc`
+- `.docx`
+- `.html` / `.htm`
+- `.md`
+- `.txt`
 
+The implementation lives under `backend/infrastructure/parsers/` and is
+routed by `backend/infrastructure/parsers/__init__.py`.
 
-class ResumeParser(ABC):
-    version = "base"
+## Common Output
 
-    @abstractmethod
-    def parse(self, file_path: str) -> ParsedResumeText:
-        pass
-# app/infrastructure/parsers/pdf_parser.py
+`ParsedResumeText` contains:
 
-from pypdf import PdfReader
-from app.infrastructure.parsers.base import ResumeParser, ParsedResumeText
+- `raw_text`: the normalized text used by downstream LLM extraction;
+- `page_count`: the page count when the source format provides it;
+- `blocks`: structured paragraph, heading, or generic blocks. PDF blocks also
+  carry their source page number.
 
+`ResumeParser` is the abstract interface. Each parser exposes a version string
+so the processing pipeline can record which parser produced the result.
 
-class PdfResumeParser(ResumeParser):
-    version = "pdf-parser-v1"
+## Format Implementations
 
-    def parse(self, file_path: str) -> ParsedResumeText:
-        reader = PdfReader(file_path)
+| Format | Implementation | Behavior |
+| --- | --- | --- |
+| PDF | `PdfResumeParser` + PyMuPDF | Extracts text page by page and assigns page numbers to blocks. |
+| DOCX | `DocxResumeParser` + `python-docx` | Extracts paragraphs and table rows; uses Word heading styles when available. |
+| DOC | `DocResumeParser` | Uses LibreOffice `soffice` conversion when available, then falls back to readable text recovery from the binary stream. |
+| HTML | `HtmlResumeParser` + stdlib `html.parser` | Removes script, style, head, and metadata content while preserving visible text and headings. |
+| Markdown | `MarkdownResumeParser` | Preserves source text, normalizes line endings, and maps Markdown headings to blocks. |
+| TXT | `TextResumeParser` | Reads plain text through the shared encoding fallback described below. |
 
-        texts = []
-        for page in reader.pages:
-            texts.append(page.extract_text() or "")
+The project intentionally uses the standard library for HTML and Markdown
+handling. This avoids introducing parser dependencies that are not needed for
+the current extraction contract.
 
-        return ParsedResumeText(
-            raw_text="\n\n".join(texts),
-            page_count=len(reader.pages),
-        )
-# app/infrastructure/parsers/docx_parser.py
+## TXT / Markdown Encoding Fallback
 
-from docx import Document
-from app.infrastructure.parsers.base import ResumeParser, ParsedResumeText
+`TextResumeParser` and `MarkdownResumeParser` both call
+`read_text_with_fallback` from `backend/infrastructure/parsers/base.py`:
 
+1. Read as `utf-8-sig`, which handles ordinary UTF-8 and strips a UTF-8 BOM.
+2. If UTF-8 decoding fails, use `charset-normalizer.from_path` and retry with
+   the best detected encoding. This covers common GBK, GB18030, and Big5 files
+   when the content provides enough signal.
+3. If detection is unavailable or the detected encoding cannot decode the file,
+   read as UTF-8 with `errors="replace"` and emit a warning. The parser keeps
+   the document processable instead of failing the whole resume pipeline.
 
-class DocxResumeParser(ResumeParser):
-    version = "docx-parser-v1"
+`charset-normalizer` is a required backend dependency because this behavior is
+part of the default TXT / Markdown parser contract, not an optional feature.
 
-    def parse(self, file_path: str) -> ParsedResumeText:
-        doc = Document(file_path)
-        raw_text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+## Factory and Upload Integration
 
-        return ParsedResumeText(
-            raw_text=raw_text,
-            page_count=None,
-        )
-4. Extractor：文本转 ResumeFact
-# app/infrastructure/extractors/base.py
+`get_parser` normalizes the extension to lowercase and returns the parser
+registered in `_PARSER_MAP`. Unknown extensions raise `ValueError` before
+processing starts. The resume upload API uses the same supported-extension set,
+so parser routing and upload validation stay aligned.
 
-from abc import ABC, abstractmethod
-from typing import List
-from app.domain.resume.schemas import ResumeFact
+## Versioning and Limitations
 
+Parser versions are part of the stored resume processing metadata. Re-parsing
+can snapshot the previous result before running the current parser version.
 
-class ResumeExtractor(ABC):
-    version = "base"
-
-    @abstractmethod
-    async def extract_facts(self, raw_text: str) -> List[ResumeFact]:
-        pass
-# app/infrastructure/extractors/llm_resume_extractor.py
-
-from typing import List
-from app.infrastructure.extractors.base import ResumeExtractor
-from app.domain.resume.schemas import ResumeFact, Evidence
-
-
-class LLMResumeExtractor(ResumeExtractor):
-    version = "llm-extractor-v1"
-
-    async def extract_facts(self, raw_text: str) -> List[ResumeFact]:
-        """
-        这里后续可以接 OpenAI / Claude / DeepSeek / 本地模型。
-        当前先放 mock，重点是结构。
-        """
-
-        facts = []
-
-        if "Redis" in raw_text:
-            facts.append(
-                ResumeFact(
-                    fact_type="skill",
-                    key="Redis",
-                    value={
-                        "name": "Redis",
-                        "category": "backend_cache",
-                    },
-                    evidence=Evidence(
-                        source_text="简历中提到了 Redis 相关经验",
-                        section="skills",
-                        confidence=0.85,
-                    ),
-                )
-            )
-
-        if "Kafka" in raw_text:
-            facts.append(
-                ResumeFact(
-                    fact_type="skill",
-                    key="Kafka",
-                    value={
-                        "name": "Kafka",
-                        "category": "message_queue",
-                    },
-                    evidence=Evidence(
-                        source_text="简历中提到了 Kafka 相关经验",
-                        section="skills",
-                        confidence=0.85,
-                    ),
-                )
-            )
-
-        return facts
-5. Classifier：Facts 转 CandidateProfile
-# app/infrastructure/classifiers/base.py
-
-from abc import ABC, abstractmethod
-from typing import List
-from app.domain.resume.schemas import ResumeFact, CandidateProfile
-
-
-class ResumeClassifier(ABC):
-    version = "base"
-
-    @abstractmethod
-    def build_profile(self, facts: List[ResumeFact]) -> CandidateProfile:
-        pass
-# app/infrastructure/classifiers/rule_classifier.py
-
-from typing import List
-from app.infrastructure.classifiers.base import ResumeClassifier
-from app.domain.resume.schemas import ResumeFact, CandidateProfile, Skill
-
-
-class RuleBasedResumeClassifier(ResumeClassifier):
-    version = "rule-classifier-v1"
-
-    def build_profile(self, facts: List[ResumeFact]) -> CandidateProfile:
-        profile = CandidateProfile()
-
-        for fact in facts:
-            if fact.fact_type == "skill":
-                profile.skills.append(
-                    Skill(
-                        name=fact.value.get("name"),
-                        category=fact.value.get("category"),
-                        evidence=fact.evidence.source_text,
-                        confidence=fact.evidence.confidence,
-                    )
-                )
-
-        skill_names = {s.name.lower() for s in profile.skills}
-
-        if "redis" in skill_names or "kafka" in skill_names:
-            profile.ability_tags.append("backend")
-
-        if "kafka" in skill_names:
-            profile.interview_clues.append("可以追问 Kafka 在项目中的使用场景、消费可靠性和消息堆积处理。")
-
-        if "redis" in skill_names:
-            profile.interview_clues.append("可以追问 Redis 缓存一致性、热点 Key、缓存击穿和分布式锁。")
-
-        return profile
+- HTML and non-PDF office formats do not expose reliable page numbers.
+- DOC best-effort recovery preserves readable text but not original layout.
+- Automatic legacy-encoding detection is heuristic; replacement decoding is
+  the final availability fallback and should be surfaced through the warning
+  log for operational diagnosis.

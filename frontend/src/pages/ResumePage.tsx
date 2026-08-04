@@ -42,6 +42,7 @@ import {
   FileEdit,
   X,
   CircleAlert,
+  ClipboardPlus,
 } from 'lucide-react'
 
 function isSafeUrl(url: string): boolean {
@@ -597,7 +598,7 @@ export function ResumePage() {
       </Tabs>
 
       {/* Bottom navigation */}
-      <div className="flex justify-center gap-4 pt-4">
+      <div className="flex flex-wrap justify-center gap-4 pt-4">
         <Button asChild size="lg">
           <Link to={`/resume/${id}/evaluation`}>
             {t('resume.viewEvaluation')}
@@ -616,6 +617,12 @@ export function ResumePage() {
           )}
           {t('builder.entry')}
         </Button>
+        <Button asChild size="lg" variant="neutral">
+          <Link to={`/plans/new?resume_id=${id}`}>
+            <ClipboardPlus className="size-4" />
+            {t('plans.create')}
+          </Link>
+        </Button>
       </div>
 
       {/* Create Interview Dialog */}
@@ -625,7 +632,7 @@ export function ResumePage() {
             className="absolute inset-0 bg-black/40"
             onClick={() => setShowInterviewDialog(false)}
           />
-          <div className="relative z-10 w-full max-w-md mx-4 bg-bg border-2 border-border rounded-base shadow-shadow p-6 space-y-4">
+          <div className="relative z-10 w-full max-w-md mx-4 bg-background border-2 border-border rounded-base shadow-shadow p-6 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-heading">{t('resume.createInterview')}</h2>
               <button

@@ -1,9 +1,11 @@
-"""JD 匹配相关数据模型 —— 定义输入、匹配结果与 LLM 抽取结果结构。"""
+"""JD library and matching contracts."""
 
+from datetime import datetime
+from typing import Annotated, Literal
 
-from typing import Literal
+from pydantic import BaseModel, Field, HttpUrl
 
-from pydantic import BaseModel, Field
+from backend.domain.jd.enums import JDProcessingStep, JDSourceType, JDStatus
 
 
 class RequiredSkill(BaseModel):
@@ -54,9 +56,12 @@ class JobDescriptionInput(BaseModel):
 
 class ExtractedSkill(BaseModel):
     """LLM 从 JD 原文抽取的单项技能，附原文证据便于追溯。"""
-    name: str
+    name: str = Field(min_length=1, max_length=500)
     critical: bool = False       # 是否关键技能
-    evidence: str | None = None  # 支撑该技能要求的 JD 原文片段
+    evidence: str | None = Field(default=None, max_length=500)  # 支撑该技能要求的 JD 原文片段
+
+
+JDResponsibility = Annotated[str, Field(min_length=1, max_length=500)]
 
 
 class JDExtraction(BaseModel):
@@ -65,9 +70,13 @@ class JDExtraction(BaseModel):
     required_skills / responsibilities 必填：键缺失或键名走样的 LLM 输出
     会触发 ValidationError 走重试→报错链路，避免静默返回空结果。
     """
-    required_skills: list[ExtractedSkill]
-    responsibilities: list[str]
-    seniority: Literal["junior", "mid", "senior", "expert"] = "mid"
+    title: str | None = Field(default=None, max_length=200)
+    company: str | None = Field(default=None, max_length=200)
+    location: str | None = Field(default=None, max_length=200)
+    required_skills: list[ExtractedSkill] = Field(max_length=100)
+    preferred_skills: list[ExtractedSkill] = Field(default_factory=list, max_length=100)
+    responsibilities: list[JDResponsibility] = Field(max_length=50)
+    seniority: Literal["junior", "mid", "senior", "expert"] | None = None
 
     @property
     def skill_names(self) -> list[str]:
@@ -79,3 +88,40 @@ class JDExtraction(BaseModel):
         """关键技能名子集。"""
         return [s.name for s in self.required_skills if s.critical]
 
+
+class JDTextImportRequest(BaseModel):
+    raw_text: str = Field(min_length=1, max_length=100_000)
+    title: str | None = Field(default=None, max_length=200)
+    company: str | None = Field(default=None, max_length=200)
+    allow_duplicate: bool = False
+
+
+class JDURLImportRequest(BaseModel):
+    url: HttpUrl
+    allow_duplicate: bool = False
+
+
+class JDStructuredPatch(BaseModel):
+    title: str | None = Field(default=None, max_length=200)
+    company: str | None = Field(default=None, max_length=200)
+    location: str | None = Field(default=None, max_length=200)
+    seniority: Literal["junior", "mid", "senior", "expert"] | None = None
+    responsibilities: list[JDResponsibility] | None = Field(default=None, max_length=50)
+    required_skills: list[ExtractedSkill] | None = Field(default=None, max_length=100)
+    preferred_skills: list[ExtractedSkill] | None = Field(default=None, max_length=100)
+    expected_updated_at: datetime
+
+
+class JDReextractRequest(BaseModel):
+    overwrite_manual: bool = False
+
+
+class JDSummary(BaseModel):
+    id: str
+    title: str | None = None
+    company: str | None = None
+    location: str | None = None
+    source_type: JDSourceType
+    status: JDStatus
+    processing_step: JDProcessingStep
+    updated_at: datetime

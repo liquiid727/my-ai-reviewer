@@ -1,8 +1,8 @@
 """简历制作领域服务的单元测试（免数据库的纯逻辑部分）。"""
 
 from backend.domain.resume.enums import ResumeSectionType
-from backend.domain.resume_builder.enums import TemplateId
-from backend.domain.resume_builder.schemas import DesignTokens, ResumeDraft
+from backend.domain.resume_builder.enums import LayoutMode, TemplateId
+from backend.domain.resume_builder.schemas import DesignTokens, LayoutPolicy, ResumeDraft
 from backend.domain.resume_builder.services import (
     _draft_content,
     draft_model_to_schema,
@@ -29,10 +29,20 @@ class _FakeProfile:
 class _FakeDraftModel:
     """模拟 ResumeDraftModel 的最小对象（免数据库）。"""
 
-    def __init__(self, content: dict, template_id: str, design_tokens: dict, title: str) -> None:
+    def __init__(
+        self,
+        content: dict,
+        template_id: str,
+        design_tokens: dict,
+        layout_mode: str,
+        target_page_count: int | None,
+        title: str,
+    ) -> None:
         self.content = content
         self.template_id = template_id
         self.design_tokens = design_tokens
+        self.layout_mode = layout_mode
+        self.target_page_count = target_page_count
         self.title = title
 
 
@@ -87,11 +97,14 @@ def test_draft_content_roundtrip() -> None:
         sections=[],
         template_id=TemplateId.MODERN,
         design_tokens=DesignTokens(accent_color="#ff0000"),
+        layout_policy=LayoutPolicy(mode=LayoutMode.TARGET_PAGES, target_page_count=2),
     )
     model = _FakeDraftModel(
         content=_draft_content(original),
         template_id="modern",
         design_tokens=original.design_tokens.model_dump(mode="json"),
+        layout_mode="target_pages",
+        target_page_count=2,
         title="我的简历",
     )
     restored = draft_model_to_schema(model)  # type: ignore[arg-type]
@@ -100,6 +113,10 @@ def test_draft_content_roundtrip() -> None:
     assert restored.summary == "资深工程师"
     assert restored.template_id == TemplateId.MODERN
     assert restored.design_tokens.accent_color == "#ff0000"
+    assert restored.layout_policy == LayoutPolicy(
+        mode=LayoutMode.TARGET_PAGES,
+        target_page_count=2,
+    )
 
 
 def test_draft_to_parsed_result_shape() -> None:

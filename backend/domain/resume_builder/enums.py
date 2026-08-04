@@ -1,4 +1,4 @@
-"""简历制作领域枚举 —— 模板与排版密度。"""
+"""简历制作领域枚举 —— 模板、排版密度与分页模式。"""
 
 from enum import Enum
 
@@ -11,8 +11,15 @@ class TemplateId(str, Enum):
 
 
 class LayoutDensity(str, Enum):
-    """排版密度档位 —— 自动一页时从松到紧逐档收缩。"""
+    """排版密度档位 —— 自动分页时用于受限的版式搜索。"""
     LOOSE = "loose"        # 宽松
     NORMAL = "normal"      # 正常
     TIGHT = "tight"        # 紧凑
     COMPACT = "compact"    # 极紧
+
+
+class LayoutMode(str, Enum):
+    """简历分页策略。"""
+
+    AUTO_PAGES = "auto_pages"
+    TARGET_PAGES = "target_pages"

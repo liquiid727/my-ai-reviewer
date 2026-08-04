@@ -14,6 +14,7 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import noload
 
 from backend.domain.jd.schemas import (
     GapItem,
@@ -187,7 +188,11 @@ class JDMatchingService:
         jd: JobDescriptionModel,
     ) -> JDMatchResultModel:
         """对指定简历与 JD 执行匹配，结果写入 jd_match_results 表。"""
-        stmt = select(CandidateProfileModel).where(CandidateProfileModel.resume_id == resume_id)
+        stmt = (
+            select(CandidateProfileModel)
+            .where(CandidateProfileModel.resume_id == resume_id)
+            .options(noload(CandidateProfileModel.resume))
+        )
         result = await session.execute(stmt)
         profile_row = result.scalar_one_or_none()
         if profile_row is None:

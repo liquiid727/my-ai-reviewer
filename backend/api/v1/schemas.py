@@ -97,6 +97,18 @@ class JobDescriptionData(BaseModel):
     responsibilities: list[Any] | None = None      # 岗位职责（LLM 抽取）
     seniority: str | None = None                   # junior/mid/senior/expert
     extraction_source: str | None = None           # manual | llm
+    source_type: str | None = None
+    source_url: str | None = None
+    source_file_id: str | None = None
+    location: str | None = None
+    preferred_skills: list[Any] | dict[str, Any] | None = None
+    status: str | None = None
+    processing_step: str | None = None
+    processing_error: str | None = None
+    duplicate_of_id: str | None = None
+    field_sources: dict[str, Any] | None = None
+    parser_version: str | None = None
+    updated_at: datetime | None = None
     created_at: datetime
 
 

@@ -9,7 +9,13 @@ import { InterviewPage } from '@/pages/InterviewPage'
 import { InterviewReportPage } from '@/pages/InterviewReportPage'
 import { InterviewListPage } from '@/pages/InterviewListPage'
 import { MyResumesPage } from '@/pages/MyResumesPage'
+import { ResumeStyleTemplatesPage } from '@/pages/ResumeStyleTemplatesPage'
 import { BuilderPage } from '@/pages/BuilderPage'
+import { JDListPage } from '@/pages/JDListPage'
+import { JDDetailPage } from '@/pages/JDDetailPage'
+import { PlanListPage } from '@/pages/PlanListPage'
+import { PlanCreatePage } from '@/pages/PlanCreatePage'
+import { PlanDetailPage } from '@/pages/PlanDetailPage'
 
 export default function App() {
   return (
@@ -21,6 +27,7 @@ export default function App() {
           <Route path="/" element={<Navigate to="/upload" replace />} />
           <Route path="/upload" element={<UploadPage />} />
           <Route path="/resumes" element={<MyResumesPage />} />
+          <Route path="/resumes/style-templates" element={<ResumeStyleTemplatesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/resume/:id" element={<ResumePage />} />
           <Route path="/resume/:id/evaluation" element={<EvaluationPage />} />
@@ -28,6 +35,11 @@ export default function App() {
           <Route path="/interview/:id/report" element={<InterviewReportPage />} />
           <Route path="/interviews" element={<InterviewListPage />} />
           <Route path="/builder/:draftId" element={<BuilderPage />} />
+          <Route path="/jobs" element={<JDListPage />} />
+          <Route path="/jobs/:id" element={<JDDetailPage />} />
+          <Route path="/plans" element={<PlanListPage />} />
+          <Route path="/plans/new" element={<PlanCreatePage />} />
+          <Route path="/plans/:id" element={<PlanDetailPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

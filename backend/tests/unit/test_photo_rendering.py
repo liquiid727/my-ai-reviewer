@@ -7,7 +7,8 @@ from typing import Any
 import pytest
 
 from backend.domain.resume_builder import services
-from backend.domain.resume_builder.schemas import ExportOptions, ResumeDraft
+from backend.domain.resume_builder.enums import LayoutDensity
+from backend.domain.resume_builder.schemas import ExportOptions, LayoutPolicy, ResumeDraft
 
 
 def _draft(identity: dict[str, Any] | None = None) -> ResumeDraft:
@@ -23,6 +24,8 @@ class _FakeDraftModel:
         self.content = {"identity": identity, "summary": None, "sections": []}
         self.template_id = "classic"
         self.design_tokens = None
+        self.layout_mode = "auto_pages"
+        self.target_page_count = None
 
 
 class _FakeSession:
@@ -107,11 +110,11 @@ class TestExportWithPhoto:
             async def render_pdf(
                 self,
                 draft: ResumeDraft,
-                auto_one_page: bool = False,
+                layout_policy: LayoutPolicy | None = None,
                 photo_data_uri: str | None = None,
-            ) -> tuple[bytes, int, bool]:
+            ) -> tuple[bytes, int, bool, LayoutDensity]:
                 captured["photo_data_uri"] = photo_data_uri
-                return b"pdf", 1, False
+                return b"pdf", 1, True, LayoutDensity.NORMAL
 
         monkeypatch.setattr(services, "PdfRenderer", _FakePdfRenderer)
         monkeypatch.setattr(services, "download_file", lambda bucket, obj: b"png-bytes")
@@ -134,11 +137,11 @@ class TestExportWithPhoto:
             async def render_pdf(
                 self,
                 draft: ResumeDraft,
-                auto_one_page: bool = False,
+                layout_policy: LayoutPolicy | None = None,
                 photo_data_uri: str | None = None,
-            ) -> tuple[bytes, int, bool]:
+            ) -> tuple[bytes, int, bool, LayoutDensity]:
                 captured["photo_data_uri"] = photo_data_uri
-                return b"pdf", 1, False
+                return b"pdf", 1, True, LayoutDensity.NORMAL
 
         monkeypatch.setattr(services, "PdfRenderer", _FakePdfRenderer)
 

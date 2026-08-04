@@ -1,7 +1,7 @@
 # RIP-001 Tasks
 
 **Feature**: Resume Multi-format Parsers
-**Status**: Done（残留：TXT 编码兜底、parse.md 文档更新）
+**Status**: Implemented locally（待评审 / 发布）
 **Depends on**: —
 
 ---
@@ -24,7 +24,7 @@
 
 ### T4 — TXT 解析器
 - [x] 实现 `TextResumeParser`
-- [ ] 编码探测（当前仅 utf-8，chardet 兜底未做）
+- [x] 编码探测（`utf-8-sig` → `charset-normalizer` → `errors="replace"` 兜底）
 
 ### T5 — 类型探测与工厂路由
 - [x] 扩展名 + MIME 映射，覆盖 7 个扩展名（含 .htm；`ALLOWED_EXTENSIONS` / `_MIME_MAP`）
@@ -34,7 +34,7 @@
 ### T6 — 测试与集成
 - [x] 各 parser 单测（`tests/unit/test_parsers.py`）
 - [x] `POST /api/v1/resume/upload` 接受全部格式
-- [ ] 更新 `domain/resume/parse.md` 文档（仍是旧版设计笔记）
+- [x] 更新 `domain/resume/parse.md` 文档（同步当前六格式解析器和 blocks 架构）
 
 ---
 

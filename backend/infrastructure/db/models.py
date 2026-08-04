@@ -1,10 +1,24 @@
 """数据库 ORM 模型 —— 定义所有数据表的映射关系。"""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    CheckConstraint,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    SmallInteger,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -324,8 +338,12 @@ class ResumeDraftModel(Base):
     content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)  # 结构化草稿
     template_id: Mapped[str] = mapped_column(String(50), nullable=False, default="classic")  # 模板
     design_tokens: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)  # 设计令牌
-    auto_one_page: Mapped[bool] = mapped_column(default=False)   # 是否自动一页
+    layout_mode: Mapped[str] = mapped_column(String(50), nullable=False, default="auto_pages")
+    target_page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="draft")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    # 列表级排序位置；越小越靠前，由草稿列表的上移/下移操作维护。
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
@@ -341,6 +359,73 @@ class ResumeDraftModel(Base):
     )
 
 
+class ResumeEditSessionModel(Base):
+    """一份草稿的 AI 编辑对话。"""
+    __tablename__ = "resume_edit_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    draft_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("resume_drafts.id", ondelete="CASCADE"), nullable=False,
+    )
+    llm_config_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("llm_configs.id", ondelete="SET NULL"), nullable=True,
+    )
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
+    )
+
+    __table_args__ = (Index("ix_resume_edit_sessions_draft", "draft_id"),)
+
+
+class ResumeEditMessageModel(Base):
+    """AI 编辑会话中的有序消息。"""
+    __tablename__ = "resume_edit_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("resume_edit_sessions.id", ondelete="CASCADE"), nullable=False,
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "sequence", name="uq_resume_edit_message_sequence"),
+        Index("ix_resume_edit_messages_session", "session_id"),
+    )
+
+
+class ResumeEditProposalModel(Base):
+    """可审阅、可原子应用和撤销的结构化修改提案。"""
+    __tablename__ = "resume_edit_proposals"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("resume_edit_sessions.id", ondelete="CASCADE"), nullable=False,
+    )
+    client_request_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    base_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    assistant_message: Mapped[str] = mapped_column(Text, nullable=False)
+    operations: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    selected_operation_ids: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="proposed")
+    model_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    usage: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    before_content: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    after_content: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    applied_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_resume_edit_proposals_session", "session_id"),
+        Index("ix_resume_edit_proposals_status", "status"),
+    )
+
+
 class ResumeExportModel(Base):
     """简历导出记录表 —— 记录每次导出的 PDF 对象与元信息，可追溯。"""
     __tablename__ = "resume_exports"
@@ -352,6 +437,10 @@ class ResumeExportModel(Base):
     storage_path: Mapped[str] = mapped_column(String(1000), nullable=False)   # MinIO 对象名
     template_id: Mapped[str] = mapped_column(String(50), nullable=False)
     page_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    layout_mode: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    applied_density: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_met: Mapped[bool] = mapped_column(nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     draft: Mapped["ResumeDraftModel"] = relationship(back_populates="exports", lazy="selectin")
@@ -368,19 +457,55 @@ class JobDescriptionModel(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title: Mapped[str | None] = mapped_column(String(200), nullable=True)       # 职位名称
     company: Mapped[str | None] = mapped_column(String(200), nullable=True)     # 公司名称
-    raw_text: Mapped[str] = mapped_column(Text, nullable=False)                 # JD 原文
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False, default="")     # JD 原文
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False, default="text")
+    source_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    source_file_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL"), nullable=True,
+    )
+    location: Mapped[str | None] = mapped_column(String(200), nullable=True)
     required_skills: Mapped[list[Any]] = mapped_column(
         JSONB, nullable=False, default=list,
     )  # 必备技能 [{name, critical, evidence?}]
     responsibilities: Mapped[list[Any]] = mapped_column(
         JSONB, nullable=False, default=list,
     )  # 岗位职责（LLM 抽取）
+    preferred_skills: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
     seniority: Mapped[str | None] = mapped_column(String(20), nullable=True)  # junior/mid/senior/expert
     extraction_source: Mapped[str] = mapped_column(
         String(20), nullable=False, default="manual",
     )  # 技能清单来源：manual | llm
     structured: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)        # 结构化 JD（可选，LLM 解析）
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="ready")
+    processing_step: Mapped[str] = mapped_column(String(30), nullable=False, default="done")
+    processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    processing_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    duplicate_of_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("job_descriptions.id", ondelete="SET NULL"), nullable=True,
+    )
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    field_sources: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False, default=dict)
+    parser_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        CheckConstraint("source_type IN ('text', 'file', 'url')", name="ck_jd_source_type"),
+        CheckConstraint(
+            "status IN ('processing', 'duplicate_pending', 'ready', 'failed')", name="ck_jd_status"
+        ),
+        CheckConstraint(
+            "processing_step IN ('queued', 'source_extract', 'duplicate_check', 'llm_extract', 'done')",
+            name="ck_jd_processing_step",
+        ),
+        Index("ix_jd_user_updated", "user_id", "updated_at"),
+        Index("ix_jd_user_status", "user_id", "status"),
+        Index("ix_jd_user_source", "user_id", "source_type"),
+        Index("ix_jd_user_content_hash", "user_id", "content_hash"),
+    )
 
 
 class JDMatchResultModel(Base):
@@ -409,4 +534,100 @@ class JDMatchResultModel(Base):
     __table_args__ = (
         Index("ix_jd_match_results_resume", "resume_id"),
         Index("ix_jd_match_results_jd", "jd_id"),
+    )
+
+
+class JobSearchPlanModel(Base):
+    """A durable, generated preparation plan for one ready JD and resume."""
+
+    __tablename__ = "job_search_plans"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    jd_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("job_descriptions.id", ondelete="RESTRICT"), nullable=False,
+    )
+    resume_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="RESTRICT"), nullable=False,
+    )
+    match_result_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("jd_match_results.id", ondelete="SET NULL"), nullable=True,
+    )
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="generating")
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    weekly_hours: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    supplemental_background: Mapped[str | None] = mapped_column(Text, nullable=True)
+    input_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    llm_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    generation_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    generation_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    previous_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
+    )
+
+    tasks: Mapped[list["JobSearchPlanTaskModel"]] = relationship(
+        back_populates="plan",
+        lazy="noload",
+        cascade="all, delete-orphan",
+        order_by="JobSearchPlanTaskModel.sort_order",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('generating', 'regenerating', 'active', 'completed', 'failed')", name="ck_plan_status"
+        ),
+        CheckConstraint("weekly_hours IS NULL OR weekly_hours BETWEEN 1 AND 80", name="ck_plan_weekly_hours"),
+        Index("ix_plans_user_updated", "user_id", "updated_at"),
+        Index("ix_plans_user_status", "user_id", "status"),
+        Index(
+            "uq_active_plan_jd_resume",
+            "jd_id",
+            "resume_id",
+            unique=True,
+            postgresql_where=text("status IN ('generating', 'regenerating', 'active', 'failed')"),
+        ),
+    )
+
+
+class JobSearchPlanTaskModel(Base):
+    """One generated or manual task belonging to a job-search plan."""
+
+    __tablename__ = "job_search_plan_tasks"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("job_search_plans.id", ondelete="CASCADE"), nullable=False,
+    )
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    category: Mapped[str] = mapped_column(String(40), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    basis: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
+    priority: Mapped[str] = mapped_column(String(20), nullable=False, default="medium")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="todo")
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
+    )
+
+    plan: Mapped[JobSearchPlanModel] = relationship(back_populates="tasks", lazy="noload")
+
+    __table_args__ = (
+        CheckConstraint(
+            "category IN ('gap_priority', 'resume', 'skill', 'evidence_project', 'interview', 'application_review')",
+            name="ck_plan_task_category",
+        ),
+        CheckConstraint("source IN ('ai', 'manual')", name="ck_plan_task_source"),
+        CheckConstraint("priority IN ('high', 'medium', 'low')", name="ck_plan_task_priority"),
+        CheckConstraint("status IN ('todo', 'in_progress', 'done')", name="ck_plan_task_status"),
+        Index("ix_plan_tasks_plan_order", "plan_id", "sort_order"),
+        Index("ix_plan_tasks_plan_status", "plan_id", "status"),
+        Index("ix_plan_tasks_due_date", "due_date"),
     )

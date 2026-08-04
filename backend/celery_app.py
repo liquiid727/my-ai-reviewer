@@ -15,6 +15,8 @@ celery = Celery(
     include=[
         "backend.tasks.resume_tasks",
         "backend.tasks.interview_tasks",
+        "backend.tasks.jd_tasks",
+        "backend.tasks.plan_tasks",
     ],
 )
 

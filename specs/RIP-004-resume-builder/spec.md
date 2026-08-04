@@ -19,7 +19,7 @@
 - `domain/resume_builder/schemas.py`：`ResumeDraft` / `DraftSection` / `DraftItem` / `DesignTokens` / `PolishRequest` / `ExportOptions`
 - `domain/resume_builder/services.py`：`profile_to_draft`、草稿 CRUD、`polish_draft_section`、`score_draft`
 - `infrastructure/polishers/llm_polisher.py`：`LLMResumePolisher`（保留原文、逐条建议）
-- `infrastructure/rendering/`：`HtmlRenderer`（Jinja2 三模板）+ `PdfRenderer`（Playwright 打印 A4、四档密度自动一页）
+- `infrastructure/rendering/`：`HtmlRenderer`（Jinja2 三模板）+ `PdfRenderer`（Playwright 打印 A4；分页能力由 RIP-005 接管）
 - `api/v1/resume_builder.py`：`/templates`、`/from-resume/{id}`、GET/PUT `/{draft_id}`、`/polish`、`/score`、`/preview`、`/export`
 - DB：`ResumeDraftModel` / `ResumeExportModel`（迁移 `d4e5f6a7b8c9`）
 - 前端：`frontend/src/pages/BuilderPage.tsx`
@@ -115,7 +115,7 @@ POST 成功响应 `data`：
 - `_macros.html` 新增 `photo_block(photo_data_uri)` 宏；classic/modern/compact 姓名区右侧引用
 - `identity.photo` 为空 → 宏输出空，flex 布局自然收合不留白
 - `HtmlRenderer` 渲染前：草稿有 photo → 从 MinIO 读 bytes → `data:image/png;base64,...` 注入上下文
-- 自动一页：照片高度固定（约 100px 内），密度收缩逻辑不变，回归用例覆盖
+- 自动分页：照片高度固定（约 100px 内），多页布局和真实页数回归用例覆盖
 
 ## 测试策略
 
@@ -123,7 +123,7 @@ POST 成功响应 `data`：
 |---|---|---|
 | US-001 / FR-1~3 | `test_photo_processor.py`：人脸/无人脸/多人脸/降级 | unit |
 | US-002 / FR-4,5,8 | API 上传/确认/删除/400/422/501 六路径（mock MinIO+processor） | unit |
-| US-003 / FR-6,7 | 渲染快照 3 模板 × 有/无照片；`test_one_page_logic.py` 带照片用例 | unit |
+| US-003 / FR-6,7 | 渲染快照 3 模板 × 有/无照片；分页测试带照片用例 | unit |
 | US-004 | BuilderPage 四态 + 浏览器验证（dev-browser） | e2e |
 
 ## 实施顺序
@@ -147,7 +147,7 @@ POST 成功响应 `data`：
 - [ ] 无人脸照片 → HTTP 422 `FACE_NOT_FOUND`
 - [ ] 抠图失败 → 降级"仅裁剪+增强"，响应携带 `degraded_reason`
 - [ ] 原图与结果均落 MinIO，草稿仅在 confirm 后引用结果
-- [ ] classic / modern / compact 三模板带照片与不带照片渲染均正常，自动一页不回归
+- [ ] classic / modern / compact 三模板带照片与不带照片渲染均正常，自动分页不回归
 - [ ] 单测：processor（人脸样张 fixture）、API 六路径、渲染快照
 - [ ] 超过 10MB 或非 jpg/png → HTTP 400 `INVALID_PHOTO`
 - [ ] imaging 依赖未安装 → HTTP 501 `IMAGING_NOT_AVAILABLE`

@@ -4,7 +4,7 @@ import asyncio
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, UploadFile
+from fastapi import APIRouter, Depends, Query, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +19,7 @@ from backend.api.v1.schemas import (
 )
 from backend.application.llm_config_service import has_verified_config
 from backend.application.resume_service import upload_resume
+from backend.domain.job_search_plan.services import get_eligible_resume_options
 from backend.domain.resume.enums import ResumeStatus
 from backend.domain.resume.services import snapshot_and_reset_for_reparse
 from backend.infrastructure.db.database import get_db
@@ -99,6 +100,20 @@ async def upload_resume_endpoint(
         file_data=file_data,
     )
     return APIResponse(data=ResumeUploadData(**result))
+
+
+@router.get("", response_model=APIResponse)
+async def list_resumes(
+    has_profile: bool = Query(False),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """List lightweight resume options for plan creation without exposing profile identity."""
+    if not has_profile:
+        return APIResponse(code=1001, message="has_profile=true is required for this listing")
+    items, total = await get_eligible_resume_options(session, page=page, page_size=page_size)
+    return APIResponse(data={"items": items, "page": page, "page_size": page_size, "total": total})
 
 
 @router.get("/{resume_id}/status", response_model=APIResponse)

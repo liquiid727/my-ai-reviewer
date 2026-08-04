@@ -1,6 +1,7 @@
 import { apiRequest } from './client'
 import type { APIResponse } from '@/types/resume'
 import type {
+  AssistantConversation,
   DraftListItem,
   ExportPayload,
   PhotoBgColor,
@@ -27,6 +28,13 @@ export async function listDrafts(): Promise<APIResponse<DraftListItem[]>> {
   return apiRequest('/builder/drafts')
 }
 
+export async function reorderDrafts(draftIds: string[]): Promise<APIResponse<DraftListItem[]>> {
+  return apiRequest('/builder/drafts/order', {
+    method: 'PUT',
+    body: JSON.stringify({ draft_ids: draftIds }),
+  })
+}
+
 export async function createDraftFromReference(
   templateKey: string,
 ): Promise<APIResponse<{ draft_id: string }>> {
@@ -47,10 +55,91 @@ export async function updateDraft(
   draftId: string,
   payload: UpdateDraftPayload,
 ): Promise<APIResponse<ResumeDraftData>> {
-  return apiRequest(`/builder/${draftId}`, {
+  return assistantRequest(`/${draftId}`, {
     method: 'PUT',
     body: JSON.stringify(payload),
   })
+}
+
+export class AssistantApiError extends Error {
+  status: number
+  detail: unknown
+
+  constructor(status: number, detail: unknown) {
+    super(`Assistant API error (${status})`)
+    this.status = status
+    this.detail = detail
+  }
+}
+
+async function assistantRequest<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  })
+  const body = await res.json().catch(() => null)
+  if (!res.ok) throw new AssistantApiError(res.status, body?.detail ?? body)
+  return body
+}
+
+export async function getAssistantConversation(
+  draftId: string,
+): Promise<APIResponse<AssistantConversation | null>> {
+  return assistantRequest(`/${draftId}/assistant`)
+}
+
+export async function createAssistantTurn(
+  draftId: string,
+  payload: {
+    message: string
+    base_revision: number
+    client_request_id: string
+    conversation_id?: string
+  },
+): Promise<APIResponse<AssistantConversation>> {
+  return assistantRequest(`/${draftId}/assistant/turns`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function applyAssistantProposal(
+  draftId: string,
+  proposalId: string,
+  baseRevision: number,
+  selectedOperationIds: string[],
+): Promise<APIResponse<ResumeDraftData>> {
+  return assistantRequest(`/${draftId}/assistant/proposals/${proposalId}/apply`, {
+    method: 'POST',
+    body: JSON.stringify({
+      base_revision: baseRevision,
+      selected_operation_ids: selectedOperationIds,
+    }),
+  })
+}
+
+export async function rejectAssistantProposal(
+  draftId: string,
+  proposalId: string,
+): Promise<APIResponse<{ proposal_id: string; status: string }>> {
+  return assistantRequest(`/${draftId}/assistant/proposals/${proposalId}/reject`, {
+    method: 'POST',
+  })
+}
+
+export async function undoAssistantProposal(
+  draftId: string,
+  proposalId: string,
+): Promise<APIResponse<ResumeDraftData>> {
+  return assistantRequest(`/${draftId}/assistant/proposals/${proposalId}/undo`, {
+    method: 'POST',
+  })
+}
+
+export async function deleteDraft(
+  draftId: string,
+): Promise<APIResponse<{ draft_id: string }>> {
+  return apiRequest(`/builder/${draftId}`, { method: 'DELETE' })
 }
 
 export async function polishSection(
@@ -69,7 +158,7 @@ export async function scoreDraft(draftId: string): Promise<APIResponse<ScoreResu
   return apiRequest(`/builder/${draftId}/score`, { method: 'POST' })
 }
 
-/** 预览 URL —— 直接给 iframe 的 src 使用（返回 text/html）。 */
+/** 分页预览 URL —— 直接给 iframe 的 src 使用（返回与导出一致的 PDF）。 */
 export function previewUrl(draftId: string): string {
   return `${BASE}/${draftId}/preview`
 }
@@ -78,7 +167,7 @@ export function previewUrl(draftId: string): string {
 export async function exportDraftPdf(
   draftId: string,
   payload: ExportPayload,
-): Promise<{ blob: Blob; pageCount: number; overflow: boolean }> {
+): Promise<{ blob: Blob; pageCount: number; targetMet: boolean; appliedDensity: string }> {
   const res = await fetch(`${BASE}/${draftId}/export`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -88,9 +177,10 @@ export async function exportDraftPdf(
     throw new Error(`Export failed (${res.status})`)
   }
   const pageCount = Number(res.headers.get('X-Page-Count') ?? '1')
-  const overflow = res.headers.get('X-Overflow') === 'true'
+  const targetMet = res.headers.get('X-Target-Met') !== 'false'
+  const appliedDensity = res.headers.get('X-Layout-Density') ?? 'normal'
   const blob = await res.blob()
-  return { blob, pageCount, overflow }
+  return { blob, pageCount, targetMet, appliedDensity }
 }
 
 /** 照片接口错误——携带 HTTP 状态码与后端 detail，供前端差异化文案。 */

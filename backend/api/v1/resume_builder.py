@@ -1,4 +1,4 @@
-"""简历制作 API 端点 —— 草稿 CRUD、AI 润色、AI 打分、证件照处理、HTML 预览与 PDF 导出。"""
+"""简历制作 API 端点 —— 草稿 CRUD、AI 润色、证件照、分页预览与 PDF 导出。"""
 
 from __future__ import annotations
 
@@ -8,17 +8,19 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, Response
-from pydantic import BaseModel
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.v1.schemas import APIResponse
+from backend.application import llm_config_service, resume_edit_service
 from backend.config import get_settings
 from backend.domain.resume.enums import ResumeSectionType
 from backend.domain.resume_builder import services
+from backend.domain.resume_builder.editing import DraftRevisionConflictError
 from backend.domain.resume_builder.enums import LayoutDensity, TemplateId
 from backend.domain.resume_builder.reference_templates import list_reference_templates
-from backend.domain.resume_builder.schemas import ExportOptions
+from backend.domain.resume_builder.schemas import ExportOptions, LayoutPolicy
 from backend.infrastructure.db.database import get_db
 from backend.infrastructure.imaging import (
     BG_COLORS,
@@ -40,6 +42,8 @@ router = APIRouter(prefix="/builder", tags=["builder"])
 # 证件照上传限制：仅 jpg/png，最大 10MB
 PHOTO_ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png"}
 PHOTO_MAX_SIZE = 10 * 1024 * 1024
+LLM_NOT_READY_CODE = 428
+LLM_NOT_READY_MESSAGE = "LLM not configured or not verified"
 
 
 # ─────────────────────────── 请求体模型 ───────────────────────────
@@ -53,7 +57,8 @@ class UpdateDraftRequest(BaseModel):
     sections: list[dict[str, Any]] | None = None
     template_id: TemplateId | None = None
     design_tokens: dict[str, Any] | None = None
-    auto_one_page: bool | None = None
+    layout_policy: LayoutPolicy | None = None
+    base_revision: int | None = Field(default=None, ge=1)
 
 
 class PolishSectionRequest(BaseModel):
@@ -66,13 +71,32 @@ class PolishSectionRequest(BaseModel):
 class ExportRequest(BaseModel):
     """导出 PDF 的请求体。"""
     template_id: TemplateId | None = None
-    auto_one_page: bool = False
+    layout_policy: LayoutPolicy | None = None
     persist: bool = False
 
 
 class ConfirmPhotoRequest(BaseModel):
     """确认采用处理后证件照的请求体。"""
     object_name: str
+
+
+class DraftOrderRequest(BaseModel):
+    """草稿列表的完整排序结果。"""
+    draft_ids: list[uuid.UUID]
+
+
+class AssistantTurnRequest(BaseModel):
+    """发送一条助手指令并生成结构化提案。"""
+
+    message: str = Field(min_length=1, max_length=4000)
+    base_revision: int = Field(ge=1)
+    client_request_id: str = Field(min_length=8, max_length=100)
+    conversation_id: uuid.UUID | None = None
+
+
+class ApplyProposalRequest(BaseModel):
+    base_revision: int = Field(ge=1)
+    selected_operation_ids: list[str] = Field(min_length=1, max_length=30)
 
 
 # ─────────────────────────── 序列化 ───────────────────────────
@@ -86,8 +110,9 @@ def _serialize_draft(model: Any) -> dict[str, Any]:
         "resume_id": str(model.resume_id) if model.resume_id else None,
         "title": model.title,
         "template_id": model.template_id,
-        "auto_one_page": model.auto_one_page,
+        "layout_policy": draft.layout_policy.model_dump(mode="json"),
         "status": model.status,
+        "revision": int(getattr(model, "revision", 1)),
         "identity": draft.identity,
         "summary": draft.summary,
         "sections": [s.model_dump(mode="json") for s in draft.sections],
@@ -123,7 +148,7 @@ async def list_reference_template_options() -> APIResponse:
 
 @router.get("/drafts")
 async def list_drafts(session: AsyncSession = Depends(get_db)) -> APIResponse:
-    """返回全部简历草稿概要，按更新时间倒序（供简历列表页展示）。"""
+    """返回全部简历草稿概要，按用户维护的顺序（供简历列表页展示）。"""
     models = await services.list_drafts(session)
     return APIResponse(data=[
         {
@@ -132,6 +157,32 @@ async def list_drafts(session: AsyncSession = Depends(get_db)) -> APIResponse:
             "title": m.title,
             "template_id": m.template_id,
             "status": m.status,
+            "sort_order": m.sort_order,
+            "created_at": m.created_at.isoformat(),
+            "updated_at": m.updated_at.isoformat(),
+        }
+        for m in models
+    ])
+
+
+@router.put("/drafts/order")
+async def reorder_drafts(
+    body: DraftOrderRequest,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """持久化简历草稿卡片顺序。"""
+    try:
+        models = await services.reorder_drafts(session, body.draft_ids)
+    except ValueError as exc:
+        return APIResponse(code=400, message=str(exc))
+    return APIResponse(data=[
+        {
+            "draft_id": str(m.id),
+            "resume_id": str(m.resume_id) if m.resume_id else None,
+            "title": m.title,
+            "template_id": m.template_id,
+            "status": m.status,
+            "sort_order": m.sort_order,
             "created_at": m.created_at.isoformat(),
             "updated_at": m.updated_at.isoformat(),
         }
@@ -179,9 +230,146 @@ async def update_draft(
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """更新草稿的内容 / 模板 / 设计令牌。"""
-    patch = body.model_dump(exclude_unset=True)
-    model = await services.update_draft(session, draft_id, patch)
+    patch = body.model_dump(exclude_unset=True, exclude={"base_revision"})
+    try:
+        model = await services.update_draft(
+            session,
+            draft_id,
+            patch,
+            expected_revision=body.base_revision,
+        )
+    except DraftRevisionConflictError as exc:
+        _raise_revision_conflict(exc)
     return APIResponse(data=_serialize_draft(model))
+
+
+@router.delete("/{draft_id}")
+async def delete_draft(
+    draft_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """删除草稿及其导出记录。"""
+    try:
+        await services.delete_draft(session, draft_id)
+    except ValueError:
+        return APIResponse(code=404, message="Resume draft not found")
+    return APIResponse(message="Resume draft deleted", data={"draft_id": str(draft_id)})
+
+
+async def _get_builder_llm_gateway(session: AsyncSession) -> LLMGateway | None:
+    """从已验证的持久化配置创建 Builder 网关，未就绪时返回 None。"""
+    config = await llm_config_service.get_active_verified_config(session)
+    if config is None:
+        return None
+    return LLMGateway.from_config(config)
+
+
+@router.get("/{draft_id}/assistant")
+async def get_assistant_conversation(
+    draft_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """返回草稿最近一次 AI 编辑会话。"""
+    await services.get_draft(session, draft_id)
+    conversation = await resume_edit_service.get_latest_conversation(session, draft_id=draft_id)
+    return APIResponse(data=conversation)
+
+
+@router.post("/{draft_id}/assistant/turns")
+async def create_assistant_turn(
+    draft_id: uuid.UUID,
+    body: AssistantTurnRequest,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """生成提案；此端点不会修改草稿。"""
+    config = await llm_config_service.get_active_verified_config(session)
+    if config is None:
+        return APIResponse(code=LLM_NOT_READY_CODE, message=LLM_NOT_READY_MESSAGE)
+    try:
+        conversation = await resume_edit_service.propose_edit(
+            session,
+            draft_id=draft_id,
+            base_revision=body.base_revision,
+            instruction=body.message.strip(),
+            client_request_id=body.client_request_id,
+            conversation_id=body.conversation_id,
+            llm_config=config,
+        )
+    except DraftRevisionConflictError as exc:
+        _raise_revision_conflict(exc)
+    return APIResponse(data=conversation)
+
+
+@router.post("/{draft_id}/assistant/proposals/{proposal_id}/apply")
+async def apply_assistant_proposal(
+    draft_id: uuid.UUID,
+    proposal_id: uuid.UUID,
+    body: ApplyProposalRequest,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """原子应用用户选中的提案操作。"""
+    try:
+        model = await resume_edit_service.apply_proposal(
+            session,
+            draft_id=draft_id,
+            proposal_id=proposal_id,
+            base_revision=body.base_revision,
+            selected_operation_ids=set(body.selected_operation_ids),
+        )
+    except DraftRevisionConflictError as exc:
+        _raise_revision_conflict(exc)
+    except resume_edit_service.ProposalStateError as exc:
+        raise HTTPException(status_code=409, detail={"code": "PROPOSAL_STATE_CONFLICT", "message": str(exc)})
+    return APIResponse(data=_serialize_draft(model))
+
+
+@router.post("/{draft_id}/assistant/proposals/{proposal_id}/reject")
+async def reject_assistant_proposal(
+    draft_id: uuid.UUID,
+    proposal_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """拒绝未应用的提案，不修改草稿。"""
+    try:
+        proposal = await resume_edit_service.reject_proposal(
+            session,
+            draft_id=draft_id,
+            proposal_id=proposal_id,
+        )
+    except resume_edit_service.ProposalStateError as exc:
+        raise HTTPException(status_code=409, detail={"code": "PROPOSAL_STATE_CONFLICT", "message": str(exc)})
+    return APIResponse(data={"proposal_id": str(proposal.id), "status": proposal.status})
+
+
+@router.post("/{draft_id}/assistant/proposals/{proposal_id}/undo")
+async def undo_assistant_proposal(
+    draft_id: uuid.UUID,
+    proposal_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """撤销仍处于当前版本的已应用提案。"""
+    try:
+        model = await resume_edit_service.undo_proposal(
+            session,
+            draft_id=draft_id,
+            proposal_id=proposal_id,
+        )
+    except DraftRevisionConflictError as exc:
+        _raise_revision_conflict(exc)
+    except resume_edit_service.ProposalStateError as exc:
+        raise HTTPException(status_code=409, detail={"code": "PROPOSAL_STATE_CONFLICT", "message": str(exc)})
+    return APIResponse(data=_serialize_draft(model))
+
+
+def _raise_revision_conflict(exc: DraftRevisionConflictError) -> None:
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "DRAFT_REVISION_CONFLICT",
+            "expected_revision": exc.expected,
+            "actual_revision": exc.actual,
+        },
+    )
 
 
 @router.post("/{draft_id}/polish")
@@ -192,7 +380,9 @@ async def polish_section(
 ) -> APIResponse:
     """对指定区块的要点返回 AI 润色建议（保留原文，供前端逐条接受）。"""
     await services.get_draft(session, draft_id)  # 校验草稿存在
-    gateway = LLMGateway.from_settings()
+    gateway = await _get_builder_llm_gateway(session)
+    if gateway is None:
+        return APIResponse(code=LLM_NOT_READY_CODE, message=LLM_NOT_READY_MESSAGE)
     result = await services.polish_draft_section(
         gateway, body.section_type, body.items, body.context,
     )
@@ -206,8 +396,10 @@ async def score_draft(
 ) -> APIResponse:
     """复用 9 维评估器对草稿打分。"""
     model = await services.get_draft(session, draft_id)
+    gateway = await _get_builder_llm_gateway(session)
+    if gateway is None:
+        return APIResponse(code=LLM_NOT_READY_CODE, message=LLM_NOT_READY_MESSAGE)
     draft = services.draft_model_to_schema(model)
-    gateway = LLMGateway.from_settings()
     evaluation = await services.score_draft(gateway, draft)
     return APIResponse(data=evaluation)
 
@@ -216,14 +408,20 @@ async def score_draft(
 async def preview_draft(
     draft_id: uuid.UUID,
     session: AsyncSession = Depends(get_db),
-) -> HTMLResponse:
-    """返回渲染后的 HTML（供 iframe 预览）。"""
+) -> Response:
+    """返回与导出完全相同的分页 PDF（供 iframe 预览）。"""
     model = await services.get_draft(session, draft_id)
-    draft = services.draft_model_to_schema(model)
-    # 照片读取为同步 MinIO I/O，放线程池避免阻塞事件循环
-    photo_data_uri = await asyncio.to_thread(services.draft_photo_data_uri, draft)
-    html = services.render_draft_html(draft, photo_data_uri=photo_data_uri)
-    return HTMLResponse(content=html)
+    pdf_bytes, result = await services.export_draft_pdf(session, model, ExportOptions())
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": "inline; filename=resume-preview.pdf",
+            "X-Page-Count": str(result.page_count),
+            "X-Target-Met": "true" if result.target_met else "false",
+            "X-Layout-Density": result.applied_density.value,
+        },
+    )
 
 
 @router.post("/{draft_id}/export")
@@ -236,7 +434,7 @@ async def export_draft(
     model = await services.get_draft(session, draft_id)
     options = ExportOptions(
         template_id=body.template_id,
-        auto_one_page=body.auto_one_page,
+        layout_policy=body.layout_policy,
         persist=body.persist,
     )
     pdf_bytes, result = await services.export_draft_pdf(session, model, options)
@@ -249,7 +447,8 @@ async def export_draft(
         headers={
             "Content-Disposition": disposition,
             "X-Page-Count": str(result.page_count),
-            "X-Overflow": "true" if result.overflow else "false",
+            "X-Target-Met": "true" if result.target_met else "false",
+            "X-Layout-Density": result.applied_density.value,
         },
     )
 

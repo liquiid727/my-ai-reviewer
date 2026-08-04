@@ -58,6 +58,11 @@ def download_file(bucket: str, object_name: str) -> bytes:
         response.release_conn()
 
 
+def delete_file(bucket: str, object_name: str) -> None:
+    """Delete one object. Callers decide whether a cleanup failure is fatal."""
+    get_minio_client().remove_object(bucket_name=bucket, object_name=object_name)
+
+
 def object_exists(bucket: str, object_name: str) -> bool:
     """检查对象是否存在于 MinIO 中。"""
     client = get_minio_client()

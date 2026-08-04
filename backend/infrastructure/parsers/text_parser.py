@@ -4,6 +4,7 @@ from backend.infrastructure.parsers.base import (
     ParsedResumeText,
     ResumeParser,
     blocks_from_text,
+    read_text_with_fallback,
 )
 
 
@@ -15,8 +16,7 @@ class TextResumeParser(ResumeParser):
         return "text-v1"
 
     def parse(self, file_path: str) -> ParsedResumeText:
-        with open(file_path, encoding="utf-8") as f:
-            raw_text = f.read()
+        raw_text = read_text_with_fallback(file_path)
 
         return ParsedResumeText(
             raw_text=raw_text,

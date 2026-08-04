@@ -10,6 +10,7 @@ backend/
 │   ├── question/
 │   ├── evaluation/
 │   └── report/
+│   └── job_search_plan/
 │
 ├── application/
 │   ├── interview_service/
@@ -17,6 +18,7 @@ backend/
 │   ├── question_service/
 │   ├── evaluation_service/
 │   └── report_service/
+│   └── job_search_plan/
 │
 └── infrastructure/
     ├── db/

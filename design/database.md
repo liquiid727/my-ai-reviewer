@@ -21,6 +21,8 @@
 | `resume_sections` | 简历语义区块（按 work/education/projects/skills 切分，便于溯源） |
 | `candidate_profiles` | 标准化候选人画像（身份/教育/工作/项目/技能/能力标签） |
 | `jd_match_results` | JD 匹配结果（skill_match / missing_skills / risk / gap / score） |
+| `job_search_plans` | 面向一份已就绪 JD 与简历的生成式求职准备计划 |
+| `job_search_plan_tasks` | 计划中的 AI 或人工任务，带证据、排序和完成状态 |
 
 ---
 
@@ -82,6 +84,8 @@ resume_sections → resumes (resume_id)
 resume_facts → resumes (resume_id)
 candidate_profiles → resumes (resume_id, unique)
 jd_match_results → resumes (resume_id) / job_descriptions (jd_id)
+job_search_plans → job_descriptions (jd_id) / resumes (resume_id) / jd_match_results (match_result_id)
+job_search_plan_tasks → job_search_plans (plan_id)
 ```
 
 ### resume_sections（RIP-002）
@@ -116,3 +120,8 @@ jd_match_results → resumes (resume_id) / job_descriptions (jd_id)
 - `skill_match` / `missing_skills` / `risk` / `gap`: JSONB
 - `recommendation`: strong_hire / hire / conditional / reject
 - `detail`: 文字总结
+
+### job_search_plans / job_search_plan_tasks（RIP-008）
+- `job_search_plans` 仅引用 ready JD 和有 Candidate Profile 的简历；未完成的同一 JD+简历组合由部分唯一索引限制为一条。
+- 计划以 `generation_run_id` 拒绝过期 worker 写回，以 `revision` 实施全部计划/任务 mutation 的乐观并发控制。
+- `job_search_plan_tasks` 的 `basis` 保存已解析的 Source Catalog 证据；manual 任务与已完成任务在再生成中保留。

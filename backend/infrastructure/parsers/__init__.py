@@ -1,6 +1,10 @@
 """简历文件解析器模块 —— 根据文件扩展名选择合适的解析器。"""
 
-from backend.infrastructure.parsers.base import ParsedResumeText, ResumeParser
+from backend.infrastructure.parsers.base import (
+    ParsedResumeText,
+    ResumeParser,
+    read_text_with_fallback,
+)
 from backend.infrastructure.parsers.doc_parser import DocResumeParser
 from backend.infrastructure.parsers.docx_parser import DocxResumeParser
 from backend.infrastructure.parsers.html_parser import HtmlResumeParser
@@ -35,6 +39,7 @@ def get_parser(ext: str) -> ResumeParser:
 __all__ = [
     "ParsedResumeText",
     "ResumeParser",
+    "read_text_with_fallback",
     "get_parser",
     "SUPPORTED_EXTENSIONS",
 ]

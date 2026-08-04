@@ -19,8 +19,8 @@ from backend.infrastructure.llm.prompts.jd_extraction import (
 
 logger = logging.getLogger(__name__)
 
-# 输入文本最大长度（超出部分截断）
-MAX_TEXT_LENGTH = 30_000
+# 输入文本最大长度。导入服务会拒绝更大的正文，不静默截断。
+MAX_TEXT_LENGTH = 100_000
 # JSON 解析 / schema 校验失败时的最大重试次数
 MAX_RETRIES = 1
 

@@ -12,6 +12,7 @@ from urllib.parse import quote
 import pytest
 
 from backend.api.v1 import resume_builder as api
+from backend.domain.resume_builder.enums import LayoutDensity
 from backend.domain.resume_builder.schemas import ExportResult
 
 DRAFT_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
@@ -28,7 +29,11 @@ def patch_export(monkeypatch: pytest.MonkeyPatch):
             return model
 
         async def fake_export_pdf(session: Any, m: Any, options: Any) -> tuple[bytes, ExportResult]:
-            return b"%PDF-1.4 fake", ExportResult(page_count=1)
+            return b"%PDF-1.4 fake", ExportResult(
+                page_count=2,
+                target_met=False,
+                applied_density=LayoutDensity.TIGHT,
+            )
 
         monkeypatch.setattr(api.services, "get_draft", fake_get_draft)
         monkeypatch.setattr(api.services, "export_draft_pdf", fake_export_pdf)
@@ -50,6 +55,9 @@ class TestExportContentDisposition:
         assert disposition == expected
         # 回归核心：响应头必须能按 latin-1 编码，否则 starlette 序列化时抛 500
         disposition.encode("latin-1")
+        assert resp.headers["x-page-count"] == "2"
+        assert resp.headers["x-target-met"] == "false"
+        assert resp.headers["x-layout-density"] == "tight"
 
     async def test_ascii_title_kept_in_extended_param(self, patch_export) -> None:
         """ASCII 标题同样走双参数格式，filename*= 保留原始标题。"""

@@ -48,8 +48,8 @@ ResumeDraft（结构化草稿）
 
 - 内置模板：classic（经典单栏）、modern（现代双栏）、compact（紧凑）
 - DesignTokens：字体、主题色、页边距、排版密度
-- 密度四档（loose / normal / tight / compact），自动一页时逐档收缩
-- PDF 导出：Playwright(chromium) 打印 A4，超出一页返回 overflow 提示；可持久化到 MinIO
+- 密度四档（loose / normal / tight / compact），自动分页时作为受限候选版式
+- PDF 导出：Playwright(chromium) 打印 A4，支持自动 1..N 页或指定目标页数；页数来自真实 PDF
 
 3.3 AI 润色（Polish）——已实现
 

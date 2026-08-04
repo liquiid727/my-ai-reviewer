@@ -1,14 +1,23 @@
 export type TemplateId = 'classic' | 'modern' | 'compact'
 export type LayoutDensity = 'loose' | 'normal' | 'tight' | 'compact'
+export type LayoutMode = 'auto_pages' | 'target_pages'
+
+export interface LayoutPolicy {
+  mode: LayoutMode
+  target_page_count: number | null
+}
 
 export interface DesignTokens {
   font_family: string
   density: LayoutDensity
   accent_color: string
   page_margin: string
+  /** 用户自定义 CSS（注入模板末尾，可覆盖默认样式） */
+  custom_css: string
 }
 
 export interface DraftItem {
+  item_id: string
   heading?: string | null
   subheading?: string | null
   date_range?: string | null
@@ -16,6 +25,7 @@ export interface DraftItem {
 }
 
 export interface DraftSection {
+  section_id: string
   section_type: string
   title: string
   items: DraftItem[]
@@ -39,8 +49,9 @@ export interface ResumeDraftData {
   resume_id: string | null
   title: string
   template_id: TemplateId
-  auto_one_page: boolean
+  layout_policy: LayoutPolicy
   status: string
+  revision: number
   identity: DraftIdentity
   summary: string | null
   sections: DraftSection[]
@@ -86,6 +97,7 @@ export interface DraftListItem {
   title: string
   template_id: TemplateId
   status: string
+  sort_order: number
   created_at: string
   updated_at: string
 }
@@ -97,12 +109,13 @@ export interface UpdateDraftPayload {
   sections?: DraftSection[]
   template_id?: TemplateId
   design_tokens?: DesignTokens
-  auto_one_page?: boolean
+  layout_policy?: LayoutPolicy
+  base_revision?: number
 }
 
 export interface ExportPayload {
   template_id?: TemplateId
-  auto_one_page?: boolean
+  layout_policy?: LayoutPolicy
   persist?: boolean
 }
 
@@ -116,4 +129,54 @@ export interface PhotoUploadResult {
   background_replaced: boolean
   degraded_reason: string | null
   bg_color: PhotoBgColor
+}
+
+export type AssistantEditKind =
+  | 'replace_summary'
+  | 'replace_identity_field'
+  | 'replace_item_field'
+  | 'replace_bullet'
+  | 'add_bullet'
+  | 'remove_bullet'
+
+export interface AssistantEditOperation {
+  operation_id: string
+  kind: AssistantEditKind
+  section_id: string | null
+  item_id: string | null
+  bullet_index: number | null
+  field: string | null
+  before: string | null
+  after: string | null
+  reason: string
+}
+
+export type AssistantProposalStatus = 'proposed' | 'applied' | 'rejected' | 'undone'
+
+export interface AssistantMessage {
+  message_id: string
+  sequence: number
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string | null
+}
+
+export interface AssistantProposal {
+  proposal_id: string
+  base_revision: number
+  assistant_message: string
+  operations: AssistantEditOperation[]
+  selected_operation_ids: string[]
+  status: AssistantProposalStatus
+  model: string | null
+  usage: Record<string, unknown>
+  applied_revision: number | null
+  created_at: string | null
+}
+
+export interface AssistantConversation {
+  conversation_id: string
+  status: string
+  messages: AssistantMessage[]
+  proposals: AssistantProposal[]
 }

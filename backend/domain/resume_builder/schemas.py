@@ -1,13 +1,14 @@
 """简历制作领域数据模型 —— 草稿、设计令牌、润色与导出的 Pydantic 模型。"""
 
+import uuid
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from backend.domain.resume.enums import ResumeSectionType
-from backend.domain.resume_builder.enums import LayoutDensity, TemplateId
+from backend.domain.resume_builder.enums import LayoutDensity, LayoutMode, TemplateId
 
-# 密度档位从松到紧的固定顺序（自动一页时按此顺序逐档收缩）
+# 密度档位从松到紧的固定顺序（自动分页按此顺序比较候选方案）
 DENSITY_ORDER: list[LayoutDensity] = [
     LayoutDensity.LOOSE,
     LayoutDensity.NORMAL,
@@ -35,10 +36,27 @@ class DesignTokens(BaseModel):
     density: LayoutDensity = LayoutDensity.NORMAL
     accent_color: str = "#2563eb"       # 主题色（标题/分隔线）
     page_margin: str = "48px"           # 页面内边距
+    custom_css: str = ""                # 用户自定义 CSS（注入模板末尾，可覆盖默认样式）
+
+
+class LayoutPolicy(BaseModel):
+    """自动分页策略；目标页数模式必须显式提供页数。"""
+
+    mode: LayoutMode = LayoutMode.AUTO_PAGES
+    target_page_count: int | None = Field(default=None, ge=1, le=10)
+
+    @model_validator(mode="after")
+    def validate_target_page_count(self) -> "LayoutPolicy":
+        if self.mode == LayoutMode.TARGET_PAGES and self.target_page_count is None:
+            raise ValueError("target_page_count is required for target_pages")
+        if self.mode == LayoutMode.AUTO_PAGES and self.target_page_count is not None:
+            raise ValueError("target_page_count is only valid for target_pages")
+        return self
 
 
 class DraftItem(BaseModel):
     """草稿中的一个可编辑条目（如一段经历、一个项目、一个技能组）。"""
+    item_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     heading: Optional[str] = None       # 条目标题（公司/项目/学校名等）
     subheading: Optional[str] = None    # 副标题（职位/角色/学位等）
     date_range: Optional[str] = None    # 时间范围
@@ -47,6 +65,7 @@ class DraftItem(BaseModel):
 
 class DraftSection(BaseModel):
     """草稿中的一个区块。"""
+    section_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     section_type: ResumeSectionType
     title: str                          # 区块标题（可自定义，如「工作经历」）
     items: List[DraftItem] = []         # 结构化条目
@@ -62,6 +81,7 @@ class ResumeDraft(BaseModel):
     sections: List[DraftSection] = []
     template_id: TemplateId = TemplateId.CLASSIC
     design_tokens: DesignTokens = Field(default_factory=DesignTokens)
+    layout_policy: LayoutPolicy = Field(default_factory=LayoutPolicy)
 
 
 class PolishRequest(BaseModel):
@@ -81,12 +101,13 @@ class PolishResult(BaseModel):
 class ExportOptions(BaseModel):
     """导出 PDF 的选项。"""
     template_id: Optional[TemplateId] = None   # 覆盖草稿模板（可选）
-    auto_one_page: bool = False                # 是否自动收缩到一页
+    layout_policy: LayoutPolicy | None = None  # 覆盖草稿分页策略（可选）
     persist: bool = False                      # 是否将 PDF 存入对象存储并记录
 
 
 class ExportResult(BaseModel):
     """导出结果元信息。"""
     page_count: int
-    overflow: bool = False              # 尽力收缩后仍超过一页
+    target_met: bool = True
+    applied_density: LayoutDensity = LayoutDensity.NORMAL
     storage_path: Optional[str] = None  # 若持久化，返回 MinIO 对象名
