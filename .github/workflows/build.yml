@@ -1,0 +1,84 @@
+# Hosted frontend build gate (AIP-010).
+# Stable check name (rules/quality-gates.md):
+#   build / frontend
+#
+# Calls the same scripts/quality/build.sh runner as local `make build`.
+# Branch-protection activation is separate — see
+# docs/ci/branch-protection-activation.md.
+
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10.11.0"
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm ${{ env.PNPM_VERSION }}
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies (lockfile)
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare result artifact dir
+        run: mkdir -p artifacts/frontend-build
+
+      - name: Frontend production build (make build → scripts/quality/build.sh)
+        id: build
+        continue-on-error: true
+        run: |
+          set +e
+          make build 2>&1 | tee artifacts/frontend-build/build.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=${rc}" > artifacts/frontend-build/result.env
+          # Do not upload dist/ (generated, potentially large). Result marker only.
+          exit "${rc}"
+
+      - name: Upload frontend-build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-frontend-build
+          path: artifacts/frontend-build/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Fail job if build failed
+        if: always()
+        run: |
+          if [[ "${{ steps.build.outcome }}" != "success" ]]; then
+            echo "FAIL: frontend build"
+            exit 1
+          fi
+          echo "PASS: frontend build"

@@ -21,11 +21,12 @@ from backend.domain.resume_builder.schemas import ResumeDraft
 @dataclass(frozen=True)
 class ReferenceTemplate:
     """一个内置参考模板的元信息与草稿构建器。"""
-    key: str                                  # 唯一标识（URL 安全）
-    name: str                                 # 展示名称
-    description: str                          # 一句话说明
-    tags: tuple[str, ...]                     # 方向标签（前端展示用）
-    build_draft: Callable[[], ResumeDraft]    # 构建全新草稿（每次调用返回独立副本）
+
+    key: str  # 唯一标识（URL 安全）
+    name: str  # 展示名称
+    description: str  # 一句话说明
+    tags: tuple[str, ...]  # 方向标签（前端展示用）
+    build_draft: Callable[[], ResumeDraft]  # 构建全新草稿（每次调用返回独立副本）
 
 
 _REGISTRY: dict[str, ReferenceTemplate] = {

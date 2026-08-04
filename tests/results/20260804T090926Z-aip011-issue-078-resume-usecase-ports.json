@@ -1,0 +1,127 @@
+{
+  "schema_version": "1.0",
+  "spec_id": "AIP-011",
+  "spec_version": "issue-078",
+  "run_id": "20260804T090926Z-aip011-issue-078-resume-usecase-ports",
+  "test_type": "quality-gate",
+  "baseline_ref": "3fda1b2",
+  "head_ref": "WORKTREE",
+  "started_at": "2026-08-04T09:09:26.348306Z",
+  "finished_at": "2026-08-04T09:09:31.639146Z",
+  "environment": {
+    "python": "Python 3.9.6",
+    "platform": "macOS-15.7.1-arm64-arm-64bit",
+    "git_head": "3fda1b2"
+  },
+  "gates": [
+    {
+      "id": "resume-usecase-unit",
+      "command": "PYTHONPATH=. uv run --project backend pytest backend/tests/unit/test_reparse.py backend/tests/unit/test_resume_llm_config.py backend/tests/unit/test_resume_privacy_manifest_lookup.py backend/tests/unit/test_resume_file_detach.py backend/tests/unit/test_resume_privacy_api.py backend/tests/unit/test_llm_gate.py backend/tests/unit/test_resume_task_runtime.py -q",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": 1730,
+      "summary": "  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute\n\n<frozen importlib._bootstrap>:488\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute\n\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type swigvarlink has no __module__ attribute\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n20 passed, 5 warnings in 0.06s\n<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute",
+      "evidence": [
+        "backend/application/resume_service/pipeline.py",
+        "backend/application/resume_service/privacy.py",
+        "backend/application/resume_service/queries.py",
+        "backend/domain/resume/policies.py",
+        "backend/domain/resume/services.py",
+        "backend/api/v1/resume.py",
+        "backend/api/v1/settings.py",
+        "backend/tasks/resume_tasks.py",
+        "backend/infrastructure/llm/connection_probe.py",
+        "scripts/quality/arch_exceptions.toml"
+      ]
+    },
+    {
+      "id": "privacy-unit",
+      "command": "PYTHONPATH=. uv run --project backend pytest backend/tests/unit/test_resume_privacy.py backend/tests/unit/test_resume_privacy_pipeline.py backend/tests/unit/test_privacy_quarantine.py backend/tests/unit/test_llm_privacy_guard.py backend/tests/unit/test_privacy_models.py backend/tests/unit/test_privacy_remediation.py -q",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": 1672,
+      "summary": "  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute\n\n<frozen importlib._bootstrap>:488\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute\n\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type swigvarlink has no __module__ attribute\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n17 passed, 5 warnings in 0.03s\n<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute",
+      "evidence": [
+        "backend/application/resume_service/pipeline.py",
+        "backend/application/resume_service/privacy.py",
+        "backend/application/resume_service/queries.py",
+        "backend/domain/resume/policies.py",
+        "backend/domain/resume/services.py",
+        "backend/api/v1/resume.py",
+        "backend/api/v1/settings.py",
+        "backend/tasks/resume_tasks.py",
+        "backend/infrastructure/llm/connection_probe.py",
+        "scripts/quality/arch_exceptions.toml"
+      ]
+    },
+    {
+      "id": "arch-check-unit",
+      "command": "PYTHONPATH=. uv run --project backend pytest backend/tests/unit/test_arch_check.py -q",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": 1724,
+      "summary": "  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute\n\n<frozen importlib._bootstrap>:488\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute\n\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type swigvarlink has no __module__ attribute\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n20 passed, 5 warnings in 0.14s\n<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ attribute",
+      "evidence": [
+        "backend/application/resume_service/pipeline.py",
+        "backend/application/resume_service/privacy.py",
+        "backend/application/resume_service/queries.py",
+        "backend/domain/resume/policies.py",
+        "backend/domain/resume/services.py",
+        "backend/api/v1/resume.py",
+        "backend/api/v1/settings.py",
+        "backend/tasks/resume_tasks.py",
+        "backend/infrastructure/llm/connection_probe.py",
+        "scripts/quality/arch_exceptions.toml"
+      ]
+    },
+    {
+      "id": "arch-check-make",
+      "command": "make arch-check",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": 111,
+      "summary": "  - rule=api-no-imaging importer=backend/api/v1/resume_builder.py:26 imported=backend.infrastructure.imaging.ImagingNotAvailableError\n  - rule=api-no-imaging importer=backend/api/v1/resume_builder.py:26 imported=backend.infrastructure.imaging.process_photo\n  - rule=api-no-llm importer=backend/api/v1/resume_builder.py:33 imported=backend.infrastructure.llm.gateway\n  - rule=api-no-llm importer=backend/api/v1/resume_builder.py:33 imported=backend.infrastructure.llm.gateway.LLMGateway\n  - rule=api-no-storage importer=backend/api/v1/resume_builder.py:34 imported=backend.infrastructure.storage.minio_client\n  - rule=api-no-storage importer=backend/api/v1/resume_builder.py:34 imported=backend.infrastructure.storage.minio_client.ensure_bucket\n  - rule=api-no-storage importer=backend/api/v1/resume_builder.py:34 imported=backend.infrastructure.storage.minio_client.object_exists\n  - rule=api-no-storage importer=backend/api/v1/resume_builder.py:34 imported=backend.infrastructure.storage.minio_client.presigned_url\n  - rule=api-no-storage importer=backend/api/v1/resume_builder.py:34 imported=backend.infrastructure.storage.minio_client.upload_file\nINFO [architecture] scanned domain+api+application+tasks+frontend-pages; violations=104 new=0 waived=104 expired=0 registry_errors=0\nPASS [architecture]\n\u001b[1;32m✅ 架构检查通过\u001b[0m",
+      "evidence": [
+        "backend/application/resume_service/pipeline.py",
+        "backend/application/resume_service/privacy.py",
+        "backend/application/resume_service/queries.py",
+        "backend/domain/resume/policies.py",
+        "backend/domain/resume/services.py",
+        "backend/api/v1/resume.py",
+        "backend/api/v1/settings.py",
+        "backend/tasks/resume_tasks.py",
+        "backend/infrastructure/llm/connection_probe.py",
+        "scripts/quality/arch_exceptions.toml"
+      ]
+    },
+    {
+      "id": "ruff-touched",
+      "command": "PYTHONPATH=. uv run --project backend ruff check backend/api/v1/resume.py backend/api/v1/settings.py backend/application/resume_service backend/application/llm_config_service.py backend/domain/resume backend/tasks/resume_tasks.py backend/infrastructure/llm/connection_probe.py",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": 28,
+      "summary": "\u001b[1;32mAll checks passed!\u001b[0m",
+      "evidence": [
+        "backend/application/resume_service/pipeline.py",
+        "backend/application/resume_service/privacy.py",
+        "backend/application/resume_service/queries.py",
+        "backend/domain/resume/policies.py",
+        "backend/domain/resume/services.py",
+        "backend/api/v1/resume.py",
+        "backend/api/v1/settings.py",
+        "backend/tasks/resume_tasks.py",
+        "backend/infrastructure/llm/connection_probe.py",
+        "scripts/quality/arch_exceptions.toml"
+      ]
+    }
+  ],
+  "decision": "GREEN",
+  "notes": [
+    "Resume pipeline moved from domain to application.resume_service.pipeline",
+    "Domain resume keeps pure policies only",
+    "API resume thinned to application privacy/queries/upload use cases (no ORM/storage/tasks imports)",
+    "LLM connection probe moved to infrastructure; settings API uses serialize_config",
+    "Celery tasks call application pipeline; _run_async reuses per-thread event loop",
+    "All #078 arch exceptions removed; make arch-check PASS (new=0)"
+  ]
+}

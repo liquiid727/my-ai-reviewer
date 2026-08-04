@@ -28,6 +28,5 @@ class QuarantineCipher:
         if not encrypted.startswith(_PREFIX) or len(encrypted) < len(_PREFIX) + 13:
             raise ValueError("Invalid privacy quarantine payload")
         offset = len(_PREFIX)
-        nonce = encrypted[offset:offset + 12]
-        return self._cipher.decrypt(nonce, encrypted[offset + 12:], _PREFIX)
-
+        nonce = encrypted[offset : offset + 12]
+        return self._cipher.decrypt(nonce, encrypted[offset + 12 :], _PREFIX)

@@ -21,10 +21,12 @@ def _make_gateway_mock(*contents: str, model: str = "gpt-4o") -> AsyncMock:
 
 @pytest.mark.asyncio
 async def test_polish_success() -> None:
-    content = json.dumps({
-        "polished_items": ["主导订单系统重构，QPS 提升 3 倍", "设计高可用支付网关"],
-        "notes": "动词开头、量化结果",
-    })
+    content = json.dumps(
+        {
+            "polished_items": ["主导订单系统重构，QPS 提升 3 倍", "设计高可用支付网关"],
+            "notes": "动词开头、量化结果",
+        }
+    )
     gateway = _make_gateway_mock(content)
     polisher = LLMResumePolisher(gateway)
 

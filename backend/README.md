@@ -2,12 +2,15 @@
 
 The backend is a FastAPI modular monolith with a separate Celery worker process. The stable architecture source is [`design/backend-architecture.md`](../design/backend-architecture.md); the system-level view is [`design/architecture.md`](../design/architecture.md).
 
+**Runtime:** Python 3.12+ (`requires-python = ">=3.12"` in `pyproject.toml`; Ruff `target-version = "py312"`, mypy `python_version = "3.12"`).
+
 ## Local Entry Points
 
 - API application: `backend.main:app`
 - Celery application: `backend.celery_app:celery`
 - API router: `backend.api.v1.router:api_router`
 - Database migrations: `infra/alembic/`
+- Quality gates (repo root): `make ci-fast` / `make ci` — shared runners in `scripts/quality/` (see `rules/quality-gates.md`)
 
 ## Package Map
 

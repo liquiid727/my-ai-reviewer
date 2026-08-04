@@ -1,10 +1,11 @@
 """简历制作器 AI 入口的 LLM 配置门禁契约测试。"""
 
 import uuid
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.v1 import resume_builder as api
 from backend.domain.resume.enums import ResumeSectionType
@@ -12,6 +13,10 @@ from backend.domain.resume.enums import ResumeSectionType
 
 class _FakeSession:
     pass
+
+
+def _session() -> AsyncSession:
+    return cast(AsyncSession, _FakeSession())
 
 
 @pytest.mark.asyncio
@@ -28,7 +33,7 @@ async def test_polish_returns_llm_not_ready_without_verified_config(
             section_type=ResumeSectionType.WORK_EXPERIENCE,
             items=["负责服务开发"],
         ),
-        _FakeSession(),  # type: ignore[arg-type]
+        _session(),
     )
 
     assert response.code == api.LLM_NOT_READY_CODE
@@ -44,7 +49,7 @@ async def test_score_returns_llm_not_ready_without_verified_config(
     monkeypatch.setattr(api.llm_config_service, "get_active_verified_config", get_config)
     monkeypatch.setattr(api.services, "get_draft", _async_return(object()))
 
-    response = await api.score_draft(uuid.uuid4(), _FakeSession())  # type: ignore[arg-type]
+    response = await api.score_draft(uuid.uuid4(), _session())
 
     assert response.code == api.LLM_NOT_READY_CODE
     assert response.data is None
@@ -70,7 +75,7 @@ async def test_score_uses_active_verified_config_for_gateway(
     monkeypatch.setattr(api.services, "score_draft", score)
     monkeypatch.setattr(api.LLMGateway, "from_config", from_config)
 
-    response = await api.score_draft(uuid.uuid4(), _FakeSession())  # type: ignore[arg-type]
+    response = await api.score_draft(uuid.uuid4(), _session())
 
     assert response.code == 0
     assert response.data == {"overall_score": 92}
@@ -78,5 +83,5 @@ async def test_score_uses_active_verified_config_for_gateway(
     score.assert_awaited_once_with(gateway, draft_schema)
 
 
-def _async_return(value: Any):
+def _async_return(value: Any) -> AsyncMock:
     return AsyncMock(return_value=value)

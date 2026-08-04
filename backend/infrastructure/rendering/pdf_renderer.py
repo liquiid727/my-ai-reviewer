@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import fitz
+import pymupdf
 
 from backend.domain.resume_builder.enums import LayoutDensity
 from backend.domain.resume_builder.schemas import DENSITY_ORDER, LayoutPolicy, ResumeDraft
@@ -23,15 +23,17 @@ class LayoutCandidate:
 def count_pdf_pages(pdf_bytes: bytes) -> int:
     """从 PDF 页树读取真实页数。"""
     try:
-        document = fitz.open(stream=pdf_bytes, filetype="pdf")
+        # pymupdf 未提供完整类型存根；与 pdf_parser 保持同一调用约定
+        document = pymupdf.open(stream=pdf_bytes, filetype="pdf")  # type: ignore[no-untyped-call]
     except Exception as exc:
         raise ValueError("Invalid PDF") from exc
     try:
-        if document.page_count < 1:
+        page_count = int(document.page_count)
+        if page_count < 1:
             raise ValueError("Invalid PDF: no pages")
-        return document.page_count
+        return page_count
     finally:
-        document.close()
+        document.close()  # type: ignore[no-untyped-call]
 
 
 def select_layout_candidate(
@@ -87,11 +89,13 @@ class PdfRenderer:
                         print_background=True,
                         prefer_css_page_size=True,
                     )
-                    candidates.append(LayoutCandidate(
-                        density=density,
-                        pdf_bytes=pdf_bytes,
-                        page_count=count_pdf_pages(pdf_bytes),
-                    ))
+                    candidates.append(
+                        LayoutCandidate(
+                            density=density,
+                            pdf_bytes=pdf_bytes,
+                            page_count=count_pdf_pages(pdf_bytes),
+                        )
+                    )
 
                 selected, target_met = select_layout_candidate(candidates, policy)
                 return (

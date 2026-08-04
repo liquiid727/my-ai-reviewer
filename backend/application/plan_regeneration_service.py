@@ -14,7 +14,7 @@ from backend.application.plan_service import UNFINISHED_PLAN_STATUSES, PreparedP
 from backend.application.plan_task_service import MAX_PLAN_TASKS
 from backend.domain.jd.enums import JDStatus
 from backend.domain.job_search_plan.enums import PlanStatus, PlanTaskSource, PlanTaskStatus
-from backend.domain.job_search_plan.services import PlanDomainError
+from backend.domain.job_search_plan.policies import PlanDomainError
 from backend.infrastructure.db.models import (
     CandidateProfileModel,
     JobDescriptionModel,
@@ -39,9 +39,7 @@ class PlanRegenerationService:
         if plan.status not in {PlanStatus.ACTIVE.value, PlanStatus.COMPLETED.value}:
             raise PlanDomainError("Plan cannot be regenerated in its current state", 1003)
         jd_status = (
-            await session.execute(
-                select(JobDescriptionModel.status).where(JobDescriptionModel.id == plan.jd_id)
-            )
+            await session.execute(select(JobDescriptionModel.status).where(JobDescriptionModel.id == plan.jd_id))
         ).scalar_one_or_none()
         if jd_status != JDStatus.READY.value:
             raise PlanDomainError("Job description must be ready", 1008)
@@ -98,12 +96,16 @@ class PlanRegenerationService:
             await session.rollback()
             return False
         tasks = (
-            await session.execute(
-                select(JobSearchPlanTaskModel)
-                .where(JobSearchPlanTaskModel.plan_id == plan.id)
-                .order_by(JobSearchPlanTaskModel.sort_order)
+            (
+                await session.execute(
+                    select(JobSearchPlanTaskModel)
+                    .where(JobSearchPlanTaskModel.plan_id == plan.id)
+                    .order_by(JobSearchPlanTaskModel.sort_order)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         preserved = [
             task
             for task in tasks
@@ -167,9 +169,7 @@ class PlanRegenerationService:
     @staticmethod
     async def _lock_plan(session: AsyncSession, plan_id: uuid.UUID) -> JobSearchPlanModel:
         plan = (
-            await session.execute(
-                select(JobSearchPlanModel).where(JobSearchPlanModel.id == plan_id).with_for_update()
-            )
+            await session.execute(select(JobSearchPlanModel).where(JobSearchPlanModel.id == plan_id).with_for_update())
         ).scalar_one_or_none()
         if plan is None:
             raise PlanDomainError("Plan not found", 1002)

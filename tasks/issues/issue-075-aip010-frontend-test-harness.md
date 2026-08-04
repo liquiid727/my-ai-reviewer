@@ -3,10 +3,10 @@
 Add a React component/workflow test command and protect the highest-risk UI state contracts.
 
 ## Acceptance Criteria
-- [ ] `pnpm test`/`make test-frontend` runs deterministically in CI mode
-- [ ] Upload/privacy review and Builder save/conflict/error states have synthetic component tests
-- [ ] Polling cleanup/terminal/timeout ownership is tested
-- [ ] Frontend test, Oxlint, TypeScript, and production build pass
+- [x] `pnpm test`/`make test-frontend` runs deterministically in CI mode
+- [x] Upload/privacy review and Builder save/conflict/error states have synthetic component tests
+- [x] Polling cleanup/terminal/timeout ownership is tested
+- [x] Frontend test, Oxlint, TypeScript, and production build pass
 
 - **Type:** frontend
 - **Priority:** high

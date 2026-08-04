@@ -12,39 +12,110 @@ from backend.infrastructure.parsers.base import BLOCK_HEADING, TextBlock, is_hea
 
 # 标题关键词 → Section 类型映射（中英文）。匹配时对标题做小写归一后子串匹配。
 _SECTION_KEYWORDS: list[tuple[ResumeSectionType, tuple[str, ...]]] = [
-    (ResumeSectionType.BASIC_INFO, (
-        "基本信息", "个人信息", "个人资料", "联系方式", "basic info", "basic information",
-        "personal information", "personal details", "contact",
-    )),
-    (ResumeSectionType.EDUCATION, (
-        "教育背景", "教育经历", "学历", "教育", "education", "academic",
-    )),
-    (ResumeSectionType.WORK_EXPERIENCE, (
-        "工作经历", "工作经验", "职业经历", "实习经历", "work experience",
-        "employment", "professional experience", "experience",
-    )),
-    (ResumeSectionType.PROJECT_EXPERIENCE, (
-        "项目经历", "项目经验", "项目", "project experience", "projects", "project",
-    )),
-    (ResumeSectionType.SKILLS, (
-        "专业技能", "技术栈", "技能", "skills", "technical skills", "skill",
-    )),
-    (ResumeSectionType.CERTIFICATES, (
-        "资格证书", "证书", "certificates", "certifications", "certificate",
-    )),
-    (ResumeSectionType.AWARDS, (
-        "获奖经历", "所获奖项", "奖项", "荣誉", "获奖", "awards", "honors", "honours",
-    )),
-    (ResumeSectionType.SELF_EVALUATION, (
-        "自我评价", "自我介绍", "个人评价", "个人总结", "self evaluation",
-        "self-evaluation", "about me", "summary", "profile",
-    )),
+    (
+        ResumeSectionType.BASIC_INFO,
+        (
+            "基本信息",
+            "个人信息",
+            "个人资料",
+            "联系方式",
+            "basic info",
+            "basic information",
+            "personal information",
+            "personal details",
+            "contact",
+        ),
+    ),
+    (
+        ResumeSectionType.EDUCATION,
+        (
+            "教育背景",
+            "教育经历",
+            "学历",
+            "教育",
+            "education",
+            "academic",
+        ),
+    ),
+    (
+        ResumeSectionType.WORK_EXPERIENCE,
+        (
+            "工作经历",
+            "工作经验",
+            "职业经历",
+            "实习经历",
+            "work experience",
+            "employment",
+            "professional experience",
+            "experience",
+        ),
+    ),
+    (
+        ResumeSectionType.PROJECT_EXPERIENCE,
+        (
+            "项目经历",
+            "项目经验",
+            "项目",
+            "project experience",
+            "projects",
+            "project",
+        ),
+    ),
+    (
+        ResumeSectionType.SKILLS,
+        (
+            "专业技能",
+            "技术栈",
+            "技能",
+            "skills",
+            "technical skills",
+            "skill",
+        ),
+    ),
+    (
+        ResumeSectionType.CERTIFICATES,
+        (
+            "资格证书",
+            "证书",
+            "certificates",
+            "certifications",
+            "certificate",
+        ),
+    ),
+    (
+        ResumeSectionType.AWARDS,
+        (
+            "获奖经历",
+            "所获奖项",
+            "奖项",
+            "荣誉",
+            "获奖",
+            "awards",
+            "honors",
+            "honours",
+        ),
+    ),
+    (
+        ResumeSectionType.SELF_EVALUATION,
+        (
+            "自我评价",
+            "自我介绍",
+            "个人评价",
+            "个人总结",
+            "self evaluation",
+            "self-evaluation",
+            "about me",
+            "summary",
+            "profile",
+        ),
+    ),
 ]
 
 
 @dataclass
 class ResumeSection:
     """一个语义区块的切分结果。"""
+
     section_type: ResumeSectionType
     title: str
     raw_text: str
@@ -113,12 +184,14 @@ def split_sections(blocks: list[Any]) -> list[ResumeSection]:
     # 组装每个区块的 raw_text
     result: list[ResumeSection] = []
     if preamble:
-        result.append(ResumeSection(
-            section_type=ResumeSectionType.BASIC_INFO,
-            title="basic_info",
-            raw_text="\n\n".join(b.text.strip() for b in preamble),
-            blocks=preamble,
-        ))
+        result.append(
+            ResumeSection(
+                section_type=ResumeSectionType.BASIC_INFO,
+                title="basic_info",
+                raw_text="\n\n".join(b.text.strip() for b in preamble),
+                blocks=preamble,
+            )
+        )
     for section in sections:
         section.raw_text = "\n\n".join(b.text.strip() for b in section.blocks)
         result.append(section)

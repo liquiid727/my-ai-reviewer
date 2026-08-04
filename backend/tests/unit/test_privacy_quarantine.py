@@ -13,4 +13,3 @@ def test_quarantine_cipher_round_trip_does_not_expose_source_bytes() -> None:
 
     assert source not in encrypted
     assert cipher.decrypt(encrypted) == source
-

@@ -104,7 +104,7 @@ Browser
 
 ### 后端
 
-- Python 3.12 是当前开发目标；项目元数据最低声明为 Python 3.11，修改代码时遵守 `backend/pyproject.toml` 的配置。
+- Python 3.12 是当前开发与 CI 目标；`backend/pyproject.toml` 声明 `requires-python = ">=3.12"`，Ruff/mypy 均以 3.12 为 target，修改代码时遵守该配置。
 - I/O 默认使用 `async/await`。不要在 FastAPI 路由、异步 service 或 worker 中引入未隔离的阻塞操作。
 - 使用 Pydantic v2 做请求校验和 LLM 结构化输出；所有公开函数签名补齐类型注解。
 - 使用 SQLAlchemy 2.x 的 `select()` 风格和 async session；禁止用 `session.query()` 旧式 API。

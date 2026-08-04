@@ -5,8 +5,9 @@ import uuid
 import pytest
 
 from backend.application.jd_import_service import MAX_JD_FILE_SIZE, JDImportError, _validate_file
+from backend.application.jd_service.processing import JDProcessingService
+from backend.domain.jd.policies import content_hash, normalize_jd_text
 from backend.domain.jd.schemas import ExtractedSkill, JDExtraction
-from backend.domain.jd.services import JDProcessingService, content_hash, normalize_jd_text
 from backend.infrastructure.db.models import FileModel, JobDescriptionModel
 
 
@@ -64,11 +65,11 @@ async def test_file_parser_failure_is_exposed_to_the_worker_as_a_source_failure(
     class FailingParser:
         version = "test-parser"
 
-        def parse(self, _: str):
+        def parse(self, _: str) -> object:
             raise ValueError("broken document")
 
     class FakeSession:
-        async def get(self, model: object, identifier: uuid.UUID):
+        async def get(self, model: object, identifier: uuid.UUID) -> object:
             assert model is FileModel
             assert identifier == source_file_id
             return FileModel(
@@ -92,8 +93,8 @@ async def test_file_parser_failure_is_exposed_to_the_worker_as_a_source_failure(
         source_file_id=source_file_id,
         raw_text="",
     )
-    monkeypatch.setattr("backend.domain.jd.services.download_file", lambda *_: b"text")
-    monkeypatch.setattr("backend.domain.jd.services.get_parser", lambda _: FailingParser())
+    monkeypatch.setattr("backend.application.jd_service.processing.download_file", lambda *_: b"text")
+    monkeypatch.setattr("backend.application.jd_service.processing.get_parser", lambda _: FailingParser())
 
     with pytest.raises(ValueError, match="broken document"):
         await JDProcessingService()._read_source(FakeSession(), jd)  # type: ignore[arg-type]

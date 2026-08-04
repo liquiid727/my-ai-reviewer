@@ -1,0 +1,59 @@
+# Architecture exception registry for scripts/quality/arch_check.py
+# AIP-011 hardened checker (extends AIP-010 baseline).
+#
+# Each exception MUST include:
+#   path           – exact repo-relative source file (.py/.ts/.tsx); no wildcards
+#   rule           – rule id waived for this path only
+#   owner          – owning agent/spec
+#   reason         – short factual note
+#   expiry         – ISO date YYYY-MM-DD (inclusive); expired → FAIL
+#   removal_issue  – issue that removes this debt (#NNN / AIP-NNN / RIP-NNN)
+#
+# ARCH-022 / ARCH-023: wildcard, directory-wide, ownerless, or expired entries fail.
+
+# ── Domain SQLAlchemy (pre-AIP-011 debt) ─────────────────────────────
+
+[[exceptions]]
+path = "backend/domain/resume_builder/services.py"
+rule = "domain-no-sqlalchemy"
+owner = "AIP-011"
+expiry = "2026-09-01"
+reason = "Domain builder service still owns SQLAlchemy sessions."
+removal_issue = "#082"
+
+# ── Domain → application / infrastructure leakage ────────────────────
+
+[[exceptions]]
+path = "backend/domain/resume_builder/services.py"
+rule = "domain-no-infrastructure"
+owner = "AIP-011"
+expiry = "2026-09-01"
+reason = "Builder domain service imports ORM, LLM, polishers, renderers, storage."
+removal_issue = "#082"
+
+# ── API route adapter/ORM/task leakage ───────────────────────────────
+
+[[exceptions]]
+path = "backend/api/v1/resume_builder.py"
+rule = "api-no-imaging"
+owner = "AIP-011"
+expiry = "2026-09-01"
+reason = "Builder routes import imaging adapters directly."
+removal_issue = "#081"
+
+[[exceptions]]
+path = "backend/api/v1/resume_builder.py"
+rule = "api-no-llm"
+owner = "AIP-011"
+expiry = "2026-09-01"
+reason = "Builder routes construct LLMGateway directly."
+removal_issue = "#081"
+
+[[exceptions]]
+path = "backend/api/v1/resume_builder.py"
+rule = "api-no-storage"
+owner = "AIP-011"
+expiry = "2026-09-01"
+reason = "Builder routes call MinIO helpers directly."
+removal_issue = "#081"
+

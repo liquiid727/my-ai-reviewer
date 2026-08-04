@@ -82,8 +82,10 @@ None.
 
 ## 12. Definition of Done
 
-- [ ] Quality design, architecture rules, gate rules, QA skill, knowledge, prompts, and evidence format are reviewed together.
-- [ ] Normative and explanatory sources have an explicit precedence order and no conflicting gate status vocabulary.
-- [ ] QA permissions remain read-only for implementation and delivery unless a user explicitly expands scope.
-- [ ] All artifacts link to AIP-009 and the source review.
-- [ ] `git diff --check` and JSON template validation pass.
+- [x] Quality design, architecture rules, gate rules, QA skill, knowledge, prompts, and evidence format are reviewed together.
+- [x] Normative and explanatory sources have an explicit precedence order and no conflicting gate status vocabulary.
+- [x] QA permissions remain read-only for implementation and delivery unless a user explicitly expands scope.
+- [x] All artifacts link to AIP-009 and the source review.
+- [x] `git diff --check` and JSON template validation pass.
+
+Acceptance evidence: `reviews/AIP-009/governance-acceptance-2026-08-04.md` and `tests/results/*-aip009-dryrun.json` (local-reviewed; delivery not shipped).

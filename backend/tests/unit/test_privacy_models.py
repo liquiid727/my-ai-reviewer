@@ -12,7 +12,7 @@ from backend.infrastructure.db.models import (
 def test_resume_orm_uses_masked_text_and_has_one_privacy_manifest() -> None:
     assert "masked_text" in ResumeModel.__table__.columns
     assert "raw_text" not in ResumeModel.__table__.columns
-    assert ResumePrivacyManifestModel.__table__.name == "resume_privacy_manifests"
+    assert ResumePrivacyManifestModel.__tablename__ == "resume_privacy_manifests"
     assert ResumePrivacyManifestModel.resume_id.property.columns[0].unique is True
 
 

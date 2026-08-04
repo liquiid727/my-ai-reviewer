@@ -1,0 +1,83 @@
+{
+  "issue": 71,
+  "spec": "AIP-010",
+  "title": "Production-code mypy baseline recovery",
+  "date": "2026-08-04",
+  "timestamp_utc": "20260804T070313Z",
+  "mypy": {
+    "version": "2.2.0",
+    "python_version_config": "3.12",
+    "strict": true,
+    "config_file": "backend/pyproject.toml",
+    "note": "From repo root mypy does not auto-discover backend/pyproject.toml; --config-file is required so celery/imaging overrides apply."
+  },
+  "commands": [
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend mypy backend --exclude 'backend/tests' --config-file backend/pyproject.toml",
+      "exit": 0,
+      "status": "PASS",
+      "summary": "Success: no issues found in 161 source files"
+    },
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend mypy backend/api backend/application backend/domain backend/infrastructure backend/tasks backend/agents backend/workflow backend/core backend/config.py backend/main.py backend/celery_app.py backend/rag backend/memory backend/multimodal backend/sandbox backend/evaluation --config-file backend/pyproject.toml",
+      "exit": 0,
+      "status": "PASS",
+      "summary": "Success: no issues found in 160 source files"
+    },
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend mypy backend --config-file backend/pyproject.toml",
+      "exit": 1,
+      "status": "EXPECTED_FAIL_TESTS_ONLY",
+      "summary": "Found 203 errors in 29 files; prod_errors=0 test_errors=203"
+    },
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend ruff check backend/infrastructure/rendering/pdf_renderer.py backend/domain/resume_builder/services.py",
+      "exit": 0,
+      "status": "PASS"
+    },
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend pytest backend/tests/unit/test_pagination.py backend/tests/unit/test_privacy_builder_export.py backend/tests/unit/test_resume_builder_services.py backend/tests/unit/test_photo_rendering.py -q --tb=line",
+      "exit": 0,
+      "status": "PASS",
+      "summary": "20 passed"
+    },
+    {
+      "cmd": "git diff --check -- backend/infrastructure/rendering/pdf_renderer.py backend/domain/resume_builder/services.py",
+      "exit": 0,
+      "status": "PASS"
+    }
+  ],
+  "source_fixes": [
+    {
+      "file": "backend/infrastructure/rendering/pdf_renderer.py",
+      "change": "import fitz -> import pymupdf (aligned with pdf_parser); wrap page_count via int(); line-local no-untyped-call ignores on open/close only"
+    },
+    {
+      "file": "backend/domain/resume_builder/services.py",
+      "change": "export_draft_pdf allowed_tokens built as set[str] with isinstance(token, str) guards instead of set comprehension yielding set[Any|None]"
+    }
+  ],
+  "mypy_overrides_unchanged": [
+    {
+      "module": ["celery", "celery.*"],
+      "reason": "celery installed but missing library stubs / py.typed; ignore_missing_imports only"
+    },
+    {
+      "module": ["cv2", "cv2.*", "rembg", "rembg.*", "numpy", "numpy.*"],
+      "reason": "optional imaging extra; no stubs when group not installed; ignore_missing_imports + follow_imports=skip"
+    }
+  ],
+  "residual_risks": [
+    "Full `mypy backend` still red with 203 test-only errors — owned by issue #072",
+    "pymupdf remains partially untyped; production uses the same no-untyped-call pattern as pdf_parser (2 line ignores in pdf_renderer.count_pdf_pages)",
+    "No root pyproject.toml: CI/Make type-check (#074) must pass --config-file backend/pyproject.toml or chdir into backend",
+    "Pre-existing Any usage in resume_builder services profile mapping was not expanded; no new Any/cast added for silencing"
+  ],
+  "acceptance": {
+    "strict_mypy_production_pass": true,
+    "explicit_contracts": true,
+    "module_specific_overrides_justified": true,
+    "no_silencing_any_cast_ignore": true
+  },
+  "recommended_next": ["#072", "#073"]
+}

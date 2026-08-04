@@ -10,4 +10,3 @@ def test_scrub_payload_masks_nested_legacy_resume_data() -> None:
     assert "13812345678" not in str(masked)
     assert "z@example.com" not in str(masked)
     assert manifest["placeholders"]
-

@@ -26,7 +26,7 @@ def _load(name: str) -> bytes:
     return (FIXTURES / name).read_bytes()
 
 
-def _fake_detect(face: tuple[int, int, int, int]):
+def _fake_detect(face: tuple[int, int, int, int]) -> object:
     """构造返回固定人脸框的检测函数（替代 Haar，避免依赖 cv2）。"""
 
     def detect(img: Image.Image) -> tuple[int, int, int, int]:

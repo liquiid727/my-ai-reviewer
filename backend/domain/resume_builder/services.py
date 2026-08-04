@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
 from backend.domain.privacy import PrivacyGuard, ResumePrivacyRedactor, apply_privacy_replacements
+from backend.domain.privacy.redactor import TOKEN_RE
 from backend.domain.resume.enums import ResumeSectionType
 from backend.domain.resume_builder.editing import DraftRevisionConflictError
 from backend.domain.resume_builder.enums import LayoutMode, TemplateId
@@ -56,15 +57,19 @@ def _work_section(work_experiences: list[dict[str, Any]]) -> DraftSection:
     for w in work_experiences:
         bullets = [b for b in (w.get("responsibilities") or []) if b]
         bullets += [b for b in (w.get("achievements") or []) if b]
-        items.append(DraftItem(
-            heading=w.get("company"),
-            subheading=w.get("title"),
-            date_range=_join_date(w.get("start_date"), w.get("end_date")),
-            bullets=bullets,
-        ))
+        items.append(
+            DraftItem(
+                heading=w.get("company"),
+                subheading=w.get("title"),
+                date_range=_join_date(w.get("start_date"), w.get("end_date")),
+                bullets=bullets,
+            )
+        )
     return DraftSection(
         section_type=ResumeSectionType.WORK_EXPERIENCE,
-        title="工作经历", items=items, order=1,
+        title="工作经历",
+        items=items,
+        order=1,
     )
 
 
@@ -77,14 +82,18 @@ def _project_section(projects: list[dict[str, Any]]) -> DraftSection:
         bullets += [b for b in (p.get("highlights") or []) if b]
         bullets += [b for b in (p.get("difficulties") or []) if b]
         bullets += [b for b in (p.get("metrics") or []) if b]
-        items.append(DraftItem(
-            heading=p.get("name"),
-            subheading=p.get("role"),
-            bullets=bullets,
-        ))
+        items.append(
+            DraftItem(
+                heading=p.get("name"),
+                subheading=p.get("role"),
+                bullets=bullets,
+            )
+        )
     return DraftSection(
         section_type=ResumeSectionType.PROJECT_EXPERIENCE,
-        title="项目经历", items=items, order=2,
+        title="项目经历",
+        items=items,
+        order=2,
     )
 
 
@@ -93,15 +102,19 @@ def _education_section(education: list[dict[str, Any]]) -> DraftSection:
     for e in education:
         degree_major = " ".join(x for x in [e.get("degree"), e.get("major")] if x)
         bullets = [f"GPA: {e['gpa']}"] if e.get("gpa") else []
-        items.append(DraftItem(
-            heading=e.get("school"),
-            subheading=degree_major or None,
-            date_range=_join_date(e.get("start_date"), e.get("end_date")),
-            bullets=bullets,
-        ))
+        items.append(
+            DraftItem(
+                heading=e.get("school"),
+                subheading=degree_major or None,
+                date_range=_join_date(e.get("start_date"), e.get("end_date")),
+                bullets=bullets,
+            )
+        )
     return DraftSection(
         section_type=ResumeSectionType.EDUCATION,
-        title="教育背景", items=items, order=3,
+        title="教育背景",
+        items=items,
+        order=3,
     )
 
 
@@ -117,7 +130,9 @@ def _skills_section(skills: list[dict[str, Any]]) -> DraftSection:
     bullets = [f"{cat}: {', '.join(names)}" for cat, names in grouped.items()]
     return DraftSection(
         section_type=ResumeSectionType.SKILLS,
-        title="技能", items=[DraftItem(bullets=bullets)] if bullets else [], order=4,
+        title="技能",
+        items=[DraftItem(bullets=bullets)] if bullets else [],
+        order=4,
     )
 
 
@@ -131,12 +146,20 @@ def _certificates_section(certificates: list[dict[str, Any]]) -> DraftSection:
         bullets.append(f"{name}（{issuer}）" if issuer else str(name))
     return DraftSection(
         section_type=ResumeSectionType.CERTIFICATES,
-        title="证书", items=[DraftItem(bullets=bullets)] if bullets else [], order=5,
+        title="证书",
+        items=[DraftItem(bullets=bullets)] if bullets else [],
+        order=5,
     )
 
 
 def profile_to_draft(profile: CandidateProfileModel) -> ResumeDraft:
-    """把候选人画像映射为可编辑草稿（bullet 化，默认 classic + normal）。"""
+    """Map a candidate profile to an editable draft (bulletized, classic + normal).
+
+    Returns an *unsanitized* draft. Callers that persist must run a single
+    `_sanitize_draft_for_persistence` pass and keep the produced manifest —
+    double-sanitizing already-masked content yields empty placeholders and
+    breaks export hydration.
+    """
     identity = dict(profile.identity or {})
     summary_parts = [str(t) for t in (profile.ability_tags or [])]
     summary = "、".join(summary_parts) if summary_parts else None
@@ -153,14 +176,14 @@ def profile_to_draft(profile: CandidateProfileModel) -> ResumeDraft:
     if profile.certificates:
         sections.append(_certificates_section(list(profile.certificates)))
 
-    return _sanitize_draft_for_persistence(ResumeDraft(
+    return ResumeDraft(
         title=str(identity.get("name") or "我的简历"),
         identity=identity,
         summary=summary,
         sections=sections,
         template_id=TemplateId.CLASSIC,
         design_tokens=DesignTokens(),
-    ))[0]
+    )
 
 
 # ─────────────────────────── 草稿模型 ↔ schema ───────────────────────────
@@ -176,13 +199,30 @@ def _draft_content(draft: ResumeDraft) -> dict[str, Any]:
 
 
 def _sanitize_draft_for_persistence(draft: ResumeDraft) -> tuple[ResumeDraft, dict[str, Any]]:
-    """Redact every user-editable string before persisting a draft."""
+    """Redact every user-editable string before persisting a draft.
+
+    Only newly-redacted cleartext contributes placeholders. Already-masked
+    ``[[TYPE_NN]]`` tokens are left untouched and produce no entries — callers
+    that update an existing draft must merge with the prior manifest (see
+    `_merge_privacy_manifests`) so export hydration keeps working.
+    """
     counters: dict[str, int] = defaultdict(int)
     placeholders: list[dict[str, Any]] = []
 
     protected_keys = {
-        "title", "section_type", "template_id", "density", "mode", "layout_mode",
-        "target_page_count", "order", "visible", "item_id", "section_id",
+        "title",
+        "section_type",
+        "template_id",
+        "density",
+        "mode",
+        "layout_mode",
+        "target_page_count",
+        "order",
+        "visible",
+        "item_id",
+        "section_id",
+        # MinIO object-name refs are storage handles, not PII values.
+        "photo",
     }
 
     def redact(value: Any, key: str | None = None) -> Any:
@@ -208,6 +248,126 @@ def _sanitize_draft_for_persistence(draft: ResumeDraft) -> tuple[ResumeDraft, di
     clean = ResumeDraft(**sanitized)
     PrivacyGuard().assert_masked(clean.model_dump(mode="json"))
     return clean, {"placeholders": placeholders, "policy_version": "resume-privacy-v1"}
+
+
+def _collect_tokens_from_value(value: Any, out: set[str]) -> None:
+    """Recursively collect ``[[TYPE_NN]]`` tokens present in structured content."""
+    if isinstance(value, str):
+        out.update(TOKEN_RE.findall(value))
+        return
+    if isinstance(value, list):
+        for item in value:
+            _collect_tokens_from_value(item, out)
+        return
+    if isinstance(value, dict):
+        for item in value.values():
+            _collect_tokens_from_value(item, out)
+
+
+def _entity_type_from_token(token: str) -> str:
+    """Best-effort entity_type recovery from a placeholder token string."""
+    inner = token.strip("[]")
+    prefix = inner.rsplit("_", 1)[0].lower() if "_" in inner else inner.lower()
+    if prefix == "org":
+        return "organization"
+    return prefix
+
+
+def _merge_privacy_manifests(
+    existing: dict[str, Any] | None,
+    newly_redacted: dict[str, Any],
+    content: dict[str, Any] | ResumeDraft | None = None,
+) -> dict[str, Any]:
+    """Merge newly redacted placeholders into an existing draft manifest.
+
+    Rules:
+    - Never blank a non-empty prior manifest with ``placeholders: []`` just
+      because a re-sanitize of already-masked content found nothing new.
+    - Prefer the newest entry when the same token is redacted again.
+    - Also retain any ``[[TYPE_NN]]`` tokens still present in content even if
+      they were dropped from both manifests (content is source of truth for
+      "still in use").
+    """
+    by_token: dict[str, dict[str, Any]] = {}
+
+    def _ingest(manifest: dict[str, Any] | None) -> None:
+        if not isinstance(manifest, dict):
+            return
+        raw = manifest.get("placeholders") or []
+        if not isinstance(raw, list):
+            return
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            token = item.get("token")
+            if isinstance(token, str) and token:
+                by_token[token] = dict(item)
+
+    _ingest(existing)
+    _ingest(newly_redacted)
+
+    # Content-scan: keep tokens still present even if a stale entry was dropped.
+    present: set[str] = set()
+    if content is not None:
+        payload = content.model_dump(mode="json") if isinstance(content, ResumeDraft) else content
+        _collect_tokens_from_value(payload, present)
+        for token in present:
+            if token not in by_token:
+                by_token[token] = {
+                    "token": token,
+                    "entity_type": _entity_type_from_token(token),
+                }
+
+    # Drop entries whose tokens no longer appear in content when we scanned it.
+    if present:
+        by_token = {token: entry for token, entry in by_token.items() if token in present}
+
+    policy = "resume-privacy-v1"
+    for source in (newly_redacted, existing or {}):
+        if isinstance(source, dict) and source.get("policy_version"):
+            policy = str(source["policy_version"])
+            break
+
+    return {
+        "placeholders": list(by_token.values()),
+        "policy_version": policy,
+    }
+
+
+def _allowed_tokens_for_export(
+    privacy_manifest: dict[str, Any] | None,
+    draft: ResumeDraft,
+) -> set[str]:
+    """Union of manifest-declared tokens and tokens still present in content."""
+    allowed: set[str] = set()
+    placeholders = (privacy_manifest or {}).get("placeholders", [])
+    if isinstance(placeholders, list):
+        for item in placeholders:
+            if not isinstance(item, dict):
+                continue
+            token = item.get("token")
+            if isinstance(token, str) and token:
+                allowed.add(token)
+    _collect_tokens_from_value(draft.model_dump(mode="json"), allowed)
+    return allowed
+
+
+def _validate_photo_object_name(object_name: str) -> str:
+    """Reject embedded data-URIs / base64 blobs; accept MinIO object-name refs."""
+    value = object_name.strip()
+    if not value:
+        raise ValueError("Photo object name must not be empty")
+    lowered = value.lower()
+    if lowered.startswith("data:"):
+        raise ValueError("Photo must be a storage object name, not a data URI")
+    if "base64," in lowered:
+        raise ValueError("Photo must be a storage object name, not embedded base64")
+    # Heuristic: real object names are short paths; data payloads are huge.
+    if len(value) > 512:
+        raise ValueError("Photo object name is implausibly long")
+    if any(ch.isspace() for ch in value):
+        raise ValueError("Photo object name must not contain whitespace")
+    return value
 
 
 def draft_model_to_schema(model: ResumeDraftModel) -> ResumeDraft:
@@ -258,7 +418,9 @@ def hydrate_draft_for_export(
 ) -> ResumeDraft:
     """Hydrate a short-lived structured copy for preview/export only."""
     hydrated = apply_privacy_replacements(
-        draft.model_dump(mode="json"), replacements, allowed_tokens=allowed_tokens,
+        draft.model_dump(mode="json"),
+        replacements,
+        allowed_tokens=allowed_tokens,
     )
     return ResumeDraft(**hydrated)
 
@@ -278,6 +440,8 @@ async def create_draft_from_profile(
     if profile is None:
         raise ValueError(f"Candidate profile not found for resume: {resume_id}")
 
+    # Single sanitize pass: profile_to_draft is unsanitized; the manifest from
+    # this pass is the one that actually redacted PII and must be persisted.
     draft, privacy_manifest = _sanitize_draft_for_persistence(profile_to_draft(profile))
     # 新建草稿放在列表首位，保持用户刚创建的草稿可立即找到。
     await session.execute(
@@ -374,9 +538,7 @@ async def update_draft(
         model = await get_draft(session, draft_id)
     else:
         result = await session.execute(
-            select(ResumeDraftModel)
-            .where(ResumeDraftModel.id == draft_id)
-            .with_for_update(),
+            select(ResumeDraftModel).where(ResumeDraftModel.id == draft_id).with_for_update(),
         )
         locked_model = result.scalar_one_or_none()
         if locked_model is None:
@@ -399,10 +561,18 @@ async def update_draft(
     # content 相关字段（identity / summary / sections）合并进 content JSONB
     content = dict(model.content or {})
     if "identity" in patch and patch["identity"] is not None:
-        # Photo data is intentionally excluded from persisted resume content.
+        # Client-supplied photo must never bypass confirm ownership checks.
+        # Existing confirmed photo (set via set_draft_photo) is preserved.
+        existing = dict(content.get("identity") or {})
+        existing_photo = existing.get("photo")
         incoming = dict(patch["identity"])
         incoming.pop("photo", None)
-        content["identity"] = incoming
+        merged = {**existing, **incoming}
+        if existing_photo is not None:
+            merged["photo"] = existing_photo
+        else:
+            merged.pop("photo", None)
+        content["identity"] = merged
     if "summary" in patch:
         content["summary"] = patch["summary"]
     if "sections" in patch and patch["sections"] is not None:
@@ -421,9 +591,21 @@ async def update_draft(
             target_page_count=model.target_page_count,
         ),
     )
-    candidate, privacy_manifest = _sanitize_draft_for_persistence(candidate)
+    candidate, newly_redacted = _sanitize_draft_for_persistence(candidate)
+    # Re-sanitizing already-masked content yields empty placeholders — merge
+    # with the prior manifest (and tokens still present in content) so we never
+    # wipe a good manifest with placeholders: [].
+    existing_manifest = getattr(model, "privacy_manifest", None)
+    if not isinstance(existing_manifest, dict):
+        existing_manifest = None
+    content_payload = _draft_content(candidate)
+    privacy_manifest = _merge_privacy_manifests(
+        existing_manifest,
+        newly_redacted,
+        content=content_payload,
+    )
     model.title = candidate.title
-    model.content = _draft_content(candidate)
+    model.content = content_payload
     model.design_tokens = candidate.design_tokens.model_dump(mode="json")
     model.layout_mode = candidate.layout_policy.mode.value
     model.target_page_count = candidate.layout_policy.target_page_count
@@ -486,7 +668,7 @@ async def set_draft_photo(
     if object_name is None:
         identity.pop("photo", None)
     else:
-        identity["photo"] = object_name
+        identity["photo"] = _validate_photo_object_name(object_name)
     content["identity"] = identity
     model.content = content
     model.revision = int(getattr(model, "revision", 0)) + 1
@@ -560,10 +742,12 @@ async def export_draft_pdf(
     if options.template_id is not None:
         draft.template_id = options.template_id
 
-    allowed_tokens = {
-        item.get("token") for item in (getattr(draft_model, "privacy_manifest", None) or {}).get("placeholders", [])
-        if isinstance(item, dict) and item.get("token")
-    }
+    # Manifest tokens ∪ tokens still present in content — never reject a
+    # replacement solely because a prior double-sanitize wiped the manifest.
+    allowed_tokens = _allowed_tokens_for_export(
+        getattr(draft_model, "privacy_manifest", None),
+        draft,
+    )
     draft = hydrate_draft_for_export(draft, options.replacements, allowed_tokens=allowed_tokens)
 
     layout_policy = options.layout_policy or draft.layout_policy

@@ -158,14 +158,16 @@ class ResumePrivacyRedactor:
             token = tokens[key]
             occurrence_count = masked.count(token)
             index = masked.find(token)
-            context = masked[max(0, index - 24): index + len(token) + 24] if index >= 0 else ""
-            placeholders.append(PrivacyPlaceholder(
-                token=token,
-                entity_type=finding.entity_type,
-                occurrence_count=max(1, occurrence_count),
-                context=context,
-                detector=finding.detector,
-            ))
+            context = masked[max(0, index - 24) : index + len(token) + 24] if index >= 0 else ""
+            placeholders.append(
+                PrivacyPlaceholder(
+                    token=token,
+                    entity_type=finding.entity_type,
+                    occurrence_count=max(1, occurrence_count),
+                    context=context,
+                    detector=finding.detector,
+                )
+            )
 
         return RedactionResult(
             masked_text=masked,
@@ -176,9 +178,18 @@ class ResumePrivacyRedactor:
 class PrivacyGuard:
     """Fail closed for direct identifiers at any resume-derived LLM boundary."""
 
-    _direct_patterns = tuple(pattern for kind, _, pattern, _ in _PATTERNS if kind in {
-        "email", "url", "phone", "account", "address",
-    })
+    _direct_patterns = tuple(
+        pattern
+        for kind, _, pattern, _ in _PATTERNS
+        if kind
+        in {
+            "email",
+            "url",
+            "phone",
+            "account",
+            "address",
+        }
+    )
 
     def assert_masked(self, payload: Any) -> None:
         import json
@@ -229,8 +240,16 @@ def apply_manual_mask_spans(
 ) -> RedactionResult:
     """Apply user-confirmed character spans without retaining selected source values."""
     allowed_types = {
-        "person", "phone", "email", "address", "account", "url",
-        "organization", "school", "project", "photo",
+        "person",
+        "phone",
+        "email",
+        "address",
+        "account",
+        "url",
+        "organization",
+        "school",
+        "project",
+        "photo",
     }
     ordered = sorted(spans, key=lambda item: item[0], reverse=True)
     previous_start = len(text) + 1
@@ -253,18 +272,20 @@ def apply_manual_mask_spans(
         prefix = "ORG" if entity_type == "organization" else entity_type.upper()
         token = f"[[{prefix}_{counters[entity_type]:02d}]]"
         masked = masked[:start] + token + masked[end:]
-        allocated.append(PrivacyPlaceholder(
-            token=token,
-            entity_type=entity_type,
-            occurrence_count=1,
-            context="",
-            detector="manual.review",
-        ))
+        allocated.append(
+            PrivacyPlaceholder(
+                token=token,
+                entity_type=entity_type,
+                occurrence_count=1,
+                context="",
+                detector="manual.review",
+            )
+        )
         previous_start = start
 
     for placeholder in allocated:
         index = masked.find(placeholder.token)
-        placeholder.context = masked[max(0, index - 24):index + len(placeholder.token) + 24]
+        placeholder.context = masked[max(0, index - 24) : index + len(placeholder.token) + 24]
     placeholders.extend(reversed(allocated))
     return RedactionResult(
         masked_text=masked,

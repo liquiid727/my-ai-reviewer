@@ -2,9 +2,10 @@
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.v1.resume import (
     LLM_NOT_READY_CODE,
@@ -52,23 +53,27 @@ class _FakeUploadFile:
         return b"%PDF-1.4 fake"
 
 
+def _session(config: Any = None) -> AsyncSession:
+    return cast(AsyncSession, _FakeSession(config))
+
+
 # ---------------------------------------------------------------------------
 # 上传 / 重试门禁
 # ---------------------------------------------------------------------------
 
 
-async def test_upload_blocked_when_llm_not_ready(monkeypatch: pytest.MonkeyPatch):
+async def test_upload_blocked_when_llm_not_ready(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _not_ready(_session: Any) -> bool:
         return False
 
     monkeypatch.setattr("backend.api.v1.resume.has_verified_config", _not_ready)
 
-    res = await upload_resume_endpoint(_FakeUploadFile(), _FakeSession())  # type: ignore[arg-type]
+    res = await upload_resume_endpoint(cast(Any, _FakeUploadFile()), _session())
     assert res.code == LLM_NOT_READY_CODE
     assert "LLM" in res.message
 
 
-async def test_upload_passes_when_llm_ready(monkeypatch: pytest.MonkeyPatch):
+async def test_upload_passes_when_llm_ready(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _ready(_session: Any) -> bool:
         return True
 
@@ -78,18 +83,18 @@ async def test_upload_passes_when_llm_ready(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("backend.api.v1.resume.has_verified_config", _ready)
     monkeypatch.setattr("backend.api.v1.resume.upload_resume", _fake_upload)
 
-    res = await upload_resume_endpoint(_FakeUploadFile(), _FakeSession())  # type: ignore[arg-type]
+    res = await upload_resume_endpoint(cast(Any, _FakeUploadFile()), _session())
     assert res.code == 0
     assert res.data.status == "uploaded"
 
 
-async def test_retry_blocked_when_llm_not_ready(monkeypatch: pytest.MonkeyPatch):
+async def test_retry_blocked_when_llm_not_ready(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _not_ready(_session: Any) -> bool:
         return False
 
     monkeypatch.setattr("backend.api.v1.resume.has_verified_config", _not_ready)
 
-    res = await retry_resume(uuid.uuid4(), _FakeSession())  # type: ignore[arg-type]
+    res = await retry_resume(uuid.uuid4(), _session())
     assert res.code == LLM_NOT_READY_CODE
 
 
@@ -98,31 +103,33 @@ async def test_retry_blocked_when_llm_not_ready(monkeypatch: pytest.MonkeyPatch)
 # ---------------------------------------------------------------------------
 
 
-async def test_endpoint_rejects_without_api_key_and_config_id():
+async def test_endpoint_rejects_without_api_key_and_config_id() -> None:
     body = LLMConfigTestRequest(provider="openai", model_name="gpt-5.5")
-    res = await llm_test_endpoint(body, _FakeSession())  # type: ignore[arg-type]
+    res = await llm_test_endpoint(body, _session())
     assert res.code == 400
 
 
 async def test_connection_uses_stored_key_and_marks_verified(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     config = _FakeConfig()
     session = _FakeSession(config)
     received: dict[str, Any] = {}
 
     async def _fake_run(
-        provider: str, api_key: str, model_name: str, base_url: str | None = None,
+        provider: str,
+        api_key: str,
+        model_name: str,
+        base_url: str | None = None,
     ) -> dict[str, object]:
         received["api_key"] = api_key
         return {"success": True, "models": [model_name]}
 
-    monkeypatch.setattr(llm_config_service, "_run_connection_test", _fake_run)
+    monkeypatch.setattr(llm_config_service, "run_connection_test", _fake_run)
     monkeypatch.setattr(llm_config_service, "get_encryptor", lambda: _FakeEncryptor())
 
     result = await llm_config_service.test_connection(
-        "openai", None, "gpt-5.5",
-        session=session, config_id=uuid.uuid4(),  # type: ignore[arg-type]
+        "openai", None, "gpt-5.5", session=cast(AsyncSession, session), config_id=uuid.uuid4()
     )
 
     # 用解密后的存储 Key 发起测试，并将配置标记为已验证
@@ -133,7 +140,7 @@ async def test_connection_uses_stored_key_and_marks_verified(
     assert session.commits == 1
 
 
-async def test_connection_failure_resets_verified(monkeypatch: pytest.MonkeyPatch):
+async def test_connection_failure_resets_verified(monkeypatch: pytest.MonkeyPatch) -> None:
     config = _FakeConfig()
     config.verified = True
     session = _FakeSession(config)
@@ -141,19 +148,18 @@ async def test_connection_failure_resets_verified(monkeypatch: pytest.MonkeyPatc
     async def _fake_run(*_args: Any, **_kwargs: Any) -> dict[str, object]:
         return {"success": False, "error": "invalid key"}
 
-    monkeypatch.setattr(llm_config_service, "_run_connection_test", _fake_run)
+    monkeypatch.setattr(llm_config_service, "run_connection_test", _fake_run)
     monkeypatch.setattr(llm_config_service, "get_encryptor", lambda: _FakeEncryptor())
 
     result = await llm_config_service.test_connection(
-        "openai", None, "gpt-5.5",
-        session=session, config_id=uuid.uuid4(),  # type: ignore[arg-type]
+        "openai", None, "gpt-5.5", session=cast(AsyncSession, session), config_id=uuid.uuid4()
     )
 
     assert result["success"] is False
     assert config.verified is False
 
 
-async def test_connection_without_any_key_fails():
+async def test_connection_without_any_key_fails() -> None:
     result = await llm_config_service.test_connection("openai", None, "gpt-5.5")
     assert result["success"] is False
     assert "API key" in str(result["error"])
@@ -161,7 +167,7 @@ async def test_connection_without_any_key_fails():
 
 async def test_run_connection_test_falls_back_to_chat_when_models_list_fails(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """OpenAI 兼容渠道未实现 models.list 时，回退 chat.completions 仍应成功。"""
 
     class _FakeModels:
@@ -190,15 +196,20 @@ async def test_run_connection_test_falls_back_to_chat_when_models_list_fails(
 
     monkeypatch.setattr(openai_mod, "AsyncOpenAI", _FakeOpenAI)
 
-    result = await llm_config_service._run_connection_test(
-        "custom", "sk-test", "gpt-5.5", "https://example.com/v1",
+    from backend.infrastructure.llm.connection_probe import run_connection_test
+
+    result = await run_connection_test(
+        "custom",
+        "sk-test",
+        "gpt-5.5",
+        "https://example.com/v1",
     )
     assert result["success"] is True
     assert result["models"] == ["gpt-5.5"]
     assert "warning" in result
 
 
-async def test_run_connection_test_returns_models_list(monkeypatch: pytest.MonkeyPatch):
+async def test_run_connection_test_returns_models_list(monkeypatch: pytest.MonkeyPatch) -> None:
     """models.list 成功时返回去重后的模型清单，当前模型置顶。"""
 
     class _Model:
@@ -221,31 +232,40 @@ async def test_run_connection_test_returns_models_list(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(openai_mod, "AsyncOpenAI", _FakeOpenAI)
 
-    result = await llm_config_service._run_connection_test(
-        "openai", "sk-test", "gpt-5.5", None,
+    from backend.infrastructure.llm.connection_probe import run_connection_test
+
+    result = await run_connection_test(
+        "openai",
+        "sk-test",
+        "gpt-5.5",
+        None,
     )
     assert result["success"] is True
-    assert result["models"][0] == "gpt-5.5"
-    assert set(result["models"]) == {"gpt-5.5", "alpha", "zeta"}
+    models = cast(list[str], result["models"])
+    assert models[0] == "gpt-5.5"
+    assert set(models) == {"gpt-5.5", "alpha", "zeta"}
 
 
 async def test_run_connection_test_client_init_error_is_caught(
     monkeypatch: pytest.MonkeyPatch,
-):
+) -> None:
     """客户端构造失败（如缺 socksio）不得抛出，应返回 success=false。"""
 
     class _Boom:
         def __init__(self, **_kwargs: Any) -> None:
-            raise ImportError(
-                "Using SOCKS proxy, but the 'socksio' package is not installed."
-            )
+            raise ImportError("Using SOCKS proxy, but the 'socksio' package is not installed.")
 
     import openai as openai_mod
 
     monkeypatch.setattr(openai_mod, "AsyncOpenAI", _Boom)
 
-    result = await llm_config_service._run_connection_test(
-        "openai", "sk-test", "gpt-5.5", None,
+    from backend.infrastructure.llm.connection_probe import run_connection_test
+
+    result = await run_connection_test(
+        "openai",
+        "sk-test",
+        "gpt-5.5",
+        None,
     )
     assert result["success"] is False
     assert "socksio" in str(result["error"]).lower() or "SOCKS" in str(result["error"])

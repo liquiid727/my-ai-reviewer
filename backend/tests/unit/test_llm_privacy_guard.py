@@ -49,4 +49,3 @@ async def test_privacy_classified_llm_request_allows_masked_payload() -> None:
     )
 
     assert provider.calls == 1
-

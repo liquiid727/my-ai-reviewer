@@ -1,0 +1,160 @@
+{
+  "schema_version": "1.0",
+  "spec_id": "AIP-010",
+  "spec_version": "issue-074",
+  "run_id": "20260804T075308Z-aip010-issue-074-make-quality-targets",
+  "test_type": "quality-gate",
+  "baseline_ref": "3fda1b2",
+  "head_ref": "WORKTREE",
+  "started_at": "2026-08-04T07:53:08.750720+00:00",
+  "finished_at": "2026-08-04T07:53:08.912808+00:00",
+  "environment": {
+    "python": "3.13.3",
+    "node": "v26.5.0",
+    "platform": "macOS-15.7.1-arm64-arm-64bit"
+  },
+  "gates": [
+    {
+      "id": "lint",
+      "command": "make lint",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": null,
+      "summary": "ruff check + ruff format --check + pnpm lint",
+      "evidence": [
+        "scripts/quality/lint.sh"
+      ]
+    },
+    {
+      "id": "type-check",
+      "command": "make type-check",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": null,
+      "summary": "mypy backend --config-file backend/pyproject.toml + frontend tsc -b; 207 files 0 errors",
+      "evidence": [
+        "scripts/quality/typecheck.sh"
+      ]
+    },
+    {
+      "id": "architecture",
+      "command": "make arch-check",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": null,
+      "summary": "lightweight domain/api import rules; 12 waived sqlalchemy exceptions until 2026-09-01",
+      "evidence": [
+        "scripts/quality/arch_check.py",
+        "scripts/quality/arch_exceptions.toml"
+      ]
+    },
+    {
+      "id": "test-backend-unit",
+      "command": "make test-unit",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": null,
+      "summary": "228 unit tests passed; FE unit NOT_RUN pending #075",
+      "evidence": [
+        "scripts/quality/test_unit.sh",
+        "backend/tests/unit/test_quality_scripts.py"
+      ]
+    },
+    {
+      "id": "test-backend-integration",
+      "command": "make test-integration",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": null,
+      "summary": "30 integration tests passed (Postgres:5433 Redis:6379 up)",
+      "evidence": [
+        "scripts/quality/test_integration.sh"
+      ]
+    },
+    {
+      "id": "test-frontend",
+      "command": "make test-frontend",
+      "status": "BLOCKED",
+      "exit_code": 2,
+      "duration_ms": null,
+      "summary": "frontend test harness not configured (issue #075); standalone non-zero; make ci treats as NOT_RUN",
+      "evidence": [
+        "scripts/quality/test_frontend.sh"
+      ]
+    },
+    {
+      "id": "build-frontend",
+      "command": "make build",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": null,
+      "summary": "pnpm build (tsc -b && vite build) succeeded",
+      "evidence": [
+        "scripts/quality/build.sh"
+      ]
+    },
+    {
+      "id": "ci-fast",
+      "command": "make ci-fast",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": null,
+      "summary": "lint+type+arch+unit+build all PASS",
+      "evidence": [
+        "scripts/quality/ci_fast.sh"
+      ]
+    },
+    {
+      "id": "ci",
+      "command": "make ci",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": null,
+      "summary": "ci-fast + integration PASS; test-frontend NOT_RUN in aggregate",
+      "evidence": [
+        "scripts/quality/ci.sh"
+      ]
+    },
+    {
+      "id": "make-contract-unit",
+      "command": "PYTHONPATH=. uv run --project backend pytest backend/tests/unit/test_quality_scripts.py -q",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": null,
+      "summary": "10 contract tests for Make targets/scripts read-only semantics",
+      "evidence": [
+        "backend/tests/unit/test_quality_scripts.py"
+      ]
+    }
+  ],
+  "ratchet": {
+    "baseline_findings": 0,
+    "new_findings": 0,
+    "resolved_findings": 0,
+    "exceptions": [
+      "domain sqlalchemy imports in 5 files until 2026-09-01 (AIP-011)",
+      "frontend test harness absent until #075"
+    ]
+  },
+  "decision": "GREEN",
+  "blocking_findings": [],
+  "environment_blockers": [],
+  "residual_risks": [
+    "make test-frontend exits 2 until #075 adds FE harness",
+    "arch-check is lightweight; full ARCH-001..023 deferred to AIP-011",
+    "integration BLOCKED (exit 2) when Postgres/Redis unavailable \u2014 make ci fails in that case by design"
+  ],
+  "evidence": [
+    "tests/results/20260804T075308Z-aip010-issue-074-make-quality-targets.json",
+    "scripts/quality/",
+    "Makefile",
+    "rules/quality-gates.md"
+  ],
+  "issue": 74,
+  "notes": [
+    "Shared runners under scripts/quality are source of truth; Make and future GH Actions call them.",
+    "mypy always uses --config-file backend/pyproject.toml",
+    "Verification targets never pass --fix; format uses --check only.",
+    "make test = unit + integration (backward-compatible backend coverage)."
+  ]
+}

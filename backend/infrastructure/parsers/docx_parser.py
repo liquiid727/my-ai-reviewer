@@ -46,6 +46,6 @@ class DocxResumeParser(ResumeParser):
 
         return ParsedResumeText(
             raw_text="\n".join(parts),
-            page_count=None,    # DOCX 格式无法直接获取页数
+            page_count=None,  # DOCX 格式无法直接获取页数
             blocks=blocks,
         )

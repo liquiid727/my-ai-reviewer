@@ -1,0 +1,302 @@
+# Hosted test gates (AIP-010).
+# Stable check names (rules/quality-gates.md):
+#   test / backend-unit
+#   test / backend-integration
+#   test / frontend
+#
+# Calls the same scripts/quality/* runners as local Make targets.
+# Integration uses PostgreSQL 16 + Redis 7 service containers and
+# QG_PG_PORT=5432 (container mapping), not the local-dev 5433 host port.
+# Branch-protection activation is separate — see
+# docs/ci/branch-protection-activation.md.
+
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10.11.0"
+  # Synthetic configuration only — never production secrets or real PII.
+  DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_interview
+  REDIS_URL: redis://localhost:6379/0
+  CELERY_BROKER_URL: redis://localhost:6379/1
+  CELERY_RESULT_BACKEND: redis://localhost:6379/2
+  MINIO_ENDPOINT: localhost:9000
+  MINIO_ACCESS_KEY: minioadmin
+  MINIO_SECRET_KEY: minioadmin
+  MINIO_BUCKET_RESUMES: resumes
+  MINIO_BUCKET_EXPORTS: exports
+  MINIO_BUCKET_PHOTOS: photos
+  MINIO_BUCKET_QUARANTINE: resume-quarantine
+  MINIO_USE_SSL: "false"
+  # Deterministic synthetic Fernet keys for CI only (not production).
+  ENCRYPTION_KEY: JkbsxD3hBkPl1Xy3j970yBYCLkRoF2hV3pQUz-VmyZQ=
+  PRIVACY_QUARANTINE_KEY: 8yJMb3sgSj8U77NJh2iLjmr-AiqDLQfFtl2lIpdUGvs=
+  PRIVACY_QUARANTINE_TTL_SECONDS: "3600"
+  PRIVACY_REVIEW_REQUIRED: "false"
+  DEBUG: "false"
+  DEFAULT_LLM_PROVIDER: openai
+  DEFAULT_LLM_MODEL: gpt-4o
+  OPENAI_API_KEY: ""
+  ANTHROPIC_API_KEY: ""
+  # Integration probe ports match service containers (not local-dev 5433).
+  QG_PG_HOST: localhost
+  QG_PG_PORT: "5432"
+  QG_REDIS_HOST: localhost
+  QG_REDIS_PORT: "6379"
+
+permissions:
+  contents: read
+
+jobs:
+  backend-unit:
+    name: backend-unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            backend/uv.lock
+            backend/pyproject.toml
+
+      - name: Install backend dependencies (lockfile)
+        run: uv sync --project backend --frozen
+
+      - name: Prepare result artifact dir
+        run: mkdir -p artifacts/backend-unit
+
+      - name: Backend unit tests
+        id: unit
+        continue-on-error: true
+        # Backend portion of scripts/quality/test_unit.sh (frontend stays in test/frontend).
+        run: |
+          set +e
+          PYTHONPATH=. uv run --project backend pytest backend/tests/unit -q \
+            --junitxml=artifacts/backend-unit/junit.xml \
+            2>&1 | tee artifacts/backend-unit/pytest.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=${rc}" > artifacts/backend-unit/result.env
+          exit "${rc}"
+
+      - name: Upload backend-unit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-backend-unit
+          path: artifacts/backend-unit/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Fail job if unit tests failed
+        if: always()
+        run: |
+          if [[ "${{ steps.unit.outcome }}" != "success" ]]; then
+            echo "FAIL: backend-unit"
+            exit 1
+          fi
+          echo "PASS: backend-unit"
+
+  backend-integration:
+    name: backend-integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_interview
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            backend/uv.lock
+            backend/pyproject.toml
+
+      - name: Install backend dependencies (lockfile)
+        run: uv sync --project backend --frozen
+
+      - name: Create integration test database
+        # Runner image has no PostgreSQL client tools; create the DB with
+        # asyncpg from the lockfile install above. conftest rewrites
+        # .../ai_interview → .../ai_interview_test before pytest starts.
+        run: |
+          PYTHONPATH=. uv run --project backend python - <<'PY'
+          import asyncio
+          import sys
+          import time
+
+          import asyncpg
+
+          ADMIN_DSN = "postgresql://postgres:postgres@localhost:5432/postgres"
+          TEST_DB = "ai_interview_test"
+
+          async def ensure_db() -> None:
+              last_err: Exception | None = None
+              conn = None
+              for _ in range(30):
+                  try:
+                      conn = await asyncpg.connect(ADMIN_DSN)
+                      break
+                  except Exception as exc:  # noqa: BLE001 — retry until healthy
+                      last_err = exc
+                      time.sleep(1)
+              if conn is None:
+                  raise RuntimeError(f"postgres not ready: {last_err}")
+              try:
+                  exists = await conn.fetchval(
+                      "SELECT 1 FROM pg_database WHERE datname = $1", TEST_DB
+                  )
+                  if not exists:
+                      # CREATE DATABASE cannot run inside a transaction block.
+                      await conn.execute(f'CREATE DATABASE "{TEST_DB}"')
+                      print(f"created database {TEST_DB}")
+                  else:
+                      print(f"database {TEST_DB} already exists")
+              finally:
+                  await conn.close()
+
+          try:
+              asyncio.run(ensure_db())
+          except Exception as exc:  # noqa: BLE001
+              print(f"FAIL ensure test database: {exc}", file=sys.stderr)
+              sys.exit(1)
+          PY
+
+      - name: Prepare result artifact dir
+        run: mkdir -p artifacts/backend-integration
+
+      - name: Integration tests (make test-integration → scripts/quality/test_integration.sh)
+        id: integration
+        continue-on-error: true
+        run: |
+          set +e
+          make test-integration 2>&1 | tee artifacts/backend-integration/pytest.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=${rc}" > artifacts/backend-integration/result.env
+          # Preserve failure: exit 2 (BLOCKED) and exit 1 (FAIL) both fail the job.
+          exit "${rc}"
+
+      - name: Upload backend-integration artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-backend-integration
+          path: artifacts/backend-integration/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Fail job if integration gate failed or blocked
+        if: always()
+        run: |
+          if [[ "${{ steps.integration.outcome }}" != "success" ]]; then
+            echo "FAIL: backend-integration (behavioral FAIL or env BLOCKED both block the check)"
+            exit 1
+          fi
+          echo "PASS: backend-integration"
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm ${{ env.PNPM_VERSION }}
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies (lockfile)
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare result artifact dir
+        run: mkdir -p artifacts/frontend-test
+
+      - name: Frontend tests (make test-frontend → scripts/quality/test_frontend.sh)
+        id: frontend_test
+        continue-on-error: true
+        run: |
+          set +e
+          make test-frontend 2>&1 | tee artifacts/frontend-test/vitest.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=${rc}" > artifacts/frontend-test/result.env
+          exit "${rc}"
+
+      - name: Upload frontend-test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-frontend-test
+          path: artifacts/frontend-test/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Fail job if frontend tests failed
+        if: always()
+        run: |
+          if [[ "${{ steps.frontend_test.outcome }}" != "success" ]]; then
+            echo "FAIL: frontend tests"
+            exit 1
+          fi
+          echo "PASS: frontend tests"

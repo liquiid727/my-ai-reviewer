@@ -1,0 +1,225 @@
+{
+  "schema_version": "1.0",
+  "spec_id": "AIP-009",
+  "spec_version": "proposed-2026-08-04",
+  "run_id": "20260804T065147Z-aip009-dryrun",
+  "test_type": "quality-gate",
+  "baseline_ref": "3fda1b2",
+  "head_ref": "WORKTREE",
+  "started_at": "2026-08-04T06:51:47.309574+00:00",
+  "finished_at": "2026-08-04T06:51:47.394880+00:00",
+  "environment": {
+    "python": "3.x-local",
+    "node": "local",
+    "platform": "darwin",
+    "note": "versions not pinned in this dry-run; full env capture deferred to AIP-010 CI"
+  },
+  "sample_plans": {
+    "backend_only_issue": "#070 aip010-ruff-runtime-baseline",
+    "full_stack_issue": "#075 aip010-frontend-test-harness",
+    "note": "Dry-run plans only. No gate result was fabricated as PASS without execution."
+  },
+  "makefile_target_availability": {
+    "type-check": false,
+    "arch-check": false,
+    "ci-fast": false,
+    "ci": false,
+    "test-unit": false,
+    "test-integration": false,
+    "test-frontend": false,
+    "build": false,
+    "lint": true,
+    "test": true
+  },
+  "gates": [
+    {
+      "id": "diff-integrity",
+      "command": "git diff --check",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": null,
+      "summary": "whitespace/conflict marker check",
+      "evidence": []
+    },
+    {
+      "id": "evidence-template-parse",
+      "command": "python3 -c 'import json; json.load(open(\"tests/_template/quality-gate-result.template.json\"))'",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": null,
+      "summary": "JSON template parses",
+      "evidence": []
+    },
+    {
+      "id": "canonical-path-review",
+      "command": "python3 path existence check",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": null,
+      "summary": "AIP-009 canonical artifacts exist",
+      "evidence": []
+    },
+    {
+      "id": "make-type-check",
+      "command": "make type-check",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "target not present in Makefile yet (AIP-010 planned); must not be reported as PASS",
+      "evidence": []
+    },
+    {
+      "id": "make-arch-check",
+      "command": "make arch-check",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "target not present in Makefile yet (AIP-010 planned); must not be reported as PASS",
+      "evidence": []
+    },
+    {
+      "id": "make-ci-fast",
+      "command": "make ci-fast",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "target not present in Makefile yet (AIP-010 planned); must not be reported as PASS",
+      "evidence": []
+    },
+    {
+      "id": "make-ci",
+      "command": "make ci",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "target not present in Makefile yet (AIP-010 planned); must not be reported as PASS",
+      "evidence": []
+    },
+    {
+      "id": "make-test-unit",
+      "command": "make test-unit",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "target not present in Makefile yet (AIP-010 planned); must not be reported as PASS",
+      "evidence": []
+    },
+    {
+      "id": "make-test-integration",
+      "command": "make test-integration",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "target not present in Makefile yet (AIP-010 planned); must not be reported as PASS",
+      "evidence": []
+    },
+    {
+      "id": "make-test-frontend",
+      "command": "make test-frontend",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "target not present in Makefile yet (AIP-010 planned); must not be reported as PASS",
+      "evidence": []
+    },
+    {
+      "id": "make-build",
+      "command": "make build",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "target not present in Makefile yet (AIP-010 planned); must not be reported as PASS",
+      "evidence": []
+    },
+    {
+      "id": "make-lint",
+      "command": "make lint",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "target exists in Makefile but not executed in AIP-009 dry-run (governance-only scope)",
+      "evidence": []
+    },
+    {
+      "id": "make-test",
+      "command": "make test",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "target exists in Makefile but not executed in AIP-009 dry-run (governance-only scope)",
+      "evidence": []
+    },
+    {
+      "id": "lint-backend",
+      "command": "PYTHONPATH=. uv run --project backend ruff check backend",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "out of AIP-009 dry-run scope; recorded for backend-only (#070) and full-stack (#075) sample plans",
+      "evidence": []
+    },
+    {
+      "id": "type-backend",
+      "command": "PYTHONPATH=. uv run --project backend mypy backend",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "out of AIP-009 dry-run scope; recorded for backend-only (#070) and full-stack (#075) sample plans",
+      "evidence": []
+    },
+    {
+      "id": "test-backend-unit",
+      "command": "PYTHONPATH=. uv run --project backend pytest backend/tests/unit -q",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "out of AIP-009 dry-run scope; recorded for backend-only (#070) and full-stack (#075) sample plans",
+      "evidence": []
+    },
+    {
+      "id": "lint-frontend",
+      "command": "cd frontend && pnpm lint",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "out of AIP-009 dry-run scope; recorded for backend-only (#070) and full-stack (#075) sample plans",
+      "evidence": []
+    },
+    {
+      "id": "build-frontend",
+      "command": "cd frontend && pnpm build",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "out of AIP-009 dry-run scope; recorded for backend-only (#070) and full-stack (#075) sample plans",
+      "evidence": []
+    },
+    {
+      "id": "architecture",
+      "command": "make arch-check OR manual import scan",
+      "status": "NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "out of AIP-009 dry-run scope; recorded for backend-only (#070) and full-stack (#075) sample plans",
+      "evidence": []
+    }
+  ],
+  "ratchet": {
+    "baseline_findings": 0,
+    "new_findings": 0,
+    "resolved_findings": 0,
+    "exceptions": []
+  },
+  "decision": "GREEN",
+  "blocking_findings": [],
+  "environment_blockers": [],
+  "residual_risks": [
+    "Most runtime gates intentionally NOT_RUN in governance foundation dry-run",
+    "Makefile still lacks type-check/arch-check/ci-fast until AIP-010",
+    "Hosted CI and branch protection not activated"
+  ],
+  "evidence": [
+    "tests/results/20260804T065147Z-aip009-dryrun.json",
+    "reviews/AIP-009/governance-acceptance-2026-08-04.md"
+  ]
+}

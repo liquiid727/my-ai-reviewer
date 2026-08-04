@@ -5,10 +5,11 @@
 
 import io
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastapi import HTTPException, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.datastructures import Headers
 
 from backend.api.v1 import resume_builder as api
@@ -24,6 +25,10 @@ DRAFT_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 class _FakeSession:
     """充当 AsyncSession 占位（端点内不直接使用其方法）。"""
+
+
+def _session() -> AsyncSession:
+    return cast(AsyncSession, _FakeSession())
 
 
 def _upload_file(data: bytes, content_type: str = "image/jpeg", filename: str = "me.jpg") -> UploadFile:
@@ -52,7 +57,8 @@ def patched(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setattr(api, "ensure_bucket", lambda bucket: None)
     monkeypatch.setattr(api, "object_exists", lambda bucket, object_name: True)
     monkeypatch.setattr(
-        api, "upload_file",
+        api,
+        "upload_file",
         lambda bucket, object_name, data, content_type: calls["uploaded"].append(object_name),
     )
     monkeypatch.setattr(api, "presigned_url", lambda bucket, object_name: f"https://minio/{object_name}")
@@ -65,11 +71,12 @@ class TestUploadPhoto:
     async def test_success(self, patched: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
         """成功路径：处理 → 原图/结果落 MinIO → 返回预览元信息。"""
         monkeypatch.setattr(
-            api, "process_photo",
+            api,
+            "process_photo",
             lambda data, bg_color: ProcessedPhoto(b"png-bytes", background_replaced=True),
         )
 
-        resp = await api.upload_photo(DRAFT_ID, _upload_file(b"jpegdata"), "blue", _FakeSession())
+        resp = await api.upload_photo(DRAFT_ID, _upload_file(b"jpegdata"), "blue", _session())
 
         assert resp.code == 0
         data = resp.data
@@ -81,16 +88,15 @@ class TestUploadPhoto:
         assert data["processed_url"].startswith("https://minio/")
         assert len(patched["uploaded"]) == 2  # 原图 + 结果
 
-    async def test_degraded_result_passthrough(
-        self, patched: dict[str, Any], monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_degraded_result_passthrough(self, patched: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
         """降级结果透传 degraded_reason（HTTP 200）。"""
         monkeypatch.setattr(
-            api, "process_photo",
+            api,
+            "process_photo",
             lambda data, bg_color: ProcessedPhoto(b"png", background_replaced=False, degraded_reason="抠图失败"),
         )
 
-        resp = await api.upload_photo(DRAFT_ID, _upload_file(b"x"), "white", _FakeSession())
+        resp = await api.upload_photo(DRAFT_ID, _upload_file(b"x"), "white", _session())
 
         assert resp.data["background_replaced"] is False
         assert resp.data["degraded_reason"] == "抠图失败"
@@ -98,7 +104,7 @@ class TestUploadPhoto:
     async def test_invalid_content_type_400(self, patched: dict[str, Any]) -> None:
         """非 jpg/png → 400 INVALID_PHOTO。"""
         with pytest.raises(HTTPException) as exc:
-            await api.upload_photo(DRAFT_ID, _upload_file(b"x", "image/gif", "a.gif"), "white", _FakeSession())
+            await api.upload_photo(DRAFT_ID, _upload_file(b"x", "image/gif", "a.gif"), "white", _session())
         assert exc.value.status_code == 400
         assert exc.value.detail == "INVALID_PHOTO"
 
@@ -106,14 +112,14 @@ class TestUploadPhoto:
         """超过 10MB → 400 INVALID_PHOTO。"""
         big = b"0" * (api.PHOTO_MAX_SIZE + 1)
         with pytest.raises(HTTPException) as exc:
-            await api.upload_photo(DRAFT_ID, _upload_file(big), "white", _FakeSession())
+            await api.upload_photo(DRAFT_ID, _upload_file(big), "white", _session())
         assert exc.value.status_code == 400
         assert exc.value.detail == "INVALID_PHOTO"
 
     async def test_invalid_bg_color_400(self, patched: dict[str, Any]) -> None:
         """非法背景色 → 400 INVALID_PHOTO。"""
         with pytest.raises(HTTPException) as exc:
-            await api.upload_photo(DRAFT_ID, _upload_file(b"x"), "green", _FakeSession())
+            await api.upload_photo(DRAFT_ID, _upload_file(b"x"), "green", _session())
         assert exc.value.status_code == 400
 
     async def test_no_face_422(self, patched: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -124,7 +130,7 @@ class TestUploadPhoto:
 
         monkeypatch.setattr(api, "process_photo", raise_no_face)
         with pytest.raises(HTTPException) as exc:
-            await api.upload_photo(DRAFT_ID, _upload_file(b"x"), "white", _FakeSession())
+            await api.upload_photo(DRAFT_ID, _upload_file(b"x"), "white", _session())
         assert exc.value.status_code == 422
         assert exc.value.detail == "FACE_NOT_FOUND"
 
@@ -136,7 +142,7 @@ class TestUploadPhoto:
 
         monkeypatch.setattr(api, "process_photo", raise_decode)
         with pytest.raises(HTTPException) as exc:
-            await api.upload_photo(DRAFT_ID, _upload_file(b"x"), "white", _FakeSession())
+            await api.upload_photo(DRAFT_ID, _upload_file(b"x"), "white", _session())
         assert exc.value.status_code == 400
         assert exc.value.detail == "PHOTO_DECODE_FAILED"
 
@@ -148,7 +154,7 @@ class TestUploadPhoto:
 
         monkeypatch.setattr(api, "process_photo", raise_missing)
         with pytest.raises(HTTPException) as exc:
-            await api.upload_photo(DRAFT_ID, _upload_file(b"x"), "white", _FakeSession())
+            await api.upload_photo(DRAFT_ID, _upload_file(b"x"), "white", _session())
         assert exc.value.status_code == 501
         assert exc.value.detail == "IMAGING_NOT_AVAILABLE"
 
@@ -160,7 +166,9 @@ class TestConfirmPhoto:
         """归属校验通过 → set_draft_photo 写入对象名。"""
         object_name = f"{DRAFT_ID}/processed-abcd1234.png"
         resp = await api.confirm_photo(
-            DRAFT_ID, api.ConfirmPhotoRequest(object_name=object_name), _FakeSession(),
+            DRAFT_ID,
+            api.ConfirmPhotoRequest(object_name=object_name),
+            _session(),
         )
         assert resp.code == 0
         assert patched["photo_set"] == [object_name]
@@ -169,7 +177,7 @@ class TestConfirmPhoto:
         """对象名不属于该草稿 → 400 PHOTO_NOT_OWNED，不写入。"""
         other = "11111111-1111-1111-1111-111111111111/processed-x.png"
         with pytest.raises(HTTPException) as exc:
-            await api.confirm_photo(DRAFT_ID, api.ConfirmPhotoRequest(object_name=other), _FakeSession())
+            await api.confirm_photo(DRAFT_ID, api.ConfirmPhotoRequest(object_name=other), _session())
         assert exc.value.status_code == 400
         assert exc.value.detail == "PHOTO_NOT_OWNED"
         assert patched["photo_set"] == []
@@ -183,7 +191,7 @@ class TestConfirmPhoto:
             await api.confirm_photo(
                 DRAFT_ID,
                 api.ConfirmPhotoRequest(object_name=f"{DRAFT_ID}/processed-fabricated.png"),
-                _FakeSession(),
+                _session(),
             )
         assert exc.value.status_code == 400
         assert exc.value.detail == "PHOTO_NOT_OWNED"
@@ -195,7 +203,7 @@ class TestConfirmPhoto:
             await api.confirm_photo(
                 DRAFT_ID,
                 api.ConfirmPhotoRequest(object_name=f"{DRAFT_ID}/original-abcd1234.jpg"),
-                _FakeSession(),
+                _session(),
             )
         assert exc.value.status_code == 400
 
@@ -205,6 +213,6 @@ class TestDeletePhoto:
 
     async def test_delete_clears_photo(self, patched: dict[str, Any]) -> None:
         """删除 → set_draft_photo(None) 清除字段。"""
-        resp = await api.delete_photo(DRAFT_ID, _FakeSession())
+        resp = await api.delete_photo(DRAFT_ID, _session())
         assert resp.code == 0
         assert patched["photo_set"] == [None]

@@ -22,7 +22,7 @@ VALID_FOLLOWUP = json.dumps(
 
 
 @pytest.mark.asyncio
-async def test_generate_success():
+async def test_generate_success() -> None:
     gateway = _make_gateway_mock(VALID_FOLLOWUP)
     agent = FollowupGenerationAgent(gateway)
 
@@ -41,7 +41,7 @@ async def test_generate_success():
 
 
 @pytest.mark.asyncio
-async def test_generate_without_followup_reason():
+async def test_generate_without_followup_reason() -> None:
     gateway = _make_gateway_mock(VALID_FOLLOWUP)
     agent = FollowupGenerationAgent(gateway)
 
@@ -59,7 +59,7 @@ async def test_generate_without_followup_reason():
 
 
 @pytest.mark.asyncio
-async def test_generate_stores_model_info():
+async def test_generate_stores_model_info() -> None:
     gateway = _make_gateway_mock(VALID_FOLLOWUP, model="deepseek-v2")
     agent = FollowupGenerationAgent(gateway)
 
@@ -75,7 +75,7 @@ async def test_generate_stores_model_info():
 
 
 @pytest.mark.asyncio
-async def test_generate_retry_on_invalid_json():
+async def test_generate_retry_on_invalid_json() -> None:
     bad = LLMResponse(content="broken json", model="gpt-4o")
     good = LLMResponse(content=VALID_FOLLOWUP, model="gpt-4o")
     gateway = AsyncMock()
@@ -95,7 +95,7 @@ async def test_generate_retry_on_invalid_json():
 
 
 @pytest.mark.asyncio
-async def test_generate_raises_after_max_retries():
+async def test_generate_raises_after_max_retries() -> None:
     gateway = _make_gateway_mock("not valid json")
     agent = FollowupGenerationAgent(gateway)
 
@@ -112,7 +112,7 @@ async def test_generate_raises_after_max_retries():
 
 
 @pytest.mark.asyncio
-async def test_generate_passes_key_points_as_json():
+async def test_generate_passes_key_points_as_json() -> None:
     gateway = _make_gateway_mock(VALID_FOLLOWUP)
     agent = FollowupGenerationAgent(gateway)
 

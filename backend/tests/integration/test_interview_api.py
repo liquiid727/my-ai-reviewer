@@ -11,14 +11,15 @@ from backend.infrastructure.db.models import (
     InterviewQuestionModel,
     InterviewReportModel,
     QuestionAnswerModel,
+    ResumeModel,
 )
-from tests.conftest import requires_db
+from backend.tests.conftest import requires_db
 
 pytestmark = requires_db
 
 
 @pytest_asyncio.fixture
-async def sample_interview(db_session: AsyncSession, sample_resume):
+async def sample_interview(db_session: AsyncSession, sample_resume: ResumeModel) -> InterviewModel:
     interview = InterviewModel(
         id=uuid.uuid4(),
         resume_id=sample_resume.id,
@@ -34,7 +35,7 @@ async def sample_interview(db_session: AsyncSession, sample_resume):
 
 
 @pytest_asyncio.fixture
-async def in_progress_interview(db_session: AsyncSession, sample_resume):
+async def in_progress_interview(db_session: AsyncSession, sample_resume: ResumeModel) -> InterviewModel:
     interview = InterviewModel(
         id=uuid.uuid4(),
         resume_id=sample_resume.id,
@@ -49,7 +50,7 @@ async def in_progress_interview(db_session: AsyncSession, sample_resume):
 
 
 @pytest_asyncio.fixture
-async def completed_interview_with_report(db_session: AsyncSession, sample_resume):
+async def completed_interview_with_report(db_session: AsyncSession, sample_resume: ResumeModel) -> InterviewModel:
     interview = InterviewModel(
         id=uuid.uuid4(),
         resume_id=sample_resume.id,
@@ -109,7 +110,7 @@ async def completed_interview_with_report(db_session: AsyncSession, sample_resum
 
 class TestCreateInterview:
     @pytest.mark.asyncio
-    async def test_create_success(self, async_client: AsyncClient, sample_resume):
+    async def test_create_success(self, async_client: AsyncClient, sample_resume: ResumeModel) -> None:
         resp = await async_client.post(
             "/api/v1/interview/create",
             json={
@@ -125,7 +126,7 @@ class TestCreateInterview:
         assert data["data"]["interview_id"]
 
     @pytest.mark.asyncio
-    async def test_create_without_jd(self, async_client: AsyncClient, sample_resume):
+    async def test_create_without_jd(self, async_client: AsyncClient, sample_resume: ResumeModel) -> None:
         resp = await async_client.post(
             "/api/v1/interview/create",
             json={"resume_id": str(sample_resume.id), "question_count": 5},
@@ -134,7 +135,7 @@ class TestCreateInterview:
         assert resp.json()["code"] == 0
 
     @pytest.mark.asyncio
-    async def test_create_resume_not_found(self, async_client: AsyncClient):
+    async def test_create_resume_not_found(self, async_client: AsyncClient) -> None:
         fake_id = str(uuid.uuid4())
         resp = await async_client.post(
             "/api/v1/interview/create",
@@ -144,7 +145,7 @@ class TestCreateInterview:
         assert resp.json()["code"] == 1001
 
     @pytest.mark.asyncio
-    async def test_create_resume_not_ready(self, async_client: AsyncClient, db_session: AsyncSession):
+    async def test_create_resume_not_ready(self, async_client: AsyncClient, db_session: AsyncSession) -> None:
         from backend.infrastructure.db.models import ResumeModel
 
         resume = ResumeModel(
@@ -163,7 +164,9 @@ class TestCreateInterview:
         assert resp.json()["code"] == 1002
 
     @pytest.mark.asyncio
-    async def test_create_question_count_validation(self, async_client: AsyncClient, sample_resume):
+    async def test_create_question_count_validation(
+        self, async_client: AsyncClient, sample_resume: ResumeModel
+    ) -> None:
         resp = await async_client.post(
             "/api/v1/interview/create",
             json={"resume_id": str(sample_resume.id), "question_count": 1},
@@ -179,7 +182,7 @@ class TestCreateInterview:
 
 class TestGetInterviewStatus:
     @pytest.mark.asyncio
-    async def test_status_success(self, async_client: AsyncClient, sample_interview):
+    async def test_status_success(self, async_client: AsyncClient, sample_interview: InterviewModel) -> None:
         resp = await async_client.get(f"/api/v1/interview/{sample_interview.id}/status")
         assert resp.status_code == 200
         data = resp.json()
@@ -188,7 +191,7 @@ class TestGetInterviewStatus:
         assert data["data"]["interview_id"] == str(sample_interview.id)
 
     @pytest.mark.asyncio
-    async def test_status_not_found(self, async_client: AsyncClient):
+    async def test_status_not_found(self, async_client: AsyncClient) -> None:
         fake_id = str(uuid.uuid4())
         resp = await async_client.get(f"/api/v1/interview/{fake_id}/status")
         assert resp.status_code == 200
@@ -197,7 +200,9 @@ class TestGetInterviewStatus:
 
 class TestGetInterviewReport:
     @pytest.mark.asyncio
-    async def test_report_success(self, async_client: AsyncClient, completed_interview_with_report):
+    async def test_report_success(
+        self, async_client: AsyncClient, completed_interview_with_report: InterviewModel
+    ) -> None:
         iv = completed_interview_with_report
         resp = await async_client.get(f"/api/v1/interview/{iv.id}/report")
         assert resp.status_code == 200
@@ -209,14 +214,16 @@ class TestGetInterviewReport:
         assert len(data["data"]["strengths"]) == 1
 
     @pytest.mark.asyncio
-    async def test_report_not_found(self, async_client: AsyncClient):
+    async def test_report_not_found(self, async_client: AsyncClient) -> None:
         fake_id = str(uuid.uuid4())
         resp = await async_client.get(f"/api/v1/interview/{fake_id}/report")
         assert resp.status_code == 200
         assert resp.json()["code"] == 1003
 
     @pytest.mark.asyncio
-    async def test_report_generating(self, async_client: AsyncClient, db_session: AsyncSession, sample_resume):
+    async def test_report_generating(
+        self, async_client: AsyncClient, db_session: AsyncSession, sample_resume: ResumeModel
+    ) -> None:
         interview = InterviewModel(
             id=uuid.uuid4(),
             resume_id=sample_resume.id,
@@ -234,8 +241,8 @@ class TestGetInterviewReport:
     async def test_report_interview_exists_but_no_report(
         self,
         async_client: AsyncClient,
-        sample_interview,
-    ):
+        sample_interview: InterviewModel,
+    ) -> None:
         resp = await async_client.get(f"/api/v1/interview/{sample_interview.id}/report")
         assert resp.status_code == 200
         assert resp.json()["code"] == 1006
@@ -243,7 +250,7 @@ class TestGetInterviewReport:
 
 class TestListInterviews:
     @pytest.mark.asyncio
-    async def test_list_all(self, async_client: AsyncClient, sample_interview):
+    async def test_list_all(self, async_client: AsyncClient, sample_interview: InterviewModel) -> None:
         resp = await async_client.get("/api/v1/interview/list")
         assert resp.status_code == 200
         data = resp.json()
@@ -252,7 +259,12 @@ class TestListInterviews:
         assert len(data["data"]) >= 1
 
     @pytest.mark.asyncio
-    async def test_list_by_resume_id(self, async_client: AsyncClient, sample_interview, sample_resume):
+    async def test_list_by_resume_id(
+        self,
+        async_client: AsyncClient,
+        sample_interview: InterviewModel,
+        sample_resume: ResumeModel,
+    ) -> None:
         resp = await async_client.get(f"/api/v1/interview/list?resume_id={sample_resume.id}")
         assert resp.status_code == 200
         data = resp.json()
@@ -261,7 +273,7 @@ class TestListInterviews:
             assert item["resume_id"] == str(sample_resume.id)
 
     @pytest.mark.asyncio
-    async def test_list_empty_for_unknown_resume(self, async_client: AsyncClient):
+    async def test_list_empty_for_unknown_resume(self, async_client: AsyncClient) -> None:
         fake_id = str(uuid.uuid4())
         resp = await async_client.get(f"/api/v1/interview/list?resume_id={fake_id}")
         assert resp.status_code == 200
@@ -271,8 +283,8 @@ class TestListInterviews:
     async def test_list_includes_report_data(
         self,
         async_client: AsyncClient,
-        completed_interview_with_report,
-    ):
+        completed_interview_with_report: InterviewModel,
+    ) -> None:
         iv = completed_interview_with_report
         resp = await async_client.get(f"/api/v1/interview/list?resume_id={iv.resume_id}")
         assert resp.status_code == 200

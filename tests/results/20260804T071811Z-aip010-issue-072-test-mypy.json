@@ -1,0 +1,97 @@
+{
+  "issue": 72,
+  "spec": "AIP-010",
+  "title": "Test-double and optional-dependency typing baseline recovery",
+  "date": "2026-08-04",
+  "timestamp_utc": "20260804T071811Z",
+  "mypy": {
+    "python_version_config": "3.12",
+    "strict": true,
+    "config_file": "backend/pyproject.toml",
+    "note": "From repo root always pass --config-file backend/pyproject.toml so celery/imaging/fitz overrides apply."
+  },
+  "baseline_before": {
+    "full_mypy_backend": "Found 203 errors in 29 files (all under backend/tests/)",
+    "top_codes": {
+      "no-untyped-def": 111,
+      "arg-type": 34,
+      "attr-defined": 26,
+      "unused-ignore": 12
+    }
+  },
+  "commands": [
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend mypy backend --config-file backend/pyproject.toml",
+      "exit": 0,
+      "status": "PASS",
+      "summary": "Success: no issues found in 206 source files"
+    },
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend ruff check backend/tests backend/infrastructure/db/models.py backend/infrastructure/parsers/__init__.py backend/api/v1/resume_builder.py",
+      "exit": 0,
+      "status": "PASS",
+      "summary": "All checks passed"
+    },
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend pytest ...touched unit modules... -q --tb=line",
+      "exit": 0,
+      "status": "PASS",
+      "summary": "158 passed"
+    },
+    {
+      "cmd": "git diff --check",
+      "exit": 0,
+      "status": "PASS"
+    }
+  ],
+  "source_fixes": {
+    "production_minimal_reexports": [
+      {
+        "file": "backend/infrastructure/db/models.py",
+        "change": "Re-export Base as Base so tests/conftest can import Base from models under implicit_reexport=False"
+      },
+      {
+        "file": "backend/infrastructure/parsers/__init__.py",
+        "change": "Add concrete parser classes to __all__ for test imports"
+      },
+      {
+        "file": "backend/api/v1/resume_builder.py",
+        "change": "Explicit as-imports for services, llm_config_service, LLMGateway so monkeypatch targets are exported"
+      },
+      {
+        "file": "backend/pyproject.toml",
+        "change": "Module-specific override for fitz (pymupdf) ignore_missing_imports only; no directory-wide test ignore; strict remains true"
+      }
+    ],
+    "tests": [
+      "Annotated fixtures/helpers/tests across backend/tests (conftest, interview_api, agents, parsers, matching, etc.)",
+      "Protocol/call-compatible doubles via cast(AsyncSession, fake) / cast(ResumeDraftModel, fake) at call boundaries; keep fake locals typed as fakes so .committed/.added remain valid",
+      "Removed unused type: ignore comments (plan_generation, llm_gate, photo_rendering)",
+      "Narrowed index/union access with cast/assert (privacy replacements, reparse history, llm models list, builder heading)",
+      "Optional imaging paths still covered in test_photo_processor / test_photo_api (installed and unavailable)"
+    ]
+  },
+  "constraints_honored": {
+    "no_directory_wide_test_ignore": true,
+    "strict_mode_unchanged": true,
+    "no_deleted_tests": true,
+    "no_weakened_assertions": true,
+    "no_broad_Any_silencing": true
+  },
+  "acceptance": {
+    "full_mypy_backend_including_tests": true,
+    "test_doubles_match_call_signatures": true,
+    "optional_dependency_paths_covered": true,
+    "no_directory_wide_ignore_or_weakened_strict": true
+  },
+  "residual_risks": [
+    "cast() is used at fake/session boundaries rather than structural Protocols; doubles remain runtime-compatible and assertions unchanged",
+    "Interview integration tests still require DB (requires_db); typing only, not execution in this issue",
+    "Make type-check target (#074) must keep --config-file backend/pyproject.toml"
+  ],
+  "recommended_next": [
+    "#073",
+    "#075",
+    "#074 after #071+#072+#073"
+  ]
+}

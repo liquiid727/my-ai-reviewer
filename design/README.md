@@ -16,7 +16,7 @@ Feature-specific behavior belongs in `specs/`, not in a second architecture docu
 | [api-guidelines.md](api-guidelines.md) | API naming, response envelopes, error conventions, and core business flow |
 | [deployment.md](deployment.md) | Local infrastructure, service dependencies, and operational configuration |
 | [coding-guidelines.md](coding-guidelines.md) | Layering, typing, FastAPI, and workflow coding conventions |
-| [quality-architecture.md](quality-architecture.md) | Quality ownership, dependency boundaries, gates, errors, logging, and incremental refactoring |
+| [quality-architecture.md](quality-architecture.md) | Target quality governance baseline (AIP-009–012): ownership, boundaries, gates, errors, logging, rollout — not pure as-built |
 
 ## Documentation Rules
 
@@ -37,5 +37,6 @@ design/
   api-guidelines.md
   deployment.md
   coding-guidelines.md
+  quality-architecture.md
   _template/
 ```

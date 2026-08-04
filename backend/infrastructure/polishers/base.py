@@ -8,6 +8,7 @@ from backend.domain.resume_builder.schemas import PolishResult
 
 class ResumePolisher(ABC):
     """简历润色器抽象基类：接收一组要点，返回润色后的建议（保留原文）。"""
+
     version: str = "base"
 
     @abstractmethod

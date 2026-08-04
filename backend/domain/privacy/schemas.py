@@ -23,4 +23,3 @@ class PrivacyManifest(BaseModel):
 class RedactionResult(BaseModel):
     masked_text: str
     manifest: PrivacyManifest
-

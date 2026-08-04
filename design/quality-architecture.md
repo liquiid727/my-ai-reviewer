@@ -126,7 +126,7 @@ Adoption uses three stages:
 
 Each feature maps acceptance criteria to unit, integration/API, browser, migration, and privacy evidence as applicable. CI logs alone are not the normalized record; QA results under `tests/results/` contain the spec/ref/run identity, exact command, exit status, summary, and artifact references.
 
-Required scenario categories are success, empty/loading where UI applies, validation failure, dependency failure, retry, conflict/stale ownership, timeout/expiry, concurrency, and privacy. `NOT RUN` remains visible. An environmental failure may be `BLOCKED`; an assertion or behavior failure is `FAIL`.
+Required scenario categories are success, empty/loading where UI applies, validation failure, dependency failure, retry, conflict/stale ownership, timeout/expiry, concurrency, and privacy. `NOT_RUN` remains visible. An environmental failure may be `BLOCKED`; an assertion or behavior failure is `FAIL`.
 
 ## 7. Error Architecture
 

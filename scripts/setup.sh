@@ -29,7 +29,7 @@ MISSING=()
 command -v docker  >/dev/null 2>&1 || MISSING+=("docker")
 command -v uv      >/dev/null 2>&1 || MISSING+=("uv (https://docs.astral.sh/uv/)")
 command -v pnpm    >/dev/null 2>&1 || MISSING+=("pnpm (https://pnpm.io/installation)")
-command -v python3 >/dev/null 2>&1 || MISSING+=("python3 (>=3.11)")
+command -v python3 >/dev/null 2>&1 || MISSING+=("python3 (>=3.12)")
 
 if [ ${#MISSING[@]} -gt 0 ]; then
     err "Missing tools:"
@@ -44,8 +44,8 @@ fi
 PY_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
 PY_MAJOR=$(echo "$PY_VERSION" | cut -d. -f1)
 PY_MINOR=$(echo "$PY_VERSION" | cut -d. -f2)
-if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 11 ]; }; then
-    err "Python >= 3.11 required, found $PY_VERSION"
+if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 12 ]; }; then
+    err "Python >= 3.12 required, found $PY_VERSION"
     exit 1
 fi
 

@@ -8,8 +8,9 @@ from typing import Any
 @dataclass
 class LLMResponse:
     """LLM 调用响应：包含生成内容、模型名称和 token 用量。"""
-    content: str                    # 生成的文本内容
-    model: str                      # 实际使用的模型名称
+
+    content: str  # 生成的文本内容
+    model: str  # 实际使用的模型名称
     usage: dict[str, Any] = field(default_factory=lambda: {"prompt_tokens": 0, "completion_tokens": 0})
 
 

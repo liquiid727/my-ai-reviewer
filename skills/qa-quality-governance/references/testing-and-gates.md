@@ -22,7 +22,7 @@ Coverage follows the same model: measure with a reproducible command, record the
 
 ## Skip And Blocker Semantics
 
-- A test intentionally excluded by scope is `NOT RUN` and needs rationale.
+- A test intentionally excluded by scope is `NOT_RUN` and needs rationale.
 - A test that cannot start because PostgreSQL/Redis/MinIO/browser is unavailable is `BLOCKED`.
 - A test that starts and fails setup due to a product/config defect is `FAIL`.
 - A pytest skip caused by missing required infrastructure is not passing integration evidence.

@@ -39,6 +39,12 @@ import {
   Bot,
 } from 'lucide-react'
 
+import { BuilderSaveStatus } from '@/components/builder/BuilderSaveStatus'
+import {
+  mapBuilderSaveError,
+  mapBuilderSaveResponse,
+  type BuilderSaveStatus as SaveStatusKind,
+} from '@/lib/builder-save'
 import {
   getDraft,
   updateDraft,
@@ -133,7 +139,8 @@ export function BuilderPage() {
   const [draft, setDraft] = useState<ResumeDraftData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [saveStatus, setSaveStatus] = useState<SaveStatusKind>('idle')
+  const [saveConflictMessage, setSaveConflictMessage] = useState<string | null>(null)
   const [previewNonce, setPreviewNonce] = useState(0)
   const [polishTarget, setPolishTarget] = useState<PolishTarget | null>(null)
   const [polishingKey, setPolishingKey] = useState<string | null>(null)
@@ -339,22 +346,43 @@ export function BuilderPage() {
         .catch(() => undefined)
         .then(async () => {
           setSaveStatus('saving')
+          setSaveConflictMessage(null)
           try {
             const res = await updateDraft(draftId, {
               ...buildPatch(d),
               base_revision: revisionRef.current,
             })
-            if (res.code !== 0) throw new Error(res.message || t('builder.saveFailed'))
-            revisionRef.current = res.data.revision
+            const outcome = mapBuilderSaveResponse(res, t('builder.saveFailed'))
+            if (outcome.kind === 'conflict') {
+              setSaveStatus('conflict')
+              setSaveConflictMessage(outcome.message || t('builder.revisionConflict'))
+              toast.error(outcome.message || t('builder.revisionConflict'))
+              throw new Error(outcome.message || t('builder.revisionConflict'))
+            }
+            if (outcome.kind === 'error') {
+              setSaveStatus('error')
+              toast.error(outcome.message || t('builder.saveFailed'))
+              throw new Error(outcome.message || t('builder.saveFailed'))
+            }
+            revisionRef.current = outcome.revision
             setDraft((current) =>
-              current ? { ...current, revision: res.data.revision } : res.data,
+              current ? { ...current, revision: outcome.revision } : res.data,
             )
             setSaveStatus('saved')
             setPreviewNonce((n) => n + 1)
-            return res.data.revision
+            return outcome.revision
           } catch (err) {
-            setSaveStatus('error')
-            toast.error((err as Error).message || t('builder.saveFailed'))
+            // Envelope failures already set status + toast above; only map thrown API errors.
+            if (err && typeof err === 'object' && 'status' in err) {
+              const outcome = mapBuilderSaveError(err, t('builder.saveFailed'))
+              if (outcome.kind === 'conflict') {
+                setSaveStatus('conflict')
+                setSaveConflictMessage(outcome.message || t('builder.revisionConflict'))
+              } else {
+                setSaveStatus('error')
+              }
+              toast.error(outcome.message || t('builder.saveFailed'))
+            }
             throw err
           }
         })
@@ -385,6 +413,7 @@ export function BuilderPage() {
     draftRef.current = nextDraft
     setDraft(nextDraft)
     setSaveStatus('saved')
+    setSaveConflictMessage(null)
     setPreviewNonce((nonce) => nonce + 1)
   }, [])
 
@@ -997,15 +1026,11 @@ export function BuilderPage() {
             <PanelLeftOpen className="h-4 w-4" />
           )}
         </Button>
-        <span className="text-xs text-gray-500">
-          {saveStatus === 'saving'
-            ? t('builder.saving')
-            : saveStatus === 'saved'
-              ? t('builder.saved')
-              : saveStatus === 'error'
-                ? t('builder.saveFailed')
-                : ''}
-        </span>
+        <BuilderSaveStatus
+          status={saveStatus}
+          conflictMessage={saveConflictMessage}
+          onReload={() => void reloadDraft().catch(() => undefined)}
+        />
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <div className="flex items-center" role="group" aria-label={t('builder.pagination')}>

@@ -6,6 +6,7 @@ from typing import Any
 
 class ResumeExtractor(ABC):
     """简历信息提取器抽象基类：接收原始文本，返回结构化数据。"""
+
     version: str = "base"
 
     @abstractmethod

@@ -35,10 +35,12 @@ class MarkdownResumeParser(ResumeParser):
             if not stripped:
                 continue
             if stripped.startswith("#"):
-                blocks.append(TextBlock(
-                    type=BLOCK_HEADING,
-                    text=stripped.lstrip("#").strip(),
-                ))
+                blocks.append(
+                    TextBlock(
+                        type=BLOCK_HEADING,
+                        text=stripped.lstrip("#").strip(),
+                    )
+                )
             else:
                 blocks.append(TextBlock(type=BLOCK_PARAGRAPH, text=stripped))
 

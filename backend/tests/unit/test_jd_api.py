@@ -5,10 +5,11 @@
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.v1 import jd as api
 from backend.domain.jd.schemas import (
@@ -74,9 +75,7 @@ def _extraction() -> JDExtraction:
 class TestCreateJobDescription:
     """POST /jd。"""
 
-    async def test_auto_extraction_when_no_skills(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_auto_extraction_when_no_skills(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """未传 required_skills 且 raw_text 非空：走 LLM 抽取，extraction_source=llm。"""
         extractor = _FakeExtractor(result=_extraction())
         monkeypatch.setattr(api, "_get_extractor", lambda: extractor)
@@ -84,7 +83,7 @@ class TestCreateJobDescription:
 
         resp = await api.create_job_description(
             JobDescriptionInput(title="后端工程师", raw_text="精通 Python，熟悉 FastAPI"),
-            session,
+            cast(AsyncSession, session),
         )
 
         assert resp.code == 0
@@ -99,9 +98,7 @@ class TestCreateJobDescription:
         assert data["seniority"] == "senior"
         assert session.committed is True
 
-    async def test_manual_skills_skip_extraction(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_manual_skills_skip_extraction(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """显式传入 required_skills：跳过抽取器，extraction_source=manual（回归）。"""
         extractor = _FakeExtractor(error=AssertionError("should not be called"))
         monkeypatch.setattr(api, "_get_extractor", lambda: extractor)
@@ -113,7 +110,7 @@ class TestCreateJobDescription:
                 required_skills=["Python", "Go"],
                 critical_skills=["Python"],
             ),
-            session,
+            cast(AsyncSession, session),
         )
 
         assert resp.code == 0
@@ -126,9 +123,7 @@ class TestCreateJobDescription:
         ]
         assert session.committed is True
 
-    async def test_extraction_failure_returns_502_without_persisting(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_extraction_failure_returns_502_without_persisting(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """抽取失败：502 JD_EXTRACTION_FAILED，且不落库。"""
         extractor = _FakeExtractor(error=JDExtractionError("llm exhausted"))
         monkeypatch.setattr(api, "_get_extractor", lambda: extractor)
@@ -137,7 +132,7 @@ class TestCreateJobDescription:
         with pytest.raises(HTTPException) as exc_info:
             await api.create_job_description(
                 JobDescriptionInput(raw_text="精通 Python"),
-                session,
+                cast(AsyncSession, session),
             )
 
         assert exc_info.value.status_code == 502
@@ -145,9 +140,7 @@ class TestCreateJobDescription:
         assert session.added == []
         assert session.committed is False
 
-    async def test_empty_raw_text_without_skills_keeps_manual(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_empty_raw_text_without_skills_keeps_manual(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """无技能清单且 raw_text 为空白：不调抽取器，保持空技能 manual 行为。"""
         extractor = _FakeExtractor(error=AssertionError("should not be called"))
         monkeypatch.setattr(api, "_get_extractor", lambda: extractor)
@@ -155,7 +148,7 @@ class TestCreateJobDescription:
 
         resp = await api.create_job_description(
             JobDescriptionInput(raw_text="   "),
-            session,
+            cast(AsyncSession, session),
         )
 
         assert resp.code == 0
@@ -165,9 +158,7 @@ class TestCreateJobDescription:
         assert data["required_skills"] == []
         assert session.committed is True
 
-    async def test_explicit_empty_skills_skip_extraction(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_explicit_empty_skills_skip_extraction(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """显式传入 required_skills=[]：视为手动模式，不触发抽取（存量调用方回归）。"""
         extractor = _FakeExtractor(error=AssertionError("should not be called"))
         monkeypatch.setattr(api, "_get_extractor", lambda: extractor)
@@ -175,7 +166,7 @@ class TestCreateJobDescription:
 
         resp = await api.create_job_description(
             JobDescriptionInput(raw_text="精通 Python", required_skills=[]),
-            session,
+            cast(AsyncSession, session),
         )
 
         assert resp.code == 0

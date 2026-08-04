@@ -1,0 +1,103 @@
+{
+  "issue": 73,
+  "spec": "AIP-010",
+  "title": "Builder/privacy failing-test contract recovery — review fix round",
+  "date": "2026-08-04",
+  "timestamp_utc": "20260804T074102Z",
+  "review_fix_round": true,
+  "blocking_finding": "P1 create_draft_from_profile double-sanitized and stored empty privacy_manifest; update_draft wiped good manifests on already-masked content",
+  "contracts": {
+    "RIP-009": "Masked identity persistence; export photos request-scoped only (no silent MinIO rehydrate); single sanitize pass retains real placeholders for export hydration",
+    "RIP-004": "set_draft_photo remains the only path that mutates identity.photo; update_draft preserves existing confirmed photo; photo object-name rejects data-URI/base64"
+  },
+  "source_fixes": [
+    {
+      "file": "backend/domain/resume_builder/services.py",
+      "change": "profile_to_draft returns unsanitized draft; create_draft_from_profile sanitizes exactly once and persists that manifest"
+    },
+    {
+      "file": "backend/domain/resume_builder/services.py",
+      "change": "update_draft merges newly-redacted placeholders with existing privacy_manifest + content-present tokens; never blanks non-empty manifest with []"
+    },
+    {
+      "file": "backend/domain/resume_builder/services.py",
+      "change": "export_draft_pdf allowed_tokens = manifest tokens ∪ tokens present in content (defense in depth against empty manifest)"
+    },
+    {
+      "file": "backend/domain/resume_builder/services.py",
+      "change": "set_draft_photo validates object_name — rejects data: URI, embedded base64, empty/whitespace, >512 chars; accepts d1/processed-*.png style names"
+    }
+  ],
+  "test_contract_locks": [
+    {
+      "file": "backend/tests/unit/test_resume_builder_services.py",
+      "tests": [
+        "test_profile_to_draft_maps_sections — single sanitize produces PERSON/EMAIL tokens; hydrate accepts replacements",
+        "test_double_sanitize_would_empty_manifest_but_create_path_does_not — regression lock for P1 double-sanitize",
+        "test_update_draft_does_not_wipe_existing_manifest — already-masked update keeps prior placeholders",
+        "test_update_draft_merges_new_redactions_into_manifest — new cleartext email merges into prior manifest",
+        "test_allowed_tokens_union_manifest_and_content — empty manifest still allows content tokens on export",
+        "test_validate_photo_object_name_* / test_set_draft_photo_* — P2 photo object-name guard",
+        "test_profile_to_draft_empty_profile — empty branch retained"
+      ]
+    },
+    {
+      "file": "backend/tests/unit/test_photo_rendering.py",
+      "tests": [
+        "test_client_photo_stripped_and_existing_preserved — strong assert retained",
+        "test_client_photo_stripped_when_no_existing — strong assert retained",
+        "test_export_does_not_auto_inject_persisted_identity_photo — RIP-009 no MinIO download retained",
+        "test_transient_photo_data_uri_is_forwarded_without_storage — retained",
+        "draft_photo_data_uri empty/success/failure branches retained"
+      ]
+    }
+  ],
+  "constraints_honored": {
+    "no_deleted_tests": true,
+    "no_weakened_assertions": true,
+    "no_cleartext_pii_restore": true,
+    "no_auto_minio_photo_load_in_export_draft_pdf": true,
+    "no_directory_wide_ignores": true,
+    "no_commit": true,
+    "no_full_api_fe_preview_photo_rewire": true
+  },
+  "residual_risks": [
+    "Reviewer P2 hybrid UX (GET preview photo API/FE rewiring) intentionally not expanded — remains residual"
+  ],
+  "commands": [
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend pytest backend/tests/unit/test_photo_rendering.py backend/tests/unit/test_resume_builder_services.py backend/tests/unit/test_privacy_builder_api.py backend/tests/unit/test_privacy_builder_export.py backend/tests/unit/test_photo_api.py backend/tests/unit/test_photo_processor.py -q",
+      "exit": 0,
+      "status": "PASS",
+      "summary": "48 passed"
+    },
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend pytest backend/tests/unit backend/tests/integration -q",
+      "exit": 0,
+      "status": "PASS",
+      "summary": "248 passed"
+    },
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend ruff check backend/domain/resume_builder backend/tests/unit/test_resume_builder_services.py backend/tests/unit/test_photo_rendering.py",
+      "exit": 0,
+      "status": "PASS"
+    },
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend mypy backend --config-file backend/pyproject.toml",
+      "exit": 0,
+      "status": "PASS",
+      "summary": "Success: no issues found in 206 source files"
+    },
+    {
+      "cmd": "git diff --check",
+      "exit": 0,
+      "status": "PASS"
+    }
+  ],
+  "notes": [
+    "Review REQUEST_CHANGES P1 fixed: single sanitize on create; update merges manifests; export allowed_tokens union content+manifest",
+    "P2 cheap photo object-name guard added in set_draft_photo via _validate_photo_object_name",
+    "Prior #073 strong asserts (photo preserve, no auto MinIO export photo, masked identity) retained",
+    "No commit/push/PR per single-mutator constraints"
+  ]
+}

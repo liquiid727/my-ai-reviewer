@@ -9,7 +9,7 @@ from typing import Any
 from backend.application.plan_regeneration_service import PlanRegenerationService
 from backend.application.plan_service import PlanService
 from backend.celery_app import celery
-from backend.domain.job_search_plan.services import PlanDomainError
+from backend.domain.job_search_plan.policies import PlanDomainError
 from backend.infrastructure.db.database import async_session_factory
 
 

@@ -21,10 +21,14 @@ def _sample_draft(**kwargs: object) -> ResumeDraft:
             DraftSection(
                 section_type=ResumeSectionType.WORK_EXPERIENCE,
                 title="工作经历",
-                items=[DraftItem(
-                    heading="字节跳动", subheading="后端工程师",
-                    date_range="2020 ~ 2023", bullets=["主导订单系统重构"],
-                )],
+                items=[
+                    DraftItem(
+                        heading="字节跳动",
+                        subheading="后端工程师",
+                        date_range="2020 ~ 2023",
+                        bullets=["主导订单系统重构"],
+                    )
+                ],
                 order=1,
             ),
         ],
@@ -43,9 +47,12 @@ def test_render_contains_key_fields() -> None:
 
 
 def test_design_tokens_injected_as_css_vars() -> None:
-    draft = _sample_draft(design_tokens=DesignTokens(
-        density=LayoutDensity.TIGHT, accent_color="#123456",
-    ))
+    draft = _sample_draft(
+        design_tokens=DesignTokens(
+            density=LayoutDensity.TIGHT,
+            accent_color="#123456",
+        )
+    )
     html = HtmlRenderer().render(draft)
     params = density_params(LayoutDensity.TIGHT)
 
@@ -81,11 +88,15 @@ def test_autoescape_prevents_injection() -> None:
 
 def test_hidden_section_not_rendered() -> None:
     draft = _sample_draft()
-    draft.sections.append(DraftSection(
-        section_type=ResumeSectionType.SKILLS,
-        title="隐藏技能区", items=[DraftItem(bullets=["机密"])],
-        visible=False, order=2,
-    ))
+    draft.sections.append(
+        DraftSection(
+            section_type=ResumeSectionType.SKILLS,
+            title="隐藏技能区",
+            items=[DraftItem(bullets=["机密"])],
+            visible=False,
+            order=2,
+        )
+    )
     html = HtmlRenderer().render(draft)
     assert "隐藏技能区" not in html
     assert "机密" not in html
@@ -120,7 +131,7 @@ def test_no_photo_renders_without_photo_block() -> None:
         html = HtmlRenderer().render(draft)
         assert '<div class="photo-block">' not in html
         assert "<img" not in html
-        assert " with-photo\"" not in html
+        assert ' with-photo"' not in html
 
 
 def test_no_photo_output_identical_to_explicit_none() -> None:
@@ -134,7 +145,9 @@ def test_photo_with_density_override() -> None:
     """密度收缩时照片仍内联（自动一页链路用）。"""
     draft = _sample_draft(design_tokens=DesignTokens(density=LayoutDensity.LOOSE))
     html = HtmlRenderer().render(
-        draft, density_override=LayoutDensity.COMPACT, photo_data_uri=_PHOTO_URI,
+        draft,
+        density_override=LayoutDensity.COMPACT,
+        photo_data_uri=_PHOTO_URI,
     )
     compact = density_params(LayoutDensity.COMPACT)
     assert f"--font-scale: {compact['font_scale']};" in html

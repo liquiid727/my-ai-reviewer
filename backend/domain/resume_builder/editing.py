@@ -120,9 +120,7 @@ def apply_operations(
     """在草稿副本上应用选中操作；调用方负责 revision 的原子持久化。"""
 
     next_draft = draft.model_copy(deep=True)
-    selected_operations = [
-        operation for operation in operations if operation.operation_id in selected_operation_ids
-    ]
+    selected_operations = [operation for operation in operations if operation.operation_id in selected_operation_ids]
     # 结构性 bullet 操作按原始下标倒序执行，避免前一项插入/删除改变后一项目标。
     selected_operations.sort(
         key=lambda operation: (

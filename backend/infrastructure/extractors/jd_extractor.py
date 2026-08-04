@@ -35,12 +35,13 @@ class JDExtractor:
     将 JD 原文发送给大模型，抽取必备技能（含 critical 标记与原文 evidence）、
     岗位职责与资历档位。不返回半成品：校验通过才返回，否则抛 JDExtractionError。
     """
+
     version: str = "jd-extractor-v1"
 
     def __init__(self, gateway: LLMGateway) -> None:
         self._gateway = gateway
-        self.token_usage: dict[str, Any] = {}   # 本次调用的 token 用量
-        self.model_info: str = ""     # 使用的模型名称
+        self.token_usage: dict[str, Any] = {}  # 本次调用的 token 用量
+        self.model_info: str = ""  # 使用的模型名称
 
     async def extract(self, raw_text: str) -> JDExtraction:
         """从 JD 原文抽取结构化要求。"""
@@ -63,9 +64,7 @@ class JDExtractor:
                 )
             except Exception as exc:
                 # 网关层异常（网络/鉴权/超时）统一包装，便于调用方按契约处理
-                raise JDExtractionError(
-                    f"LLM gateway error during JD extraction: {exc}"
-                ) from exc
+                raise JDExtractionError(f"LLM gateway error during JD extraction: {exc}") from exc
 
             self.token_usage = response.usage
             self.model_info = response.model
@@ -83,14 +82,14 @@ class JDExtractor:
                 # 重试时将上次的响应和错误信息加入对话，帮助模型自我修正
                 if attempt < MAX_RETRIES:
                     messages.append({"role": "assistant", "content": response.content})
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            f"Your previous response had a validation error: {exc}. "
-                            "Please fix the JSON and try again. Return ONLY valid JSON."
-                        ),
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Your previous response had a validation error: {exc}. "
+                                "Please fix the JSON and try again. Return ONLY valid JSON."
+                            ),
+                        }
+                    )
 
-        raise JDExtractionError(
-            f"Failed to extract valid JD data after {MAX_RETRIES + 1} attempts: {last_error}"
-        )
+        raise JDExtractionError(f"Failed to extract valid JD data after {MAX_RETRIES + 1} attempts: {last_error}")

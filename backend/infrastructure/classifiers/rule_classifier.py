@@ -9,54 +9,141 @@ from backend.infrastructure.classifiers.base import ClassificationResult, Resume
 # 技术方向关键词映射：方向名 → 相关技术关键词集合
 TECH_DIRECTION_KEYWORDS: dict[str, set[str]] = {
     "Backend": {
-        "python", "java", "go", "fastapi", "spring", "django", "flask",
-        "redis", "kafka", "postgresql", "mysql", "grpc", "microservice",
+        "python",
+        "java",
+        "go",
+        "fastapi",
+        "spring",
+        "django",
+        "flask",
+        "redis",
+        "kafka",
+        "postgresql",
+        "mysql",
+        "grpc",
+        "microservice",
     },
     "Frontend": {
-        "react", "vue", "angular", "typescript", "javascript", "css", "html",
-        "webpack", "vite", "next.js", "tailwind",
+        "react",
+        "vue",
+        "angular",
+        "typescript",
+        "javascript",
+        "css",
+        "html",
+        "webpack",
+        "vite",
+        "next.js",
+        "tailwind",
     },
     "AI": {
-        "pytorch", "tensorflow", "ml", "nlp", "cv",
-        "deep-learning", "machine learning", "scikit-learn", "keras",
+        "pytorch",
+        "tensorflow",
+        "ml",
+        "nlp",
+        "cv",
+        "deep-learning",
+        "machine learning",
+        "scikit-learn",
+        "keras",
     },
     "LLM Engineer": {
-        "llm", "langchain", "langgraph", "rag", "prompt", "openai",
-        "vector database", "embedding", "fine-tuning", "agent",
+        "llm",
+        "langchain",
+        "langgraph",
+        "rag",
+        "prompt",
+        "openai",
+        "vector database",
+        "embedding",
+        "fine-tuning",
+        "agent",
     },
     "Architect": {
-        "architecture", "architect", "system design", "ddd",
-        "high availability", "scalability",
+        "architecture",
+        "architect",
+        "system design",
+        "ddd",
+        "high availability",
+        "scalability",
     },
     "DevOps": {
-        "docker", "kubernetes", "ci-cd", "terraform", "ansible",
-        "prometheus", "grafana", "jenkins", "gitlab-ci",
+        "docker",
+        "kubernetes",
+        "ci-cd",
+        "terraform",
+        "ansible",
+        "prometheus",
+        "grafana",
+        "jenkins",
+        "gitlab-ci",
     },
     "Cloud Native": {
-        "kubernetes", "istio", "helm", "serverless", "service mesh",
-        "cloud-native", "cloud native", "aws", "gcp", "azure",
+        "kubernetes",
+        "istio",
+        "helm",
+        "serverless",
+        "service mesh",
+        "cloud-native",
+        "cloud native",
+        "aws",
+        "gcp",
+        "azure",
     },
     "Distributed System": {
-        "distributed", "distributed system", "consensus", "raft", "paxos",
-        "sharding", "consistent hashing", "zookeeper", "etcd",
+        "distributed",
+        "distributed system",
+        "consensus",
+        "raft",
+        "paxos",
+        "sharding",
+        "consistent hashing",
+        "zookeeper",
+        "etcd",
     },
     "Data": {
-        "spark", "hadoop", "flink", "etl", "data-pipeline",
-        "sql", "pandas", "airflow", "data warehouse",
+        "spark",
+        "hadoop",
+        "flink",
+        "etl",
+        "data-pipeline",
+        "sql",
+        "pandas",
+        "airflow",
+        "data warehouse",
     },
     "Game": {
-        "unity", "unreal", "cocos", "game engine", "game development",
+        "unity",
+        "unreal",
+        "cocos",
+        "game engine",
+        "game development",
     },
     "Mobile": {
-        "android", "ios", "flutter", "react native", "swift", "kotlin",
+        "android",
+        "ios",
+        "flutter",
+        "react native",
+        "swift",
+        "kotlin",
     },
 }
 
 # 管理经验相关关键词
 MANAGEMENT_KEYWORDS: set[str] = {
-    "manager", "lead", "director", "head", "vp", "chief",
-    "team lead", "tech lead", "engineering manager",
-    "management", "leading", "managed", "supervised",
+    "manager",
+    "lead",
+    "director",
+    "head",
+    "vp",
+    "chief",
+    "team lead",
+    "tech lead",
+    "engineering manager",
+    "management",
+    "leading",
+    "managed",
+    "supervised",
 }
 
 # 日期解析正则：匹配 "2023-01"、"2023/1"、"2023.01" 等格式
@@ -95,22 +182,24 @@ def _compute_total_years(experiences: list[WorkExperience]) -> float:
 def _experience_level(total_years: float) -> str:
     """根据总工作年限判定资历等级。"""
     if total_years <= 2:
-        return "Junior"      # 初级：0~2 年
+        return "Junior"  # 初级：0~2 年
     if total_years <= 5:
-        return "Mid"         # 中级：3~5 年
+        return "Mid"  # 中级：3~5 年
     if total_years <= 9:
-        return "Senior"      # 高级：6~9 年
-    return "Staff"           # 资深：10 年以上
+        return "Senior"  # 高级：6~9 年
+    return "Staff"  # 资深：10 年以上
 
 
 def _has_management(experiences: list[WorkExperience]) -> bool:
     """判断是否有管理经验（在职位、职责或成就中出现管理关键词）。"""
     for exp in experiences:
-        searchable = " ".join([
-            exp.title or "",
-            *exp.responsibilities,
-            *exp.achievements,
-        ]).lower()
+        searchable = " ".join(
+            [
+                exp.title or "",
+                *exp.responsibilities,
+                *exp.achievements,
+            ]
+        ).lower()
         for kw in MANAGEMENT_KEYWORDS:
             if kw in searchable:
                 return True
@@ -134,11 +223,13 @@ def _extract_industry_tags(experiences: list[WorkExperience]) -> list[str]:
 
     found: set[str] = set()
     for exp in experiences:
-        searchable = " ".join([
-            exp.company or "",
-            exp.title or "",
-            *exp.responsibilities,
-        ]).lower()
+        searchable = " ".join(
+            [
+                exp.company or "",
+                exp.title or "",
+                *exp.responsibilities,
+            ]
+        ).lower()
         for tag, keywords in industry_hints.items():
             if any(kw in searchable for kw in keywords):
                 found.add(tag)
@@ -207,9 +298,7 @@ class RuleBasedResumeClassifier(ResumeClassifier):
         total_years = _compute_total_years(profile.work_experiences)
 
         # 技术深度 = 技能分类数 + 技能总数
-        unique_categories = {
-            s.category for s in profile.skills if s.category
-        }
+        unique_categories = {s.category for s in profile.skills if s.category}
         tech_depth = len(unique_categories) + len(profile.skills)
 
         return ClassificationResult(

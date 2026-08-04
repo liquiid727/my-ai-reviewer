@@ -5,11 +5,13 @@
 """
 
 import uuid
+from collections.abc import Callable
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.v1 import resume_builder as api
 from backend.domain.resume_builder.enums import LayoutDensity
@@ -19,7 +21,7 @@ DRAFT_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
 
 
 @pytest.fixture
-def patch_export(monkeypatch: pytest.MonkeyPatch):
+def patch_export(monkeypatch: pytest.MonkeyPatch) -> Callable[[str], None]:
     """打桩 get_draft / export_draft_pdf，免数据库与 Playwright。"""
 
     def _patch(title: str) -> None:
@@ -44,11 +46,11 @@ def patch_export(monkeypatch: pytest.MonkeyPatch):
 class TestExportContentDisposition:
     """POST /{draft_id}/export 的响应头。"""
 
-    async def test_chinese_title_rfc5987(self, patch_export) -> None:
+    async def test_chinese_title_rfc5987(self, patch_export: Callable[[str], None]) -> None:
         """中文标题 → filename= ASCII 回退 + filename*= 百分号编码，且可按 latin-1 编码。"""
         patch_export("测试草稿035")
 
-        resp = await api.export_draft(DRAFT_ID, api.ExportRequest(), object())
+        resp = await api.export_draft(DRAFT_ID, api.ExportRequest(), cast(AsyncSession, object()))
 
         disposition = resp.headers["content-disposition"]
         expected = f"attachment; filename=\"resume.pdf\"; filename*=UTF-8''{quote('测试草稿035.pdf', safe='')}"
@@ -59,13 +61,12 @@ class TestExportContentDisposition:
         assert resp.headers["x-target-met"] == "false"
         assert resp.headers["x-layout-density"] == "tight"
 
-    async def test_ascii_title_kept_in_extended_param(self, patch_export) -> None:
+    async def test_ascii_title_kept_in_extended_param(self, patch_export: Callable[[str], None]) -> None:
         """ASCII 标题同样走双参数格式，filename*= 保留原始标题。"""
         patch_export("resume-en")
 
-        resp = await api.export_draft(DRAFT_ID, api.ExportRequest(), object())
+        resp = await api.export_draft(DRAFT_ID, api.ExportRequest(), cast(AsyncSession, object()))
 
         assert (
-            resp.headers["content-disposition"]
-            == "attachment; filename=\"resume.pdf\"; filename*=UTF-8''resume-en.pdf"
+            resp.headers["content-disposition"] == "attachment; filename=\"resume.pdf\"; filename*=UTF-8''resume-en.pdf"
         )

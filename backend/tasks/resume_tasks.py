@@ -4,21 +4,41 @@
 每个步骤接收上一步的状态，如果上一步失败则直接跳过。
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
+import threading
 import uuid
-from collections.abc import Awaitable, Callable
-from typing import Any
+from collections.abc import Awaitable, Callable, Coroutine
+from typing import Any, TypeVar
 
 from celery import chain
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.application.resume_service import pipeline as resume_pipeline
 from backend.celery_app import celery
-from backend.domain.resume import services
 from backend.infrastructure.db.database import async_session_factory
 from backend.infrastructure.db.models import ResumeModel
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
+_loop_local = threading.local()
+
+
+def _run_async(coro: Coroutine[Any, Any, _T]) -> _T:
+    """Run an async coroutine on a per-thread event loop reused across tasks.
+
+    Celery prefork/thread workers must not call ``asyncio.run`` per step: that
+    closes the loop and breaks asyncpg / SQLAlchemy async engines bound to it.
+    """
+    loop = getattr(_loop_local, "loop", None)
+    if loop is None or loop.is_closed():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        _loop_local.loop = loop
+    return loop.run_until_complete(coro)
 
 
 def privacy_allows_llm(status: str) -> bool:
@@ -50,9 +70,9 @@ def text_extract_task(self: Any, resume_id_str: str) -> str:
     """步骤一：从文件中提取原始文本（限时 30 秒，不重试）。"""
     resume_id = uuid.UUID(resume_id_str)
     try:
-        return asyncio.run(_run_step(services.extract_text, resume_id))
+        return _run_async(_run_step(resume_pipeline.extract_text, resume_id))
     except Exception as exc:
-        asyncio.run(_mark_failed(resume_id, str(exc)))
+        _run_async(_mark_failed(resume_id, str(exc)))
         return "failed"
 
 
@@ -69,12 +89,12 @@ def llm_parse_task(self: Any, prev_status: str, resume_id_str: str) -> str:
         return prev_status
     resume_id = uuid.UUID(resume_id_str)
     try:
-        return asyncio.run(_run_step(services.extract_facts, resume_id))
+        return _run_async(_run_step(resume_pipeline.extract_facts, resume_id))
     except Exception as exc:
         try:
             raise self.retry(exc=exc)
         except self.MaxRetriesExceededError:
-            asyncio.run(_mark_failed(resume_id, str(exc)))
+            _run_async(_mark_failed(resume_id, str(exc)))
             return "failed"
 
 
@@ -85,9 +105,9 @@ def classify_task(self: Any, prev_status: str, resume_id_str: str) -> str:
         return prev_status
     resume_id = uuid.UUID(resume_id_str)
     try:
-        return asyncio.run(_run_step(services.classify_resume, resume_id))
+        return _run_async(_run_step(resume_pipeline.classify_resume, resume_id))
     except Exception as exc:
-        asyncio.run(_mark_failed(resume_id, str(exc)))
+        _run_async(_mark_failed(resume_id, str(exc)))
         return "failed"
 
 
@@ -104,12 +124,12 @@ def evaluate_task(self: Any, prev_status: str, resume_id_str: str) -> str:
         return prev_status
     resume_id = uuid.UUID(resume_id_str)
     try:
-        return asyncio.run(_run_step(services.evaluate_resume, resume_id))
+        return _run_async(_run_step(resume_pipeline.evaluate_resume, resume_id))
     except Exception as exc:
         try:
             raise self.retry(exc=exc)
         except self.MaxRetriesExceededError:
-            asyncio.run(_mark_failed(resume_id, str(exc)))
+            _run_async(_mark_failed(resume_id, str(exc)))
             return "failed"
 
 

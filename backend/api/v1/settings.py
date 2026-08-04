@@ -8,23 +8,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.v1.schemas import APIResponse
 from backend.application import llm_config_service
-from backend.infrastructure.crypto.encryption import APIKeyEncryptor, get_encryptor
 from backend.infrastructure.db.database import get_db
-from backend.infrastructure.db.models import LLMConfigModel
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 
 class LLMConfigCreate(BaseModel):
     """创建 LLM 配置的请求体。"""
-    provider: str           # 提供商名称（openai / anthropic / deepseek）
-    api_key: str            # API 密钥（明文传入，存储时加密）
-    model_name: str         # 模型名称（如 gpt-4o）
+
+    provider: str  # 提供商名称（openai / anthropic / deepseek）
+    api_key: str  # API 密钥（明文传入，存储时加密）
+    model_name: str  # 模型名称（如 gpt-4o）
     base_url: str | None = None  # 自定义 API 地址（可选）
 
 
 class LLMConfigUpdate(BaseModel):
     """更新 LLM 配置的请求体（所有字段可选，只更新传入的字段）。"""
+
     provider: str | None = None
     api_key: str | None = None
     model_name: str | None = None
@@ -33,6 +33,7 @@ class LLMConfigUpdate(BaseModel):
 
 class LLMConfigTestRequest(BaseModel):
     """测试 LLM 连通性的请求体。"""
+
     provider: str
     api_key: str | None = None  # 为空且传了 config_id 时，使用已保存配置的 Key
     model_name: str
@@ -48,12 +49,16 @@ async def create_llm_config(
     """新增一条 LLM 配置。"""
     try:
         config = await llm_config_service.create_config(
-            session, body.provider, body.api_key, body.model_name, body.base_url,
+            session,
+            body.provider,
+            body.api_key,
+            body.model_name,
+            body.base_url,
         )
     except RuntimeError as exc:
         # 常见于 ENCRYPTION_KEY 未配置
         return APIResponse(code=500, message=str(exc))
-    return APIResponse(data=_serialize(config))
+    return APIResponse(data=llm_config_service.serialize_config(config))
 
 
 @router.get("/llm", response_model=APIResponse)
@@ -62,7 +67,7 @@ async def list_llm_configs(
 ) -> APIResponse:
     """列出所有 LLM 配置（API Key 脱敏显示）。"""
     configs = await llm_config_service.list_configs(session)
-    return APIResponse(data=[_serialize(c) for c in configs])
+    return APIResponse(data=[llm_config_service.serialize_config(c) for c in configs])
 
 
 @router.put("/llm/{config_id}", response_model=APIResponse)
@@ -79,7 +84,7 @@ async def update_llm_config(
         return APIResponse(code=500, message=str(exc))
     if config is None:
         return APIResponse(code=404, message="Config not found")
-    return APIResponse(data=_serialize(config))
+    return APIResponse(data=llm_config_service.serialize_config(config))
 
 
 @router.delete("/llm/{config_id}", response_model=APIResponse)
@@ -108,30 +113,11 @@ async def test_llm_connection(
     if not body.api_key and body.config_id is None:
         return APIResponse(code=400, message="api_key or config_id is required")
     result = await llm_config_service.test_connection(
-        body.provider, body.api_key, body.model_name, body.base_url,
-        session=session, config_id=body.config_id,
+        body.provider,
+        body.api_key,
+        body.model_name,
+        body.base_url,
+        session=session,
+        config_id=body.config_id,
     )
     return APIResponse(data=result)
-
-
-def _serialize(config: LLMConfigModel) -> dict[str, object]:
-    """将数据库模型序列化为前端响应格式（API Key 脱敏）。"""
-    try:
-        decrypted = get_encryptor().decrypt(config.api_key_encrypted)
-        masked_key = APIKeyEncryptor.mask(decrypted)
-    except Exception:
-        masked_key = "***"
-    return {
-        "id": str(config.id),
-        "provider": config.provider,
-        "api_key": masked_key,
-        "model_name": config.model_name,
-        "base_url": config.base_url,
-        "is_active": config.is_active,
-        "verified": config.verified,
-        "last_verified_at": (
-            config.last_verified_at.isoformat() if config.last_verified_at else None
-        ),
-        "created_at": config.created_at.isoformat(),
-        "updated_at": config.updated_at.isoformat(),
-    }

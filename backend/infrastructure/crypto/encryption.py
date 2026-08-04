@@ -37,6 +37,6 @@ def get_encryptor() -> APIKeyEncryptor:
     if not key:
         raise RuntimeError(
             "ENCRYPTION_KEY is not set. Generate one with: "
-            "python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+            'python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
         )
     return APIKeyEncryptor(Fernet(key.encode()))

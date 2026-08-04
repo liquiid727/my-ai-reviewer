@@ -28,7 +28,7 @@ VALID_EVAL = json.dumps(
 
 
 @pytest.mark.asyncio
-async def test_evaluate_success():
+async def test_evaluate_success() -> None:
     gateway = _make_gateway_mock(VALID_EVAL)
     agent = AnswerEvaluationAgent(gateway)
 
@@ -47,7 +47,7 @@ async def test_evaluate_success():
 
 
 @pytest.mark.asyncio
-async def test_evaluate_with_previous_answers():
+async def test_evaluate_with_previous_answers() -> None:
     gateway = _make_gateway_mock(VALID_EVAL)
     agent = AnswerEvaluationAgent(gateway)
 
@@ -70,7 +70,7 @@ async def test_evaluate_with_previous_answers():
 
 
 @pytest.mark.asyncio
-async def test_evaluate_stores_model_info():
+async def test_evaluate_stores_model_info() -> None:
     gateway = _make_gateway_mock(VALID_EVAL, model="claude-3-opus")
     agent = AnswerEvaluationAgent(gateway)
 
@@ -84,7 +84,7 @@ async def test_evaluate_stores_model_info():
 
 
 @pytest.mark.asyncio
-async def test_evaluate_score_boundaries():
+async def test_evaluate_score_boundaries() -> None:
     low_score = json.dumps(
         {
             "score": 0,
@@ -109,7 +109,7 @@ async def test_evaluate_score_boundaries():
 
 
 @pytest.mark.asyncio
-async def test_evaluate_retry_on_invalid_json():
+async def test_evaluate_retry_on_invalid_json() -> None:
     bad = LLMResponse(content="{broken", model="gpt-4o")
     good = LLMResponse(content=VALID_EVAL, model="gpt-4o")
     gateway = AsyncMock()
@@ -127,7 +127,7 @@ async def test_evaluate_retry_on_invalid_json():
 
 
 @pytest.mark.asyncio
-async def test_evaluate_raises_after_max_retries():
+async def test_evaluate_raises_after_max_retries() -> None:
     gateway = _make_gateway_mock("not valid json")
     agent = AnswerEvaluationAgent(gateway)
 

@@ -134,11 +134,13 @@ def test_multiple_bullet_removals_use_original_indexes() -> None:
 
 def test_forbidden_identity_field_is_rejected() -> None:
     with pytest.raises(ValidationError, match="Input should be"):
-        EditOperation.model_validate({
-            "kind": "replace_identity_field",
-            "field": "photo",
-            "after": "other-object.png",
-        })
+        EditOperation.model_validate(
+            {
+                "kind": "replace_identity_field",
+                "field": "photo",
+                "after": "other-object.png",
+            }
+        )
 
 
 @pytest.mark.asyncio
@@ -147,14 +149,19 @@ async def test_llm_editor_retries_invalid_json() -> None:
     gateway.complete.side_effect = [
         LLMResponse(content="not-json", model="test-model"),
         LLMResponse(
-            content=json.dumps({
-                "assistant_message": "已准备一项修改。",
-                "operations": [{
-                    "kind": "replace_summary",
-                    "after": "三年后端开发经验",
-                    "reason": "更具体",
-                }],
-            }, ensure_ascii=False),
+            content=json.dumps(
+                {
+                    "assistant_message": "已准备一项修改。",
+                    "operations": [
+                        {
+                            "kind": "replace_summary",
+                            "after": "三年后端开发经验",
+                            "reason": "更具体",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
             model="test-model",
             usage={"prompt_tokens": 20, "completion_tokens": 10},
         ),

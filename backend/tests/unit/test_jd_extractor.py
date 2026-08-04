@@ -34,7 +34,7 @@ def _make_gateway_mock(*contents: str, model: str = "gpt-4o") -> AsyncMock:
 
 
 @pytest.mark.asyncio
-async def test_extract_success():
+async def test_extract_success() -> None:
     """正常路径：合法 JSON → JDExtraction，技能带 critical + evidence。"""
     gateway = _make_gateway_mock(VALID_EXTRACTION)
     extractor = JDExtractor(gateway)
@@ -51,7 +51,7 @@ async def test_extract_success():
 
 
 @pytest.mark.asyncio
-async def test_extract_retry_on_invalid_output():
+async def test_extract_retry_on_invalid_output() -> None:
     """输出畸形（非 JSON）→ 内部重试 1 次成功，且重试消息带上错误提示。"""
     gateway = _make_gateway_mock("not json at all", VALID_EXTRACTION)
     extractor = JDExtractor(gateway)
@@ -67,7 +67,7 @@ async def test_extract_retry_on_invalid_output():
 
 
 @pytest.mark.asyncio
-async def test_extract_retry_on_schema_violation():
+async def test_extract_retry_on_schema_violation() -> None:
     """JSON 合法但 schema 非法（seniority 越界）→ 同样触发重试。"""
     bad_schema = json.dumps({"required_skills": [], "seniority": "principal"})
     gateway = _make_gateway_mock(bad_schema, VALID_EXTRACTION)
@@ -80,7 +80,7 @@ async def test_extract_retry_on_schema_violation():
 
 
 @pytest.mark.asyncio
-async def test_extract_empty_json_triggers_retry():
+async def test_extract_empty_json_triggers_retry() -> None:
     """空 JSON `{}`（键缺失）不得静默通过 → 触发重试，不返回空结果。"""
     gateway = _make_gateway_mock("{}", VALID_EXTRACTION)
     extractor = JDExtractor(gateway)
@@ -92,7 +92,7 @@ async def test_extract_empty_json_triggers_retry():
 
 
 @pytest.mark.asyncio
-async def test_extract_raises_after_max_retries():
+async def test_extract_raises_after_max_retries() -> None:
     """重试后仍不合法 → 抛 JDExtractionError，不返回半成品。"""
     gateway = _make_gateway_mock("broken", "still broken")
     extractor = JDExtractor(gateway)
@@ -104,7 +104,7 @@ async def test_extract_raises_after_max_retries():
 
 
 @pytest.mark.asyncio
-async def test_extract_truncates_long_text():
+async def test_extract_truncates_long_text() -> None:
     """超长 JD 文本被截断到 MAX_TEXT_LENGTH，防止超出上下文窗口。"""
     gateway = _make_gateway_mock(VALID_EXTRACTION)
     extractor = JDExtractor(gateway)
@@ -118,7 +118,7 @@ async def test_extract_truncates_long_text():
 
 
 @pytest.mark.asyncio
-async def test_extract_wraps_gateway_error():
+async def test_extract_wraps_gateway_error() -> None:
     """网关层异常（网络/鉴权/超时）包装为 JDExtractionError，不穿透裸异常。"""
     gateway = AsyncMock()
     gateway.complete = AsyncMock(side_effect=ConnectionError("connection refused"))

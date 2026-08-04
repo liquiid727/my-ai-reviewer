@@ -15,10 +15,19 @@ from backend.infrastructure.llm.prompts.evaluation import (
 VERSION = "llm-evaluator-v1"
 
 # 必须包含的 9 个评估维度
-REQUIRED_DIMENSIONS = frozenset([
-    "技术能力", "项目质量", "工程能力", "架构能力",
-    "业务复杂度", "影响力", "成长性", "AI能力", "沟通表达",
-])
+REQUIRED_DIMENSIONS = frozenset(
+    [
+        "技术能力",
+        "项目质量",
+        "工程能力",
+        "架构能力",
+        "业务复杂度",
+        "影响力",
+        "成长性",
+        "AI能力",
+        "沟通表达",
+    ]
+)
 
 
 class LLMResumeEvaluator(ResumeEvaluator):

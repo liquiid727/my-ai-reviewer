@@ -1,6 +1,5 @@
 """LLM 配置服务层 —— 提供 LLM 配置的增删改查和连通性测试。"""
 
-import asyncio
 import uuid
 from datetime import UTC, datetime
 from types import EllipsisType
@@ -8,8 +7,9 @@ from types import EllipsisType
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.infrastructure.crypto.encryption import get_encryptor
+from backend.infrastructure.crypto.encryption import APIKeyEncryptor, get_encryptor
 from backend.infrastructure.db.models import LLMConfigModel
+from backend.infrastructure.llm.connection_probe import run_connection_test
 
 
 async def create_config(
@@ -42,9 +42,7 @@ async def list_configs(session: AsyncSession) -> list[LLMConfigModel]:
 async def has_verified_config(session: AsyncSession) -> bool:
     """是否存在"已激活且已验证"的 LLM 配置（上传门禁的判定依据）。"""
     stmt = (
-        select(LLMConfigModel.id)
-        .where(LLMConfigModel.is_active.is_(True), LLMConfigModel.verified.is_(True))
-        .limit(1)
+        select(LLMConfigModel.id).where(LLMConfigModel.is_active.is_(True), LLMConfigModel.verified.is_(True)).limit(1)
     )
     result = await session.execute(stmt)
     return result.scalar_one_or_none() is not None
@@ -78,11 +76,7 @@ async def update_config(
     if config is None:
         return None
     # 关键字段变更时重置已验证状态，需重新测试（verified 不设过期）
-    key_field_changed = (
-        provider is not None
-        or api_key is not None
-        or model_name is not None
-    )
+    key_field_changed = provider is not None or api_key is not None or model_name is not None
     if provider is not None:
         config.provider = provider
     if api_key is not None:
@@ -140,7 +134,7 @@ async def test_connection(
     if not api_key:
         return {"success": False, "error": "API key is required"}
 
-    result = await _run_connection_test(provider, api_key, model_name, base_url)
+    result = await run_connection_test(provider, api_key, model_name, base_url)
     if session is not None and config_id is not None:
         config = await session.get(LLMConfigModel, config_id)
         if config is not None:
@@ -172,76 +166,22 @@ def _friendly_connection_error(exc: BaseException) -> str:
     return message
 
 
-async def _run_connection_test(
-    provider: str,
-    api_key: str,
-    model_name: str,
-    base_url: str | None = None,
-) -> dict[str, object]:
-    """向 LLM 提供商发送最小请求或列出可用模型，验证连通性。
-
-    OpenAI 兼容渠道优先 ``models.list`` 探测模型清单；若渠道未实现该接口，
-    再回退到一次最小 chat 请求，确保“测试连接”与“加载模型列表”都能工作。
-    """
-    if provider == "anthropic":
-        try:
-            from anthropic import AsyncAnthropic
-
-            # 客户端构造也可能因代理依赖缺失而失败，必须纳入 try
-            anthropic_client = AsyncAnthropic(api_key=api_key, base_url=base_url)
-            await asyncio.wait_for(
-                anthropic_client.messages.create(
-                    model=model_name,
-                    max_tokens=1,
-                    messages=[{"role": "user", "content": "hi"}],
-                ),
-                timeout=15,
-            )
-            return {"success": True, "models": [model_name]}
-        except Exception as exc:
-            return {"success": False, "error": _friendly_connection_error(exc)}
-
+def serialize_config(config: LLMConfigModel) -> dict[str, object]:
+    """Serialize an LLM config for API responses with a masked API key."""
     try:
-        from openai import AsyncOpenAI
-
-        openai_client = AsyncOpenAI(api_key=api_key, base_url=base_url or None)
-        # 1) 优先拉取模型列表，供前端下拉/点选
-        try:
-            models_response = await asyncio.wait_for(
-                openai_client.models.list(),
-                timeout=15,
-            )
-            model_ids = sorted(
-                {m.id for m in models_response.data if getattr(m, "id", None)},
-                key=str.lower,
-            )
-            # 当前填写的模型优先展示，其余按字母序
-            if model_name and model_name not in model_ids:
-                model_ids = [model_name, *model_ids]
-            elif model_name in model_ids:
-                model_ids = [model_name, *[m for m in model_ids if m != model_name]]
-            return {"success": True, "models": model_ids[:100]}
-        except Exception as list_exc:
-            # 2) 部分中转站未实现 /v1/models，回退到最小 chat 验证 Key + 模型
-            try:
-                await asyncio.wait_for(
-                    openai_client.chat.completions.create(
-                        model=model_name,
-                        max_tokens=1,
-                        messages=[{"role": "user", "content": "hi"}],
-                    ),
-                    timeout=15,
-                )
-                return {
-                    "success": True,
-                    "models": [model_name],
-                    "warning": (
-                        "models.list unavailable; verified via chat.completions instead: "
-                        f"{_friendly_connection_error(list_exc)}"
-                    ),
-                }
-            except Exception as chat_exc:
-                # 两个路径都失败时，优先返回 chat 错误（与所选模型更相关）
-                return {"success": False, "error": _friendly_connection_error(chat_exc)}
-    except Exception as exc:
-        return {"success": False, "error": _friendly_connection_error(exc)}
+        decrypted = get_encryptor().decrypt(config.api_key_encrypted)
+        masked_key = APIKeyEncryptor.mask(decrypted)
+    except Exception:
+        masked_key = "***"
+    return {
+        "id": str(config.id),
+        "provider": config.provider,
+        "api_key": masked_key,
+        "model_name": config.model_name,
+        "base_url": config.base_url,
+        "is_active": config.is_active,
+        "verified": config.verified,
+        "last_verified_at": (config.last_verified_at.isoformat() if config.last_verified_at else None),
+        "created_at": config.created_at.isoformat(),
+        "updated_at": config.updated_at.isoformat(),
+    }

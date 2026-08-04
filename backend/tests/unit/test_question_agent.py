@@ -37,7 +37,7 @@ VALID_RESPONSE = json.dumps(
 
 
 @pytest.mark.asyncio
-async def test_generate_success():
+async def test_generate_success() -> None:
     gateway = _make_gateway_mock(VALID_RESPONSE)
     agent = QuestionGenerationAgent(gateway)
 
@@ -57,7 +57,7 @@ async def test_generate_success():
 
 
 @pytest.mark.asyncio
-async def test_generate_stores_model_info():
+async def test_generate_stores_model_info() -> None:
     gateway = _make_gateway_mock(VALID_RESPONSE, model="deepseek-chat")
     agent = QuestionGenerationAgent(gateway)
 
@@ -71,7 +71,7 @@ async def test_generate_stores_model_info():
 
 
 @pytest.mark.asyncio
-async def test_generate_no_jd_uses_fallback():
+async def test_generate_no_jd_uses_fallback() -> None:
     gateway = _make_gateway_mock(VALID_RESPONSE)
     agent = QuestionGenerationAgent(gateway)
 
@@ -87,7 +87,7 @@ async def test_generate_no_jd_uses_fallback():
 
 
 @pytest.mark.asyncio
-async def test_generate_retry_on_invalid_json():
+async def test_generate_retry_on_invalid_json() -> None:
     bad_response = LLMResponse(content="not json", model="gpt-4o")
     good_response = LLMResponse(content=VALID_RESPONSE, model="gpt-4o")
     gateway = AsyncMock()
@@ -105,7 +105,7 @@ async def test_generate_retry_on_invalid_json():
 
 
 @pytest.mark.asyncio
-async def test_generate_raises_after_max_retries():
+async def test_generate_raises_after_max_retries() -> None:
     gateway = _make_gateway_mock("invalid json forever")
     agent = QuestionGenerationAgent(gateway)
 
@@ -120,7 +120,7 @@ async def test_generate_raises_after_max_retries():
 
 
 @pytest.mark.asyncio
-async def test_generate_retry_on_validation_error():
+async def test_generate_retry_on_validation_error() -> None:
     incomplete = json.dumps({"questions": [{"question_text": "Q1"}]})
     gateway = AsyncMock()
     gateway.complete = AsyncMock(

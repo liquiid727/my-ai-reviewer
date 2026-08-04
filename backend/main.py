@@ -37,6 +37,7 @@ async def health_check() -> dict[str, str]:
 
 # ── 全局异常处理器 ──────────────────────────────────────────
 
+
 @app.exception_handler(UnsupportedFileFormatError)
 async def handle_unsupported_format(request, exc: UnsupportedFileFormatError) -> JSONResponse:  # type: ignore[no-untyped-def]
     """文件格式不支持（如 .exe）时返回 400。"""

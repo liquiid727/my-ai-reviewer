@@ -10,28 +10,35 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import noload
 
+from backend.application.jd_service.matching import JDMatchingService
 from backend.application.llm_config_service import get_active_verified_config
 from backend.domain.jd.enums import JDStatus
 from backend.domain.job_search_plan.enums import PlanStatus
-from backend.domain.job_search_plan.schemas import PlanCreateRequest, PlanPatchRequest
-from backend.domain.job_search_plan.services import (
+from backend.domain.job_search_plan.policies import (
     PlanDomainError,
     build_source_catalog,
-    generate_plan_output,
     generation_today,
-    get_fresh_match,
     normalize_generated_tasks,
     sanitized_input_snapshot,
 )
+from backend.domain.job_search_plan.schemas import (
+    CatalogEntry,
+    PlanCreateRequest,
+    PlanGenerationOutput,
+    PlanPatchRequest,
+)
 from backend.infrastructure.db.models import (
     CandidateProfileModel,
+    JDMatchResultModel,
     JobDescriptionModel,
     JobSearchPlanModel,
     JobSearchPlanTaskModel,
     ResumeModel,
 )
-from backend.infrastructure.planners.llm_plan_generator import LLMPlanGenerationError
+from backend.infrastructure.llm.gateway import LLMGateway
+from backend.infrastructure.planners.llm_plan_generator import LLMPlanGenerationError, LLMPlanGenerator
 
 UNFINISHED_PLAN_STATUSES = (
     PlanStatus.GENERATING.value,
@@ -49,6 +56,64 @@ class PreparedPlanGeneration:
     input_snapshot: dict[str, object]
     model_name: str
     tasks: list[dict[str, object]]
+
+
+async def get_fresh_match(
+    session: AsyncSession,
+    *,
+    jd: JobDescriptionModel,
+    resume_id: uuid.UUID,
+) -> tuple[CandidateProfileModel, JDMatchResultModel]:
+    """Reuse a match only when it is at least as new as both upstream documents."""
+    profile = (
+        await session.execute(
+            select(CandidateProfileModel)
+            .where(CandidateProfileModel.resume_id == resume_id)
+            .options(noload(CandidateProfileModel.resume))
+        )
+    ).scalar_one_or_none()
+    if profile is None:
+        raise PlanDomainError("Resume does not have a candidate profile", 1008)
+    latest = (
+        await session.execute(
+            select(JDMatchResultModel)
+            .where(JDMatchResultModel.jd_id == jd.id, JDMatchResultModel.resume_id == resume_id)
+            .order_by(JDMatchResultModel.created_at.desc())
+            .limit(1)
+            .options(noload(JDMatchResultModel.resume), noload(JDMatchResultModel.jd))
+        )
+    ).scalar_one_or_none()
+    upstream_dates = [value for value in (jd.updated_at, profile.updated_at) if value is not None]
+    stale = latest is None or any(latest.created_at < updated_at for updated_at in upstream_dates)
+    if stale:
+        latest = await JDMatchingService().match(session, resume_id, jd)
+        await session.flush()
+    assert latest is not None
+    return profile, latest
+
+
+async def generate_plan_output(
+    session: AsyncSession,
+    catalog: list[CatalogEntry],
+    *,
+    target_date,
+    weekly_hours: int | None,
+) -> tuple[PlanGenerationOutput, str]:
+    """Use only the active verified database configuration for plan generation."""
+    config = await get_active_verified_config(session)
+    if config is None:
+        await session.rollback()
+        raise PlanDomainError("LLM not configured or not verified", 428)
+    generator = LLMPlanGenerator(LLMGateway.from_config(config))
+    # The gateway owns the decrypted configuration now. Release the database
+    # transaction before the provider call, which can take the full task timeout.
+    await session.rollback()
+    output = await generator.generate(
+        catalog,
+        target_date=target_date.isoformat(),
+        weekly_hours=weekly_hours or 8,
+    )
+    return output, generator.model_info
 
 
 class PlanService:
@@ -126,9 +191,7 @@ class PlanService:
         expected_revision: int,
     ) -> JobSearchPlanModel:
         plan = (
-            await session.execute(
-                select(JobSearchPlanModel).where(JobSearchPlanModel.id == plan_id).with_for_update()
-            )
+            await session.execute(select(JobSearchPlanModel).where(JobSearchPlanModel.id == plan_id).with_for_update())
         ).scalar_one_or_none()
         if plan is None:
             raise PlanDomainError("Plan not found", 1002)
@@ -153,9 +216,7 @@ class PlanService:
         payload: PlanPatchRequest,
     ) -> JobSearchPlanModel:
         plan = (
-            await session.execute(
-                select(JobSearchPlanModel).where(JobSearchPlanModel.id == plan_id).with_for_update()
-            )
+            await session.execute(select(JobSearchPlanModel).where(JobSearchPlanModel.id == plan_id).with_for_update())
         ).scalar_one_or_none()
         if plan is None:
             raise PlanDomainError("Plan not found", 1002)
@@ -270,18 +331,14 @@ class PlanService:
         """Atomically insert all initial tasks only when the run is still current."""
         plan = (
             await session.execute(
-                select(JobSearchPlanModel)
-                .where(JobSearchPlanModel.id == prepared.plan_id)
-                .with_for_update()
+                select(JobSearchPlanModel).where(JobSearchPlanModel.id == prepared.plan_id).with_for_update()
             )
         ).scalar_one_or_none()
         if plan is None or plan.generation_run_id != prepared.run_id or plan.status != PlanStatus.GENERATING.value:
             await session.rollback()
             return False
         existing_count = (
-            await session.execute(
-                select(JobSearchPlanTaskModel.id).where(JobSearchPlanTaskModel.plan_id == plan.id)
-            )
+            await session.execute(select(JobSearchPlanTaskModel.id).where(JobSearchPlanTaskModel.plan_id == plan.id))
         ).all()
         if existing_count:
             raise PlanDomainError("Initial plan run cannot replace existing tasks", 1003)

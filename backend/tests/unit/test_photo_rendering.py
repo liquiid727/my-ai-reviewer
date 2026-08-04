@@ -2,13 +2,15 @@
 
 import base64
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.domain.resume_builder import services
 from backend.domain.resume_builder.enums import LayoutDensity
 from backend.domain.resume_builder.schemas import ExportOptions, LayoutPolicy, ResumeDraft
+from backend.infrastructure.db.models import ResumeDraftModel
 
 
 def _draft(identity: dict[str, Any] | None = None) -> ResumeDraft:
@@ -21,7 +23,7 @@ class _FakeDraftModel:
     def __init__(self, identity: dict[str, Any]) -> None:
         self.id = uuid.uuid4()
         self.title = "测试简历"
-        self.content = {"identity": identity, "summary": None, "sections": []}
+        self.content: dict[str, Any] = {"identity": identity, "summary": None, "sections": []}
         self.template_id = "classic"
         self.design_tokens = None
         self.layout_mode = "auto_pages"
@@ -38,12 +40,19 @@ class _FakeSession:
         pass
 
 
+def _session() -> AsyncSession:
+    return cast(AsyncSession, _FakeSession())
+
+
+def _as_draft(model: _FakeDraftModel) -> ResumeDraftModel:
+    return cast(ResumeDraftModel, model)
+
+
 class TestUpdateDraftPhotoGuard:
     """update_draft 不得绕过 confirm 归属校验直写 identity.photo。"""
 
-    async def test_client_photo_stripped_and_existing_preserved(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_client_photo_stripped_and_existing_preserved(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Client photo stripped; confirmed existing photo retained; name masked."""
         model = _FakeDraftModel({"name": "张三", "photo": "d1/processed-legit.png"})
 
         async def fake_get_draft(session: Any, draft_id: Any) -> Any:
@@ -51,17 +60,19 @@ class TestUpdateDraftPhotoGuard:
 
         monkeypatch.setattr(services, "get_draft", fake_get_draft)
         await services.update_draft(
-            _FakeSession(), model.id,  # type: ignore[arg-type]
+            _session(),
+            model.id,
             {"identity": {"name": "李四", "photo": "other-draft/processed-stolen.png"}},
         )
 
-        identity = model.content["identity"]
-        assert identity["name"].startswith("[[PERSON_")
-        assert "photo" not in identity
+        identity = cast(dict[str, Any], model.content["identity"])
+        assert str(identity["name"]).startswith("[[PERSON_")
+        # Confirmed photo must survive identity patches (only set_draft_photo mutates it).
+        assert identity["photo"] == "d1/processed-legit.png"
+        assert identity["photo"] != "other-draft/processed-stolen.png"
 
-    async def test_client_photo_stripped_when_no_existing(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_client_photo_stripped_when_no_existing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Client photo stripped when draft had no confirmed photo."""
         model = _FakeDraftModel({"name": "张三"})
 
         async def fake_get_draft(session: Any, draft_id: Any) -> Any:
@@ -69,11 +80,13 @@ class TestUpdateDraftPhotoGuard:
 
         monkeypatch.setattr(services, "get_draft", fake_get_draft)
         await services.update_draft(
-            _FakeSession(), model.id,  # type: ignore[arg-type]
+            _session(),
+            model.id,
             {"identity": {"name": "李四", "photo": "other-draft/processed-x.png"}},
         )
 
-        assert "photo" not in model.content["identity"]
+        identity = cast(dict[str, Any], model.content["identity"])
+        assert "photo" not in identity
 
 
 class TestDraftPhotoDataUri:
@@ -98,12 +111,17 @@ class TestDraftPhotoDataUri:
 
 
 class TestExportWithPhoto:
-    """export_draft_pdf：照片经 data URI 透传给 PdfRenderer。"""
+    """export_draft_pdf：RIP-009 request-scoped photo only — no silent MinIO rehydrate."""
 
-    async def test_photo_data_uri_passed_to_pdf_renderer(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_export_does_not_auto_inject_persisted_identity_photo(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Persisted identity.photo must NOT be auto-loaded from MinIO on export.
+
+        RIP-009: export photos are request-scoped transient only. Callers pass
+        photo_data_uri explicitly; export_draft_pdf must not silently rehydrate
+        from storage even when identity.photo is present and downloadable.
+        """
         captured: dict[str, Any] = {}
+        download_calls: list[tuple[str, str]] = []
 
         class _FakePdfRenderer:
             async def render_pdf(
@@ -115,20 +133,25 @@ class TestExportWithPhoto:
                 captured["photo_data_uri"] = photo_data_uri
                 return b"pdf", 1, True, LayoutDensity.NORMAL
 
-        monkeypatch.setattr(services, "PdfRenderer", _FakePdfRenderer)
-        monkeypatch.setattr(services, "download_file", lambda bucket, obj: b"png-bytes")
+        def track_download(bucket: str, obj: str) -> bytes:
+            download_calls.append((bucket, obj))
+            return b"png-bytes"
 
-        model = _FakeDraftModel({"name": "张三", "photo": "d1/processed-x.png"})
-        pdf_bytes, result = await services.export_draft_pdf(
-            None, model, ExportOptions(persist=False),  # type: ignore[arg-type]
+        monkeypatch.setattr(services, "PdfRenderer", _FakePdfRenderer)
+        monkeypatch.setattr(services, "download_file", track_download)
+
+        model = _FakeDraftModel({"name": "[[PERSON_01]]", "photo": "d1/processed-x.png"})
+        pdf_bytes, _result = await services.export_draft_pdf(
+            cast(AsyncSession, None),
+            _as_draft(model),
+            ExportOptions(persist=False),
         )
 
         assert pdf_bytes == b"pdf"
         assert captured["photo_data_uri"] is None
+        assert download_calls == [], "export must not silently load identity.photo from MinIO"
 
-    async def test_export_without_photo_passes_none(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_export_without_photo_passes_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, Any] = {}
 
         class _FakePdfRenderer:
@@ -143,25 +166,38 @@ class TestExportWithPhoto:
 
         monkeypatch.setattr(services, "PdfRenderer", _FakePdfRenderer)
 
-        model = _FakeDraftModel({"name": "张三"})
-        await services.export_draft_pdf(None, model, ExportOptions(persist=False))  # type: ignore[arg-type]
+        model = _FakeDraftModel({"name": "[[PERSON_01]]"})
+        await services.export_draft_pdf(cast(AsyncSession, None), _as_draft(model), ExportOptions(persist=False))
 
         assert captured["photo_data_uri"] is None
 
-    async def test_transient_photo_data_uri_is_forwarded_without_storage(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_transient_photo_data_uri_is_forwarded_without_storage(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Explicit request-scoped photo_data_uri is forwarded; storage untouched."""
         captured: dict[str, Any] = {}
+        download_calls: list[tuple[str, str]] = []
 
         class _FakePdfRenderer:
-            async def render_pdf(self, draft: ResumeDraft, layout_policy: LayoutPolicy | None = None,
-                                 photo_data_uri: str | None = None) -> tuple[bytes, int, bool, LayoutDensity]:
+            async def render_pdf(
+                self,
+                draft: ResumeDraft,
+                layout_policy: LayoutPolicy | None = None,
+                photo_data_uri: str | None = None,
+            ) -> tuple[bytes, int, bool, LayoutDensity]:
                 captured["photo_data_uri"] = photo_data_uri
                 return b"pdf", 1, True, LayoutDensity.NORMAL
 
+        def track_download(bucket: str, obj: str) -> bytes:
+            download_calls.append((bucket, obj))
+            return b"png-bytes"
+
         monkeypatch.setattr(services, "PdfRenderer", _FakePdfRenderer)
-        model = _FakeDraftModel({"name": "[[PERSON_01]]"})
+        monkeypatch.setattr(services, "download_file", track_download)
+        model = _FakeDraftModel({"name": "[[PERSON_01]]", "photo": "d1/processed-x.png"})
         await services.export_draft_pdf(
-            None, model, ExportOptions(persist=False), "data:image/png;base64,abc"  # type: ignore[arg-type]
+            cast(AsyncSession, None),
+            _as_draft(model),
+            ExportOptions(persist=False),
+            "data:image/png;base64,abc",
         )
         assert captured["photo_data_uri"] == "data:image/png;base64,abc"
+        assert download_calls == [], "transient photo must not touch MinIO"

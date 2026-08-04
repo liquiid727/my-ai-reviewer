@@ -10,14 +10,15 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.application.jd_service.processing import JDProcessingError, JDProcessingService
 from backend.application.plan_regeneration_service import PlanRegenerationService
-from backend.application.plan_service import PlanService, PreparedPlanGeneration
+from backend.application.plan_service import PlanService, PreparedPlanGeneration, get_fresh_match
 from backend.application.plan_task_service import PlanTaskService
+from backend.domain.jd.policies import content_hash
 from backend.domain.jd.schemas import ExtractedSkill, JDExtraction
-from backend.domain.jd.services import JDProcessingError, JDProcessingService, content_hash
 from backend.domain.job_search_plan.enums import PlanTaskStatus
+from backend.domain.job_search_plan.policies import PlanDomainError
 from backend.domain.job_search_plan.schemas import PlanTaskPatchRequest
-from backend.domain.job_search_plan.services import PlanDomainError, get_fresh_match
 from backend.infrastructure.db.models import (
     CandidateProfileModel,
     JDMatchResultModel,
@@ -409,9 +410,9 @@ async def test_jd_processing_state_machine_preserves_manual_fields_and_safe_fail
         gateway_configs.append(config)
         return object()
 
-    monkeypatch.setattr("backend.domain.jd.services.get_active_verified_config", verified_config)
-    monkeypatch.setattr("backend.domain.jd.services.LLMGateway.from_config", gateway_from_config)
-    monkeypatch.setattr("backend.domain.jd.services.JDExtractor", Extractor)
+    monkeypatch.setattr("backend.application.jd_service.processing.get_active_verified_config", verified_config)
+    monkeypatch.setattr("backend.application.jd_service.processing.LLMGateway.from_config", gateway_from_config)
+    monkeypatch.setattr("backend.application.jd_service.processing.JDExtractor", Extractor)
 
     service = JDProcessingService()
     assert await service.source_extract(db_session, jd.id, run_id) == "processing"
@@ -455,9 +456,7 @@ async def test_fresh_match_reuses_then_refreshes_after_profile_change(db_session
     assert reused.id == first.id
 
     profile = (
-        await db_session.execute(
-            select(CandidateProfileModel).where(CandidateProfileModel.resume_id == resume.id)
-        )
+        await db_session.execute(select(CandidateProfileModel).where(CandidateProfileModel.resume_id == resume.id))
     ).scalar_one()
     profile.updated_at = datetime.now(UTC) + timedelta(seconds=1)
     await db_session.commit()
@@ -591,10 +590,10 @@ async def test_initial_plan_persistence_rejects_stale_workers(db_session: AsyncS
     assert plan.status == "active"
     assert plan.revision == 1
     tasks = (
-        await db_session.execute(
-            select(JobSearchPlanTaskModel).where(JobSearchPlanTaskModel.plan_id == plan_id)
-        )
-    ).scalars().all()
+        (await db_session.execute(select(JobSearchPlanTaskModel).where(JobSearchPlanTaskModel.plan_id == plan_id)))
+        .scalars()
+        .all()
+    )
     assert [task.title for task in tasks] == ["Generated first task"]
 
     stale = PreparedPlanGeneration(
@@ -607,10 +606,10 @@ async def test_initial_plan_persistence_rejects_stale_workers(db_session: AsyncS
     )
     assert await service.persist_initial(db_session, stale) is False
     unchanged = (
-        await db_session.execute(
-            select(JobSearchPlanTaskModel).where(JobSearchPlanTaskModel.plan_id == plan_id)
-        )
-    ).scalars().all()
+        (await db_session.execute(select(JobSearchPlanTaskModel).where(JobSearchPlanTaskModel.plan_id == plan_id)))
+        .scalars()
+        .all()
+    )
     assert [task.title for task in unchanged] == ["Generated first task"]
 
 
@@ -688,12 +687,16 @@ async def test_plan_failure_and_regeneration_preserve_current_work(db_session: A
     )
     assert await PlanRegenerationService().persist(db_session, prepared) is True
     rows = (
-        await db_session.execute(
-            select(JobSearchPlanTaskModel)
-            .where(JobSearchPlanTaskModel.plan_id == plan.id)
-            .order_by(JobSearchPlanTaskModel.sort_order)
+        (
+            await db_session.execute(
+                select(JobSearchPlanTaskModel)
+                .where(JobSearchPlanTaskModel.plan_id == plan.id)
+                .order_by(JobSearchPlanTaskModel.sort_order)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert {row.title for row in rows} == {"Manual portfolio note", "Completed AI task", "New AI task"}
     assert all(row.title != "Replace this AI task" for row in rows)
 
@@ -712,12 +715,16 @@ async def test_plan_failure_and_regeneration_preserve_current_work(db_session: A
     )
     await db_session.refresh(plan)
     after = (
-        await db_session.execute(
-            select(JobSearchPlanTaskModel)
-            .where(JobSearchPlanTaskModel.plan_id == plan.id)
-            .order_by(JobSearchPlanTaskModel.sort_order)
+        (
+            await db_session.execute(
+                select(JobSearchPlanTaskModel)
+                .where(JobSearchPlanTaskModel.plan_id == plan.id)
+                .order_by(JobSearchPlanTaskModel.sort_order)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert plan.status == "active"
     assert plan.generation_error == "Plan regeneration failed"
     assert [(row.id, row.title, row.status, row.source, row.sort_order) for row in after] == before

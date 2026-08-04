@@ -18,9 +18,27 @@ from backend.infrastructure.parsers.base import (
 
 # 视为「块级」的标签：遇到时插入换行，帮助还原段落结构
 _BLOCK_TAGS = {
-    "p", "div", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6",
-    "li", "tr", "section", "article", "header", "footer", "ul", "ol",
-    "table", "blockquote", "pre",
+    "p",
+    "div",
+    "br",
+    "hr",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "li",
+    "tr",
+    "section",
+    "article",
+    "header",
+    "footer",
+    "ul",
+    "ol",
+    "table",
+    "blockquote",
+    "pre",
 }
 # 标题标签
 _HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}

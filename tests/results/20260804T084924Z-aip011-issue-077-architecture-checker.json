@@ -1,0 +1,102 @@
+{
+  "schema_version": "1.0",
+  "spec_id": "AIP-011",
+  "spec_version": "issue-077",
+  "run_id": "20260804T084924Z-aip011-issue-077-architecture-checker",
+  "test_type": "quality-gate",
+  "baseline_ref": "3fda1b2",
+  "head_ref": "WORKTREE",
+  "started_at": "2026-08-04T08:49:24.693720Z",
+  "finished_at": "2026-08-04T08:49:29.516390Z",
+  "environment": {
+    "python": "Python 3.9.6",
+    "node": "v26.5.0",
+    "platform": "macOS-15.7.1-arm64-arm-64bit",
+    "git_head": "3fda1b2"
+  },
+  "gates": [
+    {
+      "id": "arch-check-unit",
+      "command": "PYTHONPATH=. uv run --project backend pytest backend/tests/unit/test_arch_check.py -q",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": 2143,
+      "summary": "<frozen importlib._bootstrap>:488\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type swigvarlink has no __module__ attribute\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n17 passed, 5 warnings in 0.10s\n<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ at",
+      "evidence": [
+        "scripts/quality/arch_check.py",
+        "scripts/quality/arch_exceptions.toml",
+        "backend/tests/unit/test_arch_check.py"
+      ]
+    },
+    {
+      "id": "arch-check-make",
+      "command": "make arch-check",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": 120,
+      "summary": "  - rule=api-no-storage importer=backend/api/v1/resume_builder.py:34 imported=backend.infrastructure.storage.minio_client\n  - rule=api-no-crypto importer=backend/api/v1/settings.py:11 imported=backend.infrastructure.crypto.encryption\n  - rule=api-no-orm-models importer=backend/api/v1/settings.py:13 imported=backend.infrastructure.db.models\n  - rule=application-no-openai importer=backend/application/llm_config_service.py:199 imported=openai\n  - rule=application-no-anthropic importer=backend/appli",
+      "evidence": [
+        "scripts/quality/arch_check.py",
+        "scripts/quality/arch_exceptions.toml",
+        "backend/tests/unit/test_arch_check.py"
+      ]
+    },
+    {
+      "id": "quality-scripts-contract",
+      "command": "PYTHONPATH=. uv run --project backend pytest backend/tests/unit/test_quality_scripts.py -q",
+      "status": "PASS",
+      "exit_code": 0,
+      "duration_ms": 2558,
+      "summary": "<frozen importlib._bootstrap>:488\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute\n<frozen importlib._bootstrap>:488\n  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type swigvarlink has no __module__ attribute\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n16 passed, 5 warnings in 0.24s\n<sys>:0: DeprecationWarning: builtin type swigvarlink has no __module__ at",
+      "evidence": [
+        "scripts/quality/arch_check.py",
+        "scripts/quality/arch_exceptions.toml",
+        "backend/tests/unit/test_arch_check.py"
+      ]
+    }
+  ],
+  "ratchet": {
+    "baseline_findings": 56,
+    "new_findings": 0,
+    "resolved_findings": 0,
+    "exceptions": 28,
+    "notes": "56 pre-existing violations waived via exact path+rule registry; 0 new"
+  },
+  "decision": "GREEN",
+  "blocking_findings": [],
+  "environment_blockers": [],
+  "residual_risks": [
+    "56 waived layering violations remain until #078-#082 migrations",
+    "Infrastructure layer rules intentionally not expanded beyond api/application leakage in this issue",
+    "Frontend rule is light (pages with fetch must import @/api); not a full FE boundary scanner"
+  ],
+  "evidence": [
+    "scripts/quality/arch_check.py",
+    "scripts/quality/arch_exceptions.toml",
+    "backend/tests/unit/test_arch_check.py",
+    "Makefile"
+  ],
+  "acceptance": {
+    "checker_extends_layers": true,
+    "violations_report_shape": "rule=... importer=path:line imported=... :: statement",
+    "exceptions_require_fields": [
+      "path",
+      "rule",
+      "owner",
+      "reason",
+      "expiry",
+      "removal_issue"
+    ],
+    "tests_cover": [
+      "clean paths",
+      "new-file violations",
+      "local/nested imports",
+      "wildcard exceptions rejected",
+      "directory-wide exceptions rejected",
+      "expired exceptions fail",
+      "missing removal_issue rejected",
+      "ownerless rejected"
+    ],
+    "unit_tests_passed": 17
+  }
+}

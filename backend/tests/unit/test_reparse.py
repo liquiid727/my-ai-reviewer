@@ -1,12 +1,12 @@
 """重解析（re-parse）单元测试 —— 覆盖版本快照追加、状态重置与幂等。"""
 
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from backend.domain.resume.enums import ResumeStatus
-from backend.domain.resume.services import snapshot_and_reset_for_reparse
+from backend.application.resume_service.pipeline import snapshot_and_reset_for_reparse
 
 
 class _FakeResume:
@@ -33,7 +33,7 @@ class _FakeSession:
         self.commits += 1
 
 
-async def test_snapshot_appends_history_and_resets_status():
+async def test_snapshot_appends_history_and_resets_status() -> None:
     resume = _FakeResume(
         parsed_result={
             "profile": {"identity": {"name": "张三"}},
@@ -53,7 +53,8 @@ async def test_snapshot_appends_history_and_resets_status():
     assert session.commits == 1
 
     # 历史追加一条快照，记录版本与旧结果
-    history = result.parsed_result["history"]
+    assert result.parsed_result is not None
+    history = cast(list[Any], result.parsed_result["history"])
     assert len(history) == 1
     snap = history[0]
     assert snap["parser_version"] == "pdf-parser-v1"
@@ -63,7 +64,7 @@ async def test_snapshot_appends_history_and_resets_status():
     assert "history" not in snap["parsed_result"]
 
 
-async def test_snapshot_is_idempotent_and_accumulates():
+async def test_snapshot_is_idempotent_and_accumulates() -> None:
     resume = _FakeResume(
         parsed_result={
             "history": [{"snapshot_at": "2020-01-01T00:00:00+00:00", "parser_version": "v0"}],
@@ -76,14 +77,15 @@ async def test_snapshot_is_idempotent_and_accumulates():
 
     result = await snapshot_and_reset_for_reparse(session, uuid.uuid4())  # type: ignore[arg-type]
 
-    history = result.parsed_result["history"]
+    assert result.parsed_result is not None
+    history = cast(list[Any], result.parsed_result["history"])
     # 旧历史保留 + 本次新增 = 2
     assert len(history) == 2
     assert history[0]["parser_version"] == "v0"
     assert history[1]["parser_version"] == "pdf-parser-v2"
 
 
-async def test_snapshot_missing_resume_raises():
+async def test_snapshot_missing_resume_raises() -> None:
     session = _FakeSession(None)
     with pytest.raises(ValueError):
         await snapshot_and_reset_for_reparse(session, uuid.uuid4())  # type: ignore[arg-type]

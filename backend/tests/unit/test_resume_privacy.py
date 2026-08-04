@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any, cast
 
 import pytest
 
@@ -70,7 +71,7 @@ def test_privacy_guard_allows_tokens_and_blocks_clear_contact_data() -> None:
 
 
 def test_partial_export_replacements_leave_missing_tokens_masked() -> None:
-    payload = {
+    payload: dict[str, Any] = {
         "identity": {"name": "[[PERSON_01]]", "phone": "[[PHONE_01]]"},
         "sections": [{"heading": "[[ORG_01]]", "bullets": ["Built APIs"]}],
     }
@@ -80,8 +81,10 @@ def test_partial_export_replacements_leave_missing_tokens_masked() -> None:
         allowed_tokens={"[[PERSON_01]]", "[[PHONE_01]]", "[[ORG_01]]"},
     )
 
-    assert hydrated["identity"] == {"name": "张三", "phone": "[[PHONE_01]]"}
-    assert hydrated["sections"][0]["heading"] == "[[ORG_01]]"
+    hydrated_map = cast(dict[str, Any], hydrated)
+    assert hydrated_map["identity"] == {"name": "张三", "phone": "[[PHONE_01]]"}
+    sections = cast(list[dict[str, Any]], hydrated_map["sections"])
+    assert sections[0]["heading"] == "[[ORG_01]]"
     assert payload["identity"]["name"] == "[[PERSON_01]]"
 
 

@@ -13,11 +13,7 @@ SUPERVISOR = PROJECT_ROOT / "scripts" / "dev_services.py"
 
 
 def _service_command(pid_file: Path) -> str:
-    code = (
-        "import os, pathlib, time; "
-        f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid())); "
-        "time.sleep(60)"
-    )
+    code = f"import os, pathlib, time; pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid())); time.sleep(60)"
     return shlex.join([sys.executable, "-c", code])
 
 
@@ -41,7 +37,7 @@ def _is_alive(pid: int) -> bool:
     return True
 
 
-def test_sigint_stops_all_services_and_their_process_groups(tmp_path):
+def test_sigint_stops_all_services_and_their_process_groups(tmp_path: Path) -> None:
     pid_files = [tmp_path / "backend.pid", tmp_path / "worker.pid", tmp_path / "frontend.pid"]
     command = [sys.executable, str(SUPERVISOR)]
     for name, pid_file in zip(("backend", "worker", "frontend"), pid_files):

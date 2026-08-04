@@ -1,0 +1,83 @@
+{
+  "issue": 73,
+  "spec": "AIP-010",
+  "title": "Builder/privacy failing-test contract recovery",
+  "date": "2026-08-04",
+  "timestamp_utc": "20260804T073022Z",
+  "contracts": {
+    "RIP-009": "Masked identity persistence; export photos request-scoped only (no silent MinIO rehydrate)",
+    "RIP-004": "set_draft_photo remains the only path that mutates identity.photo; update_draft preserves existing confirmed photo"
+  },
+  "source_fixes": [
+    {
+      "file": "backend/domain/resume_builder/services.py",
+      "change": "update_draft merges identity from existing+incoming, always strips client photo, preserves existing confirmed photo"
+    },
+    {
+      "file": "backend/domain/resume_builder/services.py",
+      "change": "_sanitize_draft_for_persistence protects photo key so MinIO object-name refs are not redacted into placeholders"
+    }
+  ],
+  "test_contract_locks": [
+    {
+      "file": "backend/tests/unit/test_photo_rendering.py",
+      "tests": [
+        "test_client_photo_stripped_and_existing_preserved — strong assert: existing photo retained under masking",
+        "test_client_photo_stripped_when_no_existing — strong assert photo absent",
+        "test_export_does_not_auto_inject_persisted_identity_photo — renamed explicit RIP-009 contract (no MinIO download)",
+        "test_transient_photo_data_uri_is_forwarded_without_storage — strengthened with download call tracking",
+        "draft_photo_data_uri empty/success/failure branches retained"
+      ]
+    },
+    {
+      "file": "backend/tests/unit/test_resume_builder_services.py",
+      "tests": [
+        "test_profile_to_draft_maps_sections — masked identity assertions (no cleartext restore)",
+        "test_profile_to_draft_empty_profile — empty branch retained"
+      ]
+    }
+  ],
+  "constraints_honored": {
+    "no_deleted_tests": true,
+    "no_weakened_assertions": true,
+    "no_cleartext_pii_restore": true,
+    "no_auto_minio_photo_load_in_export_draft_pdf": true,
+    "no_directory_wide_ignores": true,
+    "no_commit": true
+  },
+  "commands": [
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend pytest backend/tests/unit/test_photo_rendering.py backend/tests/unit/test_resume_builder_services.py backend/tests/unit/test_privacy_builder_api.py backend/tests/unit/test_privacy_builder_export.py backend/tests/unit/test_photo_api.py backend/tests/unit/test_photo_processor.py -q",
+      "exit": 0,
+      "status": "PASS",
+      "summary": "40 passed"
+    },
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend pytest backend/tests/unit backend/tests/integration -q",
+      "exit": 0,
+      "status": "PASS",
+      "summary": "240 passed"
+    },
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend ruff check backend/domain/resume_builder backend/tests/unit/test_photo_rendering.py backend/tests/unit/test_resume_builder_services.py",
+      "exit": 0,
+      "status": "PASS"
+    },
+    {
+      "cmd": "PYTHONPATH=. uv run --project backend mypy backend --config-file backend/pyproject.toml",
+      "exit": 0,
+      "status": "PASS",
+      "summary": "Success: no issues found in 206 source files"
+    },
+    {
+      "cmd": "git diff --check",
+      "exit": 0,
+      "status": "PASS"
+    }
+  ],
+  "notes": [
+    "Four architecture-review failures reconciled to RIP-009/RIP-004 without greenwashing",
+    "export_draft_pdf still takes explicit photo_data_uri only; draft_photo_data_uri helper retained for other paths",
+    "Empty profile, optional-imaging, photo API confirm/delete, and privacy export hydrate missing-token branches remain covered by existing suites"
+  ]
+}

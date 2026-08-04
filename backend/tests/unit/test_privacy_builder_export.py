@@ -22,4 +22,3 @@ def test_hydrated_export_draft_is_a_copy_and_keeps_missing_tokens_masked() -> No
     assert hydrated.identity["name"] == "张三"
     assert hydrated.identity["phone"] == "[[PHONE_01]]"
     assert draft.identity["name"] == "[[PERSON_01]]"
-

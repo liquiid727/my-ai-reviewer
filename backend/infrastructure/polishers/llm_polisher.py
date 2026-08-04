@@ -26,6 +26,7 @@ class LLMResumePolisher(ResumePolisher):
     将一组要点发送给大模型，返回润色后的建议（保留原文，供前端逐条 diff 接受）。
     如果模型返回的 JSON 不合法或条目数量不匹配，会自动重试一次。
     """
+
     version: str = "llm-polisher-v1"
 
     def __init__(self, gateway: LLMGateway) -> None:
@@ -77,14 +78,16 @@ class LLMResumePolisher(ResumePolisher):
                 logger.warning("Polish attempt %d failed: %s", attempt + 1, str(exc)[:200])
                 if attempt < MAX_RETRIES:
                     messages.append({"role": "assistant", "content": response.content})
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            f"Your previous response was invalid: {exc}. "
-                            f"Return ONLY valid JSON with a 'polished_items' array of exactly "
-                            f"{len(cleaned)} strings in the same order."
-                        ),
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Your previous response was invalid: {exc}. "
+                                f"Return ONLY valid JSON with a 'polished_items' array of exactly "
+                                f"{len(cleaned)} strings in the same order."
+                            ),
+                        }
+                    )
 
         raise ValueError(f"Failed to polish after {MAX_RETRIES + 1} attempts: {last_error}")
 
@@ -106,9 +109,7 @@ def _parse_polish(content: str, expected_count: int) -> tuple[list[str], str | N
     if not isinstance(polished, list):
         raise ValueError("'polished_items' must be a list")
     if len(polished) != expected_count:
-        raise ValueError(
-            f"'polished_items' has {len(polished)} items, expected {expected_count}"
-        )
+        raise ValueError(f"'polished_items' has {len(polished)} items, expected {expected_count}")
     if not all(isinstance(item, str) for item in polished):
         raise ValueError("'polished_items' must contain only strings")
 

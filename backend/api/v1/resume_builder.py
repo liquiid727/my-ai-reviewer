@@ -13,10 +13,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.v1.schemas import APIResponse
-from backend.application import llm_config_service, resume_edit_service
+from backend.application import llm_config_service as llm_config_service
+from backend.application import resume_edit_service as resume_edit_service
 from backend.config import get_settings
 from backend.domain.resume.enums import ResumeSectionType
-from backend.domain.resume_builder import services
+from backend.domain.resume_builder import services as services
 from backend.domain.resume_builder.editing import DraftRevisionConflictError
 from backend.domain.resume_builder.enums import LayoutDensity, TemplateId
 from backend.domain.resume_builder.reference_templates import list_reference_templates
@@ -29,7 +30,7 @@ from backend.infrastructure.imaging import (
     ImagingNotAvailableError,
     process_photo,
 )
-from backend.infrastructure.llm.gateway import LLMGateway
+from backend.infrastructure.llm.gateway import LLMGateway as LLMGateway
 from backend.infrastructure.storage.minio_client import (
     ensure_bucket,
     object_exists,
@@ -51,6 +52,7 @@ LLM_NOT_READY_MESSAGE = "LLM not configured or not verified"
 
 class UpdateDraftRequest(BaseModel):
     """更新草稿的请求体（所有字段可选，按需更新）。"""
+
     title: str | None = None
     identity: dict[str, Any] | None = None
     summary: str | None = None
@@ -63,6 +65,7 @@ class UpdateDraftRequest(BaseModel):
 
 class PolishSectionRequest(BaseModel):
     """润色某区块要点的请求体。"""
+
     section_type: ResumeSectionType
     items: list[str]
     context: str | None = None
@@ -70,6 +73,7 @@ class PolishSectionRequest(BaseModel):
 
 class ExportRequest(BaseModel):
     """导出 PDF 的请求体。"""
+
     template_id: TemplateId | None = None
     layout_policy: LayoutPolicy | None = None
     persist: bool = False
@@ -79,11 +83,13 @@ class ExportRequest(BaseModel):
 
 class ConfirmPhotoRequest(BaseModel):
     """确认采用处理后证件照的请求体。"""
+
     object_name: str
 
 
 class DraftOrderRequest(BaseModel):
     """草稿列表的完整排序结果。"""
+
     draft_ids: list[uuid.UUID]
 
 
@@ -129,43 +135,49 @@ def _serialize_draft(model: Any) -> dict[str, Any]:
 @router.get("/templates")
 async def list_templates() -> APIResponse:
     """返回可选模板与密度档位。"""
-    return APIResponse(data={
-        "templates": [{"id": t.value} for t in TemplateId],
-        "densities": [{"id": d.value} for d in LayoutDensity],
-    })
+    return APIResponse(
+        data={
+            "templates": [{"id": t.value} for t in TemplateId],
+            "densities": [{"id": d.value} for d in LayoutDensity],
+        }
+    )
 
 
 @router.get("/reference-templates")
 async def list_reference_template_options() -> APIResponse:
     """返回内置参考简历模板列表（供用户一键创建可编辑草稿）。"""
-    return APIResponse(data=[
-        {
-            "key": t.key,
-            "name": t.name,
-            "description": t.description,
-            "tags": list(t.tags),
-        }
-        for t in list_reference_templates()
-    ])
+    return APIResponse(
+        data=[
+            {
+                "key": t.key,
+                "name": t.name,
+                "description": t.description,
+                "tags": list(t.tags),
+            }
+            for t in list_reference_templates()
+        ]
+    )
 
 
 @router.get("/drafts")
 async def list_drafts(session: AsyncSession = Depends(get_db)) -> APIResponse:
     """返回全部简历草稿概要，按用户维护的顺序（供简历列表页展示）。"""
     models = await services.list_drafts(session)
-    return APIResponse(data=[
-        {
-            "draft_id": str(m.id),
-            "resume_id": str(m.resume_id) if m.resume_id else None,
-            "title": m.title,
-            "template_id": m.template_id,
-            "status": m.status,
-            "sort_order": m.sort_order,
-            "created_at": m.created_at.isoformat(),
-            "updated_at": m.updated_at.isoformat(),
-        }
-        for m in models
-    ])
+    return APIResponse(
+        data=[
+            {
+                "draft_id": str(m.id),
+                "resume_id": str(m.resume_id) if m.resume_id else None,
+                "title": m.title,
+                "template_id": m.template_id,
+                "status": m.status,
+                "sort_order": m.sort_order,
+                "created_at": m.created_at.isoformat(),
+                "updated_at": m.updated_at.isoformat(),
+            }
+            for m in models
+        ]
+    )
 
 
 @router.put("/drafts/order")
@@ -178,19 +190,21 @@ async def reorder_drafts(
         models = await services.reorder_drafts(session, body.draft_ids)
     except ValueError as exc:
         return APIResponse(code=400, message=str(exc))
-    return APIResponse(data=[
-        {
-            "draft_id": str(m.id),
-            "resume_id": str(m.resume_id) if m.resume_id else None,
-            "title": m.title,
-            "template_id": m.template_id,
-            "status": m.status,
-            "sort_order": m.sort_order,
-            "created_at": m.created_at.isoformat(),
-            "updated_at": m.updated_at.isoformat(),
-        }
-        for m in models
-    ])
+    return APIResponse(
+        data=[
+            {
+                "draft_id": str(m.id),
+                "resume_id": str(m.resume_id) if m.resume_id else None,
+                "title": m.title,
+                "template_id": m.template_id,
+                "status": m.status,
+                "sort_order": m.sort_order,
+                "created_at": m.created_at.isoformat(),
+                "updated_at": m.updated_at.isoformat(),
+            }
+            for m in models
+        ]
+    )
 
 
 @router.post("/from-reference/{template_key}")
@@ -387,7 +401,10 @@ async def polish_section(
     if gateway is None:
         return APIResponse(code=LLM_NOT_READY_CODE, message=LLM_NOT_READY_MESSAGE)
     result = await services.polish_draft_section(
-        gateway, body.section_type, body.items, body.context,
+        gateway,
+        body.section_type,
+        body.items,
+        body.context,
     )
     return APIResponse(data=result.model_dump(mode="json"))
 
@@ -444,7 +461,10 @@ async def preview_draft_with_replacements(
     )
     if body.photo_data_uri:
         pdf_bytes, result = await services.export_draft_pdf(
-            session, model, options, photo_data_uri=body.photo_data_uri,
+            session,
+            model,
+            options,
+            photo_data_uri=body.photo_data_uri,
         )
     else:
         pdf_bytes, result = await services.export_draft_pdf(session, model, options)
@@ -477,7 +497,10 @@ async def export_draft(
     )
     if body.photo_data_uri:
         pdf_bytes, result = await services.export_draft_pdf(
-            session, model, options, photo_data_uri=body.photo_data_uri,
+            session,
+            model,
+            options,
+            photo_data_uri=body.photo_data_uri,
         )
     else:
         pdf_bytes, result = await services.export_draft_pdf(session, model, options)
@@ -548,15 +571,17 @@ async def upload_photo(
 
     original_url, processed_url = await asyncio.to_thread(_store_photo)
 
-    return APIResponse(data={
-        "original_object": original_object,
-        "processed_object": processed_object,
-        "original_url": original_url,
-        "processed_url": processed_url,
-        "background_replaced": result.background_replaced,
-        "degraded_reason": result.degraded_reason,
-        "bg_color": bg_color,
-    })
+    return APIResponse(
+        data={
+            "original_object": original_object,
+            "processed_object": processed_object,
+            "original_url": original_url,
+            "processed_url": processed_url,
+            "background_replaced": result.background_replaced,
+            "degraded_reason": result.degraded_reason,
+            "bg_color": bg_color,
+        }
+    )
 
 
 @router.put("/{draft_id}/photo/confirm")

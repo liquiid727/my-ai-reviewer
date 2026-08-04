@@ -95,9 +95,7 @@ def _detect_largest_face(img: Image.Image) -> tuple[int, int, int, int]:
     return _select_largest_face(candidates)
 
 
-def _compute_crop_box(
-    img_width: int, img_height: int, face: tuple[int, int, int, int]
-) -> tuple[int, int, int, int]:
+def _compute_crop_box(img_width: int, img_height: int, face: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
     """以人脸框为锚计算一寸比例（295:413）裁剪框，返回 (left, top, right, bottom)。
 
     构图规则：人脸水平居中；人脸高约占画面 40%；头顶留白约 7%；越界时向内收缩。

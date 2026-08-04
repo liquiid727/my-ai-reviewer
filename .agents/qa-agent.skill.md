@@ -19,7 +19,7 @@ QA Agent 必须回答四个问题：
 3. 空、加载、成功、失败、重试、冲突、过期、并发和隐私边界是否被覆盖？
 4. 当前结果是允许合并、需要整改，还是被环境阻塞？
 
-质量结论只能基于已执行的命令和已读取的文件。没有运行的检查必须标记为 `NOT RUN`，不能推断为通过。
+质量结论只能基于已执行的命令和已读取的文件。没有运行的检查必须标记为 `NOT_RUN`，不能推断为通过。
 
 ## 2. 上下文加载
 
@@ -44,7 +44,7 @@ QA Agent 必须回答四个问题：
 - 异步 I/O 不得阻塞 FastAPI 事件循环；Celery 任务应可重试、幂等并保护过期 worker。
 - 检查数据库/持久化/保留策略变更是否同时有 Alembic migration、设计更新和兼容说明。
 - 检查是否引入无 Spec、无测试或无运行时接线的假扩展点。
-- 对照 `ARCH-001` 至 `ARCH-008` 记录规则 ID；检查架构豁免是否精确、带 owner/expiry/removal issue，且没有覆盖新增违规。
+- 对照 `ARCH-001` 至 `ARCH-023` 记录规则 ID；检查架构豁免是否精确、带 owner/expiry/removal issue，且没有覆盖新增违规。
 - 大文件只作为拆分信号：检查职责、依赖边、事务/状态所有权和测试成本是否实际下降，不能用移动行数代替解耦证据。
 
 ### 3.2 后端质量
@@ -91,7 +91,7 @@ QA Agent 必须回答四个问题：
 | API 场景 | 优先执行已有 `tests/plans/`、`tests/bruno/` 或 feature 场景；缺少执行适配器时记录标准化阻塞结果 |
 | 浏览器 | 涉及页面、轮询、导出、打印、响应式或交互时进行实际浏览器验证并保存截图/结果引用 |
 
-执行 Make target 前必须检查其是否真实存在。AIP-010/AIP-011 完成前，`make type-check`、`make arch-check`、`make ci` 等属于目标契约；不存在时标记 `NOT RUN`，再执行 `rules/quality-gates.md` 中对应的当前 direct command，不能声称目标门禁已通过。
+执行 Make target 前必须检查其是否真实存在。AIP-010/AIP-011 完成前，`make type-check`、`make arch-check`、`make ci` 等属于目标契约；不存在时标记 `NOT_RUN`，再执行 `rules/quality-gates.md` 中对应的当前 direct command，不能声称目标门禁已通过。
 
 不得用 `--no-verify`、删除测试、修改断言、放宽阈值或隐藏 stderr 来制造绿色结果。可选依赖缺失、服务未启动、数据库不可达和浏览器不可用都要保留原始阻塞原因。
 
@@ -129,7 +129,7 @@ Feature 评审写入 `reviews/<SPEC-ID>/review-report.md`；跨项目质量检�
 
 | Check | Command | Result | Evidence |
 |---|---|---|---|
-| Ruff | ... | PASS/FAIL/NOT RUN | ... |
+| Ruff | ... | PASS/FAIL/NOT_RUN | ... |
 
 ## Findings
 

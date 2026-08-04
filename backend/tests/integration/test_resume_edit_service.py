@@ -47,9 +47,7 @@ async def edit_db_session() -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
     finally:
         async with admin_engine.begin() as connection:
-            await connection.execute(
-                text(f'DROP SCHEMA "{schema_name}" CASCADE')
-            )
+            await connection.execute(text(f'DROP SCHEMA "{schema_name}" CASCADE'))
         await admin_engine.dispose()
 
 

@@ -1,0 +1,24 @@
+{
+  "issue": 70,
+  "spec": "AIP-010",
+  "title": "Ruff and runtime metadata baseline",
+  "date": "2026-08-04",
+  "runtime_contract": {
+    "requires-python": ">=3.12",
+    "ruff.target-version": "py312",
+    "mypy.python_version": "3.12",
+    "docs": ["README.md", "AGENTS.md", "backend/README.md", "scripts/setup.sh", "design/backend-architecture.md"]
+  },
+  "commands": [
+    {"cmd": "PYTHONPATH=. uv run --project backend ruff check backend", "exit": 0, "status": "PASS"},
+    {"cmd": "PYTHONPATH=. uv run --project backend ruff format --check backend", "exit": 0, "status": "PASS"},
+    {"cmd": "PYTHONPATH=. uv run --project backend pytest backend/tests/unit -q --tb=no", "exit": 0, "status": "PASS", "summary": "210 passed"},
+    {"cmd": "git diff --check", "exit": 0, "status": "PASS"}
+  ],
+  "notes": [
+    "ruff check was already green; one E501 introduced by manual line wrap was fixed at source",
+    "ruff format reformatted 77 files then one more after E501 fix",
+    "requires-python raised from >=3.11 to >=3.12 to match ruff/mypy/docs/CI target",
+    "no new noqa or rule disables added"
+  ]
+}

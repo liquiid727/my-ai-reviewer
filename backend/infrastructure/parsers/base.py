@@ -19,16 +19,18 @@ BLOCK_GENERIC = "block"
 @dataclass
 class TextBlock:
     """结构化文本块：解析器在能力范围内产出的最小语义单元。"""
-    type: str = BLOCK_PARAGRAPH      # paragraph / heading / block
-    text: str = ""                   # 块文本
-    page: int | None = None          # 所在页码（PDF 有值，其他为 None）
+
+    type: str = BLOCK_PARAGRAPH  # paragraph / heading / block
+    text: str = ""  # 块文本
+    page: int | None = None  # 所在页码（PDF 有值，其他为 None）
 
 
 @dataclass
 class ParsedResumeText:
     """解析结果：包含提取的原始文本、页数信息与结构化文本块。"""
-    raw_text: str                                     # 提取的原始文本
-    page_count: int | None = None                     # 页数（PDF 有值，其他格式为 None）
+
+    raw_text: str  # 提取的原始文本
+    page_count: int | None = None  # 页数（PDF 有值，其他格式为 None）
     blocks: list[TextBlock] = field(default_factory=list)  # 结构化文本块（Paragraph/Heading/Block/Page）
 
 

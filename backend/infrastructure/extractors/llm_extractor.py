@@ -28,12 +28,13 @@ class LLMResumeExtractor(ResumeExtractor):
     将简历原始文本发送给大模型，提取候选人画像、事实列表等结构化数据。
     如果 LLM 返回的 JSON 格式不正确，会自动重试（带上错误信息提示模型修正）。
     """
+
     version: str = "llm-extractor-v1"
 
     def __init__(self, gateway: LLMGateway) -> None:
         self._gateway = gateway
-        self.token_usage: dict[str, Any] = {}   # 本次调用的 token 用量
-        self.model_info: str = ""     # 使用的模型名称
+        self.token_usage: dict[str, Any] = {}  # 本次调用的 token 用量
+        self.model_info: str = ""  # 使用的模型名称
 
     async def extract(self, raw_text: str) -> dict[str, Any]:
         """从原始文本中提取结构化信息。"""
@@ -71,13 +72,15 @@ class LLMResumeExtractor(ResumeExtractor):
                 # 重试时将上次的响应和错误信息加入对话，帮助模型自我修正
                 if attempt < MAX_RETRIES:
                     messages.append({"role": "assistant", "content": response.content})
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            f"Your previous response had a validation error: {exc}. "
-                            "Please fix the JSON and try again. Return ONLY valid JSON."
-                        ),
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                f"Your previous response had a validation error: {exc}. "
+                                "Please fix the JSON and try again. Return ONLY valid JSON."
+                            ),
+                        }
+                    )
 
         raise ValueError(f"Failed to extract valid data after {MAX_RETRIES + 1} attempts: {last_error}")
 

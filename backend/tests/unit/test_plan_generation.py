@@ -3,19 +3,20 @@
 import json
 import uuid
 from datetime import date
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
 
 from backend.domain.job_search_plan.enums import PlanTaskCategory
-from backend.domain.job_search_plan.schemas import CatalogEntry, PlanGenerationOutput, PlanTaskCreateRequest
-from backend.domain.job_search_plan.services import (
+from backend.domain.job_search_plan.policies import (
     build_source_catalog,
     normalize_generated_tasks,
     resolve_basis,
     sanitized_input_snapshot,
 )
+from backend.domain.job_search_plan.schemas import CatalogEntry, PlanGenerationOutput, PlanTaskCreateRequest
 from backend.infrastructure.db.models import CandidateProfileModel, JDMatchResultModel, JobDescriptionModel
 from backend.infrastructure.llm.providers.base import LLMResponse
 from backend.infrastructure.planners.llm_plan_generator import LLMPlanGenerationError, LLMPlanGenerator
@@ -47,7 +48,7 @@ def _models() -> tuple[JobDescriptionModel, CandidateProfileModel, JDMatchResult
     return jd, profile, match
 
 
-def _valid_output() -> dict[str, object]:
+def _valid_output() -> dict[str, Any]:
     categories = ["gap_priority", "resume", "skill", "evidence_project", "interview", "application_review"]
     return {
         "suggested_title": "Backend plan",
@@ -131,12 +132,11 @@ def test_normalized_tasks_clamp_due_dates_to_target() -> None:
 async def test_generator_rejects_unknown_basis_ids() -> None:
     gateway = AsyncMock()
     malformed = _valid_output()
-    malformed["tasks"][0]["basis_ids"] = ["UNKNOWN"]  # type: ignore[index]
+    tasks = cast(list[dict[str, object]], malformed["tasks"])
+    tasks[0]["basis_ids"] = ["UNKNOWN"]
     gateway.complete = AsyncMock(return_value=LLMResponse(content=json.dumps(malformed), model="test-model"))
     generator = LLMPlanGenerator(gateway)
-    catalog = [
-        build_source_catalog(*_models(), target_date=None, weekly_hours=None, supplemental_background=None)[0]
-    ]
+    catalog = [build_source_catalog(*_models(), target_date=None, weekly_hours=None, supplemental_background=None)[0]]
 
     with pytest.raises(LLMPlanGenerationError, match="unknown"):
         await generator.generate(catalog, target_date="2026-08-31", weekly_hours=8)
@@ -145,17 +145,25 @@ async def test_generator_rejects_unknown_basis_ids() -> None:
 @pytest.mark.parametrize(
     "mutate",
     [
-        lambda output: output.update({"tasks": output["tasks"][:5]}),  # type: ignore[index]
-        lambda output: output["tasks"].__setitem__(1, {  # type: ignore[index]
-            **output["tasks"][1], "category": "gap_priority"  # type: ignore[index]
-        }),
-        lambda output: output["tasks"].__setitem__(1, {  # type: ignore[index]
-            **output["tasks"][1], "title": output["tasks"][0]["title"]  # type: ignore[index]
-        }),
-        lambda output: output["tasks"][0].update({"description": "   "}),  # type: ignore[index]
+        lambda output: output.update({"tasks": output["tasks"][:5]}),
+        lambda output: output["tasks"].__setitem__(
+            1,
+            {
+                **output["tasks"][1],
+                "category": "gap_priority",
+            },
+        ),
+        lambda output: output["tasks"].__setitem__(
+            1,
+            {
+                **output["tasks"][1],
+                "title": output["tasks"][0]["title"],
+            },
+        ),
+        lambda output: output["tasks"][0].update({"description": "   "}),
     ],
 )
-async def test_generator_rejects_missing_categories_and_duplicate_titles(mutate) -> None:  # type: ignore[no-untyped-def]
+async def test_generator_rejects_missing_categories_and_duplicate_titles(mutate: Any) -> None:
     gateway = AsyncMock()
     malformed = _valid_output()
     mutate(malformed)

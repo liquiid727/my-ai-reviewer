@@ -49,7 +49,10 @@ DEV_SERVICES = python3 scripts/dev_services.py
        infra infra-down db-migrate \
        start-backend hot-backend start-worker backend backend-worker \
        start-frontend hot-frontend frontend \
-       stop dev-stop lint test clean
+       stop dev-stop clean \
+       lint type-check arch-check \
+       test test-unit test-integration test-frontend \
+       build ci-fast ci
 
 # ── 帮助 ─────────────────────────────────────────
 
@@ -169,14 +172,48 @@ install: ## 📦 安装前后端依赖（uv sync + pnpm install）
 	cd frontend && pnpm install
 	$(call ok,前后端依赖安装完成)
 
-lint: ## 🧹 运行 lint 检查（ruff + pnpm lint）
-	PYTHONPATH=. uv run --project backend ruff check backend
-	cd frontend && pnpm lint
+##@ 🧪 质量门禁（scripts/quality — 只读，不 --fix）
+
+lint: ## 🧹 lint：ruff check + ruff format --check + pnpm lint
+	@bash scripts/quality/lint.sh
 	$(call ok,Lint 检查通过)
 
-test: ## 🧪 运行后端测试（pytest）
-	PYTHONPATH=. uv run --project backend pytest backend
-	$(call ok,测试通过)
+type-check: ## 🔎 类型检查：mypy backend + frontend tsc
+	@bash scripts/quality/typecheck.sh
+	$(call ok,类型检查通过)
+
+arch-check: ## 🏗  架构分层检查（轻量；完整规则见 AIP-011）
+	@PYTHONPATH=. uv run --project backend python scripts/quality/arch_check.py
+	$(call ok,架构检查通过)
+
+test-unit: ## 🧪 单元测试（backend unit；frontend 有 harness 时一并跑）
+	@bash scripts/quality/test_unit.sh
+	$(call ok,单元测试通过)
+
+test-integration: ## 🔗 集成测试（需 Postgres:5433 + Redis:6379；缺失则 BLOCKED）
+	@bash scripts/quality/test_integration.sh
+	$(call ok,集成测试通过)
+
+test-frontend: ## 🎨 前端测试（vitest run；无 harness 时 BLOCKED）
+	@bash scripts/quality/test_frontend.sh
+	$(call ok,前端测试通过)
+
+test: ## 🧪 后端完整测试（unit + integration；integration 缺依赖则 BLOCKED）
+	@bash scripts/quality/test_unit.sh
+	@bash scripts/quality/test_integration.sh
+	$(call ok,后端测试通过)
+
+build: ## 📦 前端生产构建（tsc -b && vite build）
+	@bash scripts/quality/build.sh
+	$(call ok,构建通过)
+
+ci-fast: ## ⚡ 快速 CI：lint + type + arch + unit + build（不含 integration）
+	@bash scripts/quality/ci_fast.sh
+	$(call ok,ci-fast 通过)
+
+ci: ## 🎯 完整本地 CI：ci-fast + integration + frontend tests
+	@bash scripts/quality/ci.sh
+	$(call ok,ci 通过)
 
 stop: ## 🛑 停止所有服务（infra + 后端 + worker + 前端）
 	docker compose down

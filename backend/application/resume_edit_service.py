@@ -87,20 +87,22 @@ async def propose_edit(
         ),
     )
     sequence = int(max_sequence or 0)
-    session.add_all([
-        ResumeEditMessageModel(
-            session_id=conversation.id,
-            sequence=sequence + 1,
-            role="user",
-            content=instruction,
-        ),
-        ResumeEditMessageModel(
-            session_id=conversation.id,
-            sequence=sequence + 2,
-            role="assistant",
-            content=result.assistant_message,
-        ),
-    ])
+    session.add_all(
+        [
+            ResumeEditMessageModel(
+                session_id=conversation.id,
+                sequence=sequence + 1,
+                role="user",
+                content=instruction,
+            ),
+            ResumeEditMessageModel(
+                session_id=conversation.id,
+                sequence=sequence + 2,
+                role="assistant",
+                content=result.assistant_message,
+            ),
+        ]
+    )
     proposal = ResumeEditProposalModel(
         session_id=conversation.id,
         client_request_id=client_request_id,
@@ -138,16 +140,24 @@ async def get_conversation(
     if conversation is None or conversation.draft_id != draft_id:
         raise ValueError("Resume edit conversation not found")
 
-    messages = list((await session.scalars(
-        select(ResumeEditMessageModel)
-        .where(ResumeEditMessageModel.session_id == conversation_id)
-        .order_by(ResumeEditMessageModel.sequence.asc()),
-    )).all())
-    proposals = list((await session.scalars(
-        select(ResumeEditProposalModel)
-        .where(ResumeEditProposalModel.session_id == conversation_id)
-        .order_by(ResumeEditProposalModel.created_at.asc()),
-    )).all())
+    messages = list(
+        (
+            await session.scalars(
+                select(ResumeEditMessageModel)
+                .where(ResumeEditMessageModel.session_id == conversation_id)
+                .order_by(ResumeEditMessageModel.sequence.asc()),
+            )
+        ).all()
+    )
+    proposals = list(
+        (
+            await session.scalars(
+                select(ResumeEditProposalModel)
+                .where(ResumeEditProposalModel.session_id == conversation_id)
+                .order_by(ResumeEditProposalModel.created_at.asc()),
+            )
+        ).all()
+    )
     return {
         "conversation_id": str(conversation.id),
         "status": conversation.status,

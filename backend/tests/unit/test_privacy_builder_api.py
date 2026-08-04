@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.v1 import resume_builder as api
 from backend.domain.resume_builder.enums import LayoutDensity
@@ -15,6 +16,10 @@ from backend.domain.resume_builder.schemas import ExportResult
 
 class _Session:
     pass
+
+
+def _as_session() -> AsyncSession:
+    return cast(AsyncSession, _Session())
 
 
 @pytest.mark.asyncio
@@ -37,7 +42,7 @@ async def test_export_uses_transient_replacements_and_sets_no_store(monkeypatch:
     response = await api.export_draft(
         draft_id,
         api.ExportRequest(replacements={"[[PERSON_01]]": "张三"}, persist=True),
-        _Session(),
+        _as_session(),
     )
 
     assert response.headers["Cache-Control"] == "no-store"
@@ -62,4 +67,3 @@ def test_serialized_draft_returns_safe_placeholder_manifest_only() -> None:
     payload = api._serialize_draft(model)
 
     assert payload["privacy_placeholders"] == [{"token": "[[PERSON_01]]", "entity_type": "person"}]
-

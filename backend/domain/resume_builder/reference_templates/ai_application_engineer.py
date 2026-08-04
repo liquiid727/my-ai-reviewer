@@ -32,32 +32,42 @@ def build_ai_application_engineer_draft() -> ResumeDraft:
             section_type=ResumeSectionType.OTHER,
             title="求职意向",
             order=0,
-            items=[DraftItem(bullets=[
-                "目标岗位：AI 应用开发工程师 / AI 全栈应用工程师",
-                "期望方向：企业级 AI 应用、RAG 知识库、AI Gateway、智能客服、工作流自动化",
-                "目标城市：杭州｜到岗时间：[到岗时间]",
-            ])],
+            items=[
+                DraftItem(
+                    bullets=[
+                        "目标岗位：AI 应用开发工程师 / AI 全栈应用工程师",
+                        "期望方向：企业级 AI 应用、RAG 知识库、AI Gateway、智能客服、工作流自动化",
+                        "目标城市：杭州｜到岗时间：[到岗时间]",
+                    ]
+                )
+            ],
         ),
         DraftSection(
             section_type=ResumeSectionType.SKILLS,
             title="核心技能",
             order=1,
             items=[
-                DraftItem(heading="AI 应用开发", bullets=[
-                    "LLM API：OpenAI-compatible API、流式输出、Structured Output、Function Calling、Prompt Engineering",
-                    "RAG：文档解析、Chunking、Embedding、Dense / Sparse / Hybrid Search、Rerank、知识库更新",
-                    "Agent 与 Workflow：LangGraph、LangChain、Dify、MCP、Tool Calling、Memory、Planning、Human-in-the-loop",
-                    "AI 工程化：模型路由、上下文压缩、Token 成本控制、Tracing、Eval、Guardrails、Retry、Fallback",
-                    "AI 开发工具：Claude Code、Codex CLI / App、Qoder、AGENTS.md、Spec 驱动开发",
-                ]),
-                DraftItem(heading="后端与平台", bullets=[
-                    "编程语言：Go、Python、SQL、JavaScript / TypeScript",
-                    "Web 框架：Gin、FastAPI、React、Vite",
-                    "数据存储：PostgreSQL、MySQL、Redis、Milvus",
-                    "基础设施：Docker、Kubernetes、Nginx、Linux、Git",
-                    "可观测性：Prometheus、Grafana、Loki、Tempo、Zap JSON Logging、Trace ID",
-                    "工程能力：微服务、RESTful API、SSE、幂等设计、分布式锁、状态机、异步任务、限流与重试",
-                ]),
+                DraftItem(
+                    heading="AI 应用开发",
+                    bullets=[
+                        "LLM API：OpenAI-compatible API、流式输出、Structured Output、Function Calling、Prompt Engineering",
+                        "RAG：文档解析、Chunking、Embedding、Dense / Sparse / Hybrid Search、Rerank、知识库更新",
+                        "Agent 与 Workflow：LangGraph、LangChain、Dify、MCP、Tool Calling、Memory、Planning、Human-in-the-loop",
+                        "AI 工程化：模型路由、上下文压缩、Token 成本控制、Tracing、Eval、Guardrails、Retry、Fallback",
+                        "AI 开发工具：Claude Code、Codex CLI / App、Qoder、AGENTS.md、Spec 驱动开发",
+                    ],
+                ),
+                DraftItem(
+                    heading="后端与平台",
+                    bullets=[
+                        "编程语言：Go、Python、SQL、JavaScript / TypeScript",
+                        "Web 框架：Gin、FastAPI、React、Vite",
+                        "数据存储：PostgreSQL、MySQL、Redis、Milvus",
+                        "基础设施：Docker、Kubernetes、Nginx、Linux、Git",
+                        "可观测性：Prometheus、Grafana、Loki、Tempo、Zap JSON Logging、Trace ID",
+                        "工程能力：微服务、RESTful API、SSE、幂等设计、分布式锁、状态机、异步任务、限流与重试",
+                    ],
+                ),
             ],
         ),
         DraftSection(
@@ -151,41 +161,49 @@ def build_ai_application_engineer_draft() -> ResumeDraft:
             section_type=ResumeSectionType.EDUCATION,
             title="教育经历",
             order=4,
-            items=[DraftItem(
-                heading="[本科院校]",
-                subheading="计算机相关专业｜本科",
-                date_range="[入学时间] - [毕业时间]",
-                bullets=[
-                    "学业成绩：专业前 30%",
-                    "英语水平：CET-6",
-                    "主要课程：数据结构、计算机网络、操作系统、数据库、软件工程",
-                ],
-            )],
+            items=[
+                DraftItem(
+                    heading="[本科院校]",
+                    subheading="计算机相关专业｜本科",
+                    date_range="[入学时间] - [毕业时间]",
+                    bullets=[
+                        "学业成绩：专业前 30%",
+                        "英语水平：CET-6",
+                        "主要课程：数据结构、计算机网络、操作系统、数据库、软件工程",
+                    ],
+                )
+            ],
         ),
         DraftSection(
             section_type=ResumeSectionType.OTHER,
             title="论文与其他经历",
             order=5,
-            items=[DraftItem(
-                heading="《基于 OpenPose 的动作序列相似度计算算法》",
-                date_range="2021.05 - 2021.10",
-                bullets=[
-                    "参与人体动作识别与动作序列相似度算法研究。",
-                    "论文曾获得 200+ 引用与下载记录。",
-                    "涉及 OpenPose、姿态关键点、时序数据处理和相似度计算。",
-                ],
-            )],
+            items=[
+                DraftItem(
+                    heading="《基于 OpenPose 的动作序列相似度计算算法》",
+                    date_range="2021.05 - 2021.10",
+                    bullets=[
+                        "参与人体动作识别与动作序列相似度算法研究。",
+                        "论文曾获得 200+ 引用与下载记录。",
+                        "涉及 OpenPose、姿态关键点、时序数据处理和相似度计算。",
+                    ],
+                )
+            ],
         ),
         DraftSection(
             section_type=ResumeSectionType.SELF_EVALUATION,
             title="自我评价",
             order=6,
-            items=[DraftItem(bullets=[
-                "具备较强的后端工程基础，能够独立完成复杂业务模块的分析、设计、开发和上线。",
-                "注重 AI 应用的可控性、可评测性和工程边界，不将模型能力等同于系统能力。",
-                "善于通过 Spec、测试、Tracing 和人工确认机制约束 AI 生成结果。",
-                "持续学习 Agent、RAG、AI Gateway 和企业级 AI 平台架构，能够快速完成业务原型和工程落地。",
-            ])],
+            items=[
+                DraftItem(
+                    bullets=[
+                        "具备较强的后端工程基础，能够独立完成复杂业务模块的分析、设计、开发和上线。",
+                        "注重 AI 应用的可控性、可评测性和工程边界，不将模型能力等同于系统能力。",
+                        "善于通过 Spec、测试、Tracing 和人工确认机制约束 AI 生成结果。",
+                        "持续学习 Agent、RAG、AI Gateway 和企业级 AI 平台架构，能够快速完成业务原型和工程落地。",
+                    ]
+                )
+            ],
         ),
     ]
 

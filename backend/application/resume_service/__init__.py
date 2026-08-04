@@ -17,7 +17,6 @@ from backend.domain.resume.exceptions import (
 from backend.infrastructure.db.models import FileModel, ResumeModel, ResumePrivacyManifestModel
 from backend.infrastructure.privacy import QuarantineCipher
 from backend.infrastructure.storage.minio_client import ensure_bucket, upload_file
-from backend.tasks.resume_tasks import process_resume_pipeline
 
 # 允许上传的文件扩展名
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".md", ".html", ".htm"}
@@ -126,18 +125,23 @@ async def upload_resume(
         status="uploaded",
     )
     session.add(resume_record)
-    session.add(ResumePrivacyManifestModel(
-        resume_id=resume_id,
-        status="scanning",
-        quarantine_path=prepared.object_name,
-        quarantine_expires_at=datetime.now(timezone.utc) + timedelta(
-            seconds=settings.PRIVACY_QUARANTINE_TTL_SECONDS,
-        ),
-    ))
+    session.add(
+        ResumePrivacyManifestModel(
+            resume_id=resume_id,
+            status="scanning",
+            quarantine_path=prepared.object_name,
+            quarantine_expires_at=datetime.now(timezone.utc)
+            + timedelta(
+                seconds=settings.PRIVACY_QUARANTINE_TTL_SECONDS,
+            ),
+        )
+    )
     await session.flush()
     await session.commit()
 
     # ── 异步触发简历处理流水线（Celery） ──
+    from backend.tasks.resume_tasks import process_resume_pipeline
+
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, process_resume_pipeline, str(resume_record.id))
 

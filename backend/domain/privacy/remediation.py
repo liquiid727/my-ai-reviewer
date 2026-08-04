@@ -38,4 +38,3 @@ def scrub_payload(payload: Any) -> tuple[Any, dict[str, Any]]:
     masked = scrub(payload)
     PrivacyGuard().assert_masked(masked)
     return masked, {"placeholders": placeholders, "policy_version": "resume-privacy-v1"}
-

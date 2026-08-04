@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
-import { ArrowRight, Lightbulb, ShieldCheck, TriangleAlert } from 'lucide-react'
+import { ArrowRight, TriangleAlert } from 'lucide-react'
 import { FileUploader } from '@/components/FileUploader'
 import { LLMGateDialog } from '@/components/LLMGateDialog'
+import { UploadWorkflowPanel } from '@/components/upload/UploadWorkflowPanel'
 import { Progress } from '@/components/ui/progress'
-import { Button } from '@/components/ui/button'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
 import { useResumeStore } from '@/stores/resumeStore'
 import { useResumeHistoryStore } from '@/stores/resumeHistoryStore'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -20,9 +19,17 @@ import {
   getResumeStatus,
   retryResume,
 } from '@/api/resume'
+import {
+  RESUME_POLL_FAST_MS,
+  RESUME_POLL_MAX_MS,
+  RESUME_POLL_SLOW_AFTER_MS,
+  RESUME_POLL_SLOW_MS,
+  isPollTimedOut,
+  isResumeTerminalStatus,
+  nextPollIntervalMs,
+  shouldContinuePolling,
+} from '@/lib/polling'
 import type { PrivacyReviewData } from '@/types/resume'
-
-const MAX_POLL_DURATION = 10 * 60 * 1000
 
 // 后端 LLM 未就绪（无已激活且已验证配置）时的门禁错误码
 const LLM_NOT_READY_CODE = 428
@@ -95,25 +102,49 @@ export function UploadPage() {
       }
 
       const elapsed = Date.now() - startTimeRef.current
-      if (elapsed > MAX_POLL_DURATION) {
+      const timedOut = isPollTimedOut(elapsed, RESUME_POLL_MAX_MS)
+      if (
+        !shouldContinuePolling({
+          mounted: mountedRef.current,
+          timedOut,
+          terminal: isResumeTerminalStatus(s),
+        })
+      ) {
         stopPolling()
-        toast.error(t('upload.timedOut'))
+        if (timedOut) toast.error(t('upload.timedOut'))
         return
       }
 
-      const interval = elapsed > 3 * 60 * 1000 ? 5000 : 2000
+      const interval = nextPollIntervalMs(
+        elapsed,
+        RESUME_POLL_SLOW_AFTER_MS,
+        RESUME_POLL_FAST_MS,
+        RESUME_POLL_SLOW_MS,
+      )
       pollTimerRef.current = setTimeout(() => pollStatus(id), interval)
     } catch {
       if (!mountedRef.current) return
 
       const elapsed = Date.now() - startTimeRef.current
-      if (elapsed > MAX_POLL_DURATION) {
+      const timedOut = isPollTimedOut(elapsed, RESUME_POLL_MAX_MS)
+      if (
+        !shouldContinuePolling({
+          mounted: mountedRef.current,
+          timedOut,
+          terminal: false,
+        })
+      ) {
         stopPolling()
-        toast.error(t('upload.timedOut'))
+        if (timedOut) toast.error(t('upload.timedOut'))
         return
       }
 
-      const interval = elapsed > 3 * 60 * 1000 ? 5000 : 2000
+      const interval = nextPollIntervalMs(
+        elapsed,
+        RESUME_POLL_SLOW_AFTER_MS,
+        RESUME_POLL_FAST_MS,
+        RESUME_POLL_SLOW_MS,
+      )
       pollTimerRef.current = setTimeout(() => pollStatus(id), interval)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -244,8 +275,6 @@ export function UploadPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const progress = completedSteps.length * 25
-
   return (
     <div className="space-y-6">
       <h1 className="text-3xl font-black">{t('upload.title')}</h1>
@@ -277,119 +306,41 @@ export function UploadPage() {
         </div>
       )}
 
-      {resumeId && status === 'privacy_review_required' && privacyReview && (
-        <div className="space-y-4 rounded-lg border-4 border-black bg-white p-6 shadow-[4px_4px_0_0_#000]">
-          <div className="flex items-center gap-3">
-            <ShieldCheck className="size-6" />
-            <div>
-              <h2 className="text-xl font-black">{t('upload.privacyTitle')}</h2>
-              <p className="text-sm text-gray-600">{t('upload.privacyDescription')}</p>
-            </div>
-          </div>
-          <textarea
-            ref={privacyTextRef}
-            value={privacyReview.masked_text || ''}
-            readOnly
-            aria-label={t('upload.privacyMaskedText')}
-            className="min-h-64 w-full resize-y rounded-base border-2 border-border bg-secondary-background p-3 font-mono text-sm"
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={privacyEntityType}
-              onChange={(event) => setPrivacyEntityType(event.target.value)}
-              className="rounded-base border-2 border-border bg-white px-3 py-2 text-sm"
-              aria-label={t('upload.privacyEntityType')}
-            >
-              {['person', 'phone', 'email', 'organization', 'school', 'address', 'project', 'url'].map((type) => (
-                <option key={type} value={type}>{type}</option>
-              ))}
-            </select>
-            <Button variant="neutral" onClick={() => void maskSelectedPrivacyText()} disabled={privacyBusy}>
-              {t('upload.privacyMaskSelection')}
-            </Button>
-            <Button onClick={() => void approvePrivacyReview()} disabled={privacyBusy}>
-              <ShieldCheck className="size-4" />
-              {t('upload.privacyApprove')}
-            </Button>
-          </div>
-        </div>
-      )}
+      <UploadWorkflowPanel
+        resumeId={resumeId}
+        status={status}
+        currentStep={currentStep}
+        completedSteps={completedSteps}
+        error={error}
+        privacyReview={privacyReview}
+        privacyBusy={privacyBusy}
+        privacyEntityType={privacyEntityType}
+        privacyTextRef={privacyTextRef}
+        onPrivacyEntityTypeChange={setPrivacyEntityType}
+        onMaskSelection={() => void maskSelectedPrivacyText()}
+        onApprovePrivacy={() => void approvePrivacyReview()}
+        onRetry={() => void handleRetry()}
+        onReset={reset}
+      />
 
-      {resumeId && status && status !== 'evaluated' && status !== 'privacy_review_required' && (
-        <div className="rounded-lg border-4 border-black bg-white p-6 shadow-[4px_4px_0_0_#000]">
-          <div className="mb-4 flex items-center gap-3">
-            <h2 className="text-xl font-black">{t('upload.processing')}</h2>
-            <Badge variant={status === 'failed' ? 'neutral' : 'default'} className={status === 'failed' ? 'bg-red-500 text-white' : ''}>
-              {status}
-            </Badge>
-          </div>
-
-          {status !== 'failed' && (
-            <>
-              <Progress value={progress} className="mb-3" />
-              <p className="text-sm font-medium">
-                {t(`upload.step.${currentStep || 'starting'}`)}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-1">
-                {completedSteps.map((step) => (
-                  <Badge key={step} variant="default">{step}</Badge>
-                ))}
-              </div>
-            </>
-          )}
-
-          {status === 'failed' && (
-            <div className="space-y-3">
-              <Alert variant="destructive">
-                <AlertTitle>{t('upload.processingFailed')}</AlertTitle>
-                <AlertDescription>{error || t('common.loading')}</AlertDescription>
-              </Alert>
-              <div className="flex gap-2">
-                <Button onClick={handleRetry}>{t('upload.retry')}</Button>
-                <Button variant="neutral" onClick={reset}>{t('upload.uploadAnother')}</Button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {!resumeId && !uploading && (
-        llmBlocked ? (
-          <Alert variant="destructive">
-            <TriangleAlert />
-            <AlertTitle>{t('llmGate.title')}</AlertTitle>
-            <AlertDescription>
-              <p>
-                {t('llmGate.description')}{' '}
-                <button
-                  type="button"
-                  onClick={() => setGateOpen(true)}
-                  className="inline-flex items-center gap-1 font-bold underline underline-offset-2 hover:opacity-80"
-                >
-                  {t('llmGate.configureNow')}
-                  <ArrowRight className="size-3.5" />
-                </button>
-              </p>
-            </AlertDescription>
-          </Alert>
-        ) : (
-          <Alert>
-            <Lightbulb />
-            <AlertTitle>{t('upload.tipTitle')}</AlertTitle>
-            <AlertDescription>
-              <p>
-                {t('upload.tip')}{' '}
-                <Link
-                  to="/settings"
-                  className="inline-flex items-center gap-1 font-bold underline underline-offset-2 hover:opacity-80"
-                >
-                  {t('upload.goToSettings')}
-                  <ArrowRight className="size-3.5" />
-                </Link>
-              </p>
-            </AlertDescription>
-          </Alert>
-        )
+      {!resumeId && !uploading && llmBlocked && (
+        <Alert variant="destructive">
+          <TriangleAlert />
+          <AlertTitle>{t('llmGate.title')}</AlertTitle>
+          <AlertDescription>
+            <p>
+              {t('llmGate.description')}{' '}
+              <button
+                type="button"
+                onClick={() => setGateOpen(true)}
+                className="inline-flex items-center gap-1 font-bold underline underline-offset-2 hover:opacity-80"
+              >
+                {t('llmGate.configureNow')}
+                <ArrowRight className="size-3.5" />
+              </button>
+            </p>
+          </AlertDescription>
+        </Alert>
       )}
 
       <LLMGateDialog open={gateOpen} onOpenChange={setGateOpen} />

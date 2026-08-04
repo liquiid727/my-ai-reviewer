@@ -14,13 +14,13 @@ from backend.infrastructure.parsers.text_parser import TextResumeParser
 
 # 文件扩展名 → 解析器类的映射
 _PARSER_MAP: dict[str, type[ResumeParser]] = {
-    ".pdf": PdfResumeParser,      # PDF（PyMuPDF）
-    ".docx": DocxResumeParser,    # Word 2007+（python-docx）
-    ".doc": DocResumeParser,      # 旧版 Word 二进制（LibreOffice 或尽力而为）
-    ".txt": TextResumeParser,     # 纯文本
+    ".pdf": PdfResumeParser,  # PDF（PyMuPDF）
+    ".docx": DocxResumeParser,  # Word 2007+（python-docx）
+    ".doc": DocResumeParser,  # 旧版 Word 二进制（LibreOffice 或尽力而为）
+    ".txt": TextResumeParser,  # 纯文本
     ".md": MarkdownResumeParser,  # Markdown（保留原文结构）
-    ".html": HtmlResumeParser,    # HTML 网页简历
-    ".htm": HtmlResumeParser,     # HTML 网页简历（简写）
+    ".html": HtmlResumeParser,  # HTML 网页简历
+    ".htm": HtmlResumeParser,  # HTML 网页简历（简写）
 }
 
 # 支持的所有文件扩展名
@@ -42,4 +42,10 @@ __all__ = [
     "read_text_with_fallback",
     "get_parser",
     "SUPPORTED_EXTENSIONS",
+    "DocResumeParser",
+    "DocxResumeParser",
+    "HtmlResumeParser",
+    "MarkdownResumeParser",
+    "PdfResumeParser",
+    "TextResumeParser",
 ]

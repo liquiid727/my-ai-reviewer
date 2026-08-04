@@ -26,8 +26,6 @@ async def get_checkpointer() -> AsyncPostgresSaver:
     if _checkpointer is None:
         conn_string = get_checkpoint_conn_string()
         _exit_stack = AsyncExitStack()
-        _checkpointer = await _exit_stack.enter_async_context(
-            AsyncPostgresSaver.from_conn_string(conn_string)
-        )
+        _checkpointer = await _exit_stack.enter_async_context(AsyncPostgresSaver.from_conn_string(conn_string))
         await _checkpointer.setup()
     return _checkpointer

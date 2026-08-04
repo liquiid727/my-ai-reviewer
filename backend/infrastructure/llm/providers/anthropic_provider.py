@@ -39,8 +39,7 @@ class AnthropicProvider(BaseLLMProvider):
         # Anthropic 不直接支持 response_format，通过在 system prompt 中追加指令来约束输出格式
         if response_format is not None:
             json_instruction = (
-                "\n\nYou MUST respond with valid JSON only. "
-                "No markdown, no explanation, just the JSON object."
+                "\n\nYou MUST respond with valid JSON only. No markdown, no explanation, just the JSON object."
             )
             system_text += json_instruction
 

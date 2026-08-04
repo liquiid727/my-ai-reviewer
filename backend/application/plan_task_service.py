@@ -9,13 +9,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.domain.job_search_plan.enums import PlanStatus, PlanTaskSource, PlanTaskStatus
+from backend.domain.job_search_plan.policies import PlanDomainError
 from backend.domain.job_search_plan.schemas import (
     PlanProgress,
     PlanTaskCreateRequest,
     PlanTaskOrderRequest,
     PlanTaskPatchRequest,
 )
-from backend.domain.job_search_plan.services import PlanDomainError
 from backend.infrastructure.db.models import JobSearchPlanModel, JobSearchPlanTaskModel
 
 MAX_PLAN_TASKS = 200
@@ -131,10 +131,10 @@ class PlanTaskService:
         if len(payload.task_ids) != len(set(payload.task_ids)):
             raise PlanDomainError("Task order cannot contain duplicate IDs", 1009)
         tasks = (
-            await session.execute(
-                select(JobSearchPlanTaskModel).where(JobSearchPlanTaskModel.plan_id == plan.id)
-            )
-        ).scalars().all()
+            (await session.execute(select(JobSearchPlanTaskModel).where(JobSearchPlanTaskModel.plan_id == plan.id)))
+            .scalars()
+            .all()
+        )
         existing_ids = {task.id for task in tasks}
         if existing_ids != set(payload.task_ids) or len(tasks) != len(payload.task_ids):
             raise PlanDomainError("Task order must contain every current task exactly once", 1009)
@@ -148,10 +148,14 @@ class PlanTaskService:
 
     async def progress(self, session: AsyncSession, plan_id: uuid.UUID) -> PlanProgress:
         statuses = (
-            await session.execute(
-                select(JobSearchPlanTaskModel.status).where(JobSearchPlanTaskModel.plan_id == plan_id)
+            (
+                await session.execute(
+                    select(JobSearchPlanTaskModel.status).where(JobSearchPlanTaskModel.plan_id == plan_id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         return self._progress_from_statuses(statuses)
 
     async def _lock_mutable_plan(
@@ -161,9 +165,7 @@ class PlanTaskService:
         expected_revision: int,
     ) -> JobSearchPlanModel:
         plan = (
-            await session.execute(
-                select(JobSearchPlanModel).where(JobSearchPlanModel.id == plan_id).with_for_update()
-            )
+            await session.execute(select(JobSearchPlanModel).where(JobSearchPlanModel.id == plan_id).with_for_update())
         ).scalar_one_or_none()
         if plan is None:
             raise PlanDomainError("Plan not found", 1002)
@@ -181,10 +183,14 @@ class PlanTaskService:
         plan: JobSearchPlanModel,
     ) -> PlanProgress:
         statuses = (
-            await session.execute(
-                select(JobSearchPlanTaskModel.status).where(JobSearchPlanTaskModel.plan_id == plan.id)
+            (
+                await session.execute(
+                    select(JobSearchPlanTaskModel.status).where(JobSearchPlanTaskModel.plan_id == plan.id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         progress = self._progress_from_statuses(statuses)
         if progress.total > 0 and progress.done == progress.total:
             plan.status = PlanStatus.COMPLETED.value

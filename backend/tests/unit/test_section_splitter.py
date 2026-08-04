@@ -9,7 +9,7 @@ from backend.infrastructure.extractors.section_splitter import (
 from backend.infrastructure.parsers.base import BLOCK_HEADING, BLOCK_PARAGRAPH, TextBlock
 
 
-def test_match_section_type_covers_eight_categories():
+def test_match_section_type_covers_eight_categories() -> None:
     cases = {
         "基本信息": ResumeSectionType.BASIC_INFO,
         "教育背景": ResumeSectionType.EDUCATION,
@@ -24,18 +24,18 @@ def test_match_section_type_covers_eight_categories():
         assert _match_section_type(title) == expected
 
 
-def test_match_section_type_english_and_case_insensitive():
+def test_match_section_type_english_and_case_insensitive() -> None:
     assert _match_section_type("EDUCATION") == ResumeSectionType.EDUCATION
     assert _match_section_type("Work Experience") == ResumeSectionType.WORK_EXPERIENCE
     assert _match_section_type("Self Evaluation") == ResumeSectionType.SELF_EVALUATION
 
 
-def test_match_section_type_unknown_returns_none():
+def test_match_section_type_unknown_returns_none() -> None:
     assert _match_section_type("随便写点什么") is None
     assert _match_section_type("") is None
 
 
-def test_split_sections_groups_content_under_headings():
+def test_split_sections_groups_content_under_headings() -> None:
     blocks = [
         TextBlock(type=BLOCK_HEADING, text="张三"),
         TextBlock(type=BLOCK_PARAGRAPH, text="电话：123456"),
@@ -64,7 +64,7 @@ def test_split_sections_groups_content_under_headings():
     assert work.title == "工作经历"
 
 
-def test_split_sections_accepts_persisted_dicts():
+def test_split_sections_accepts_persisted_dicts() -> None:
     blocks = [
         {"type": "heading", "text": "教育背景", "page": 1},
         {"type": "paragraph", "text": "某大学 计算机科学", "page": 1},
@@ -77,11 +77,11 @@ def test_split_sections_accepts_persisted_dicts():
     assert "某大学 计算机科学" in sections[0].raw_text
 
 
-def test_split_sections_empty_input():
+def test_split_sections_empty_input() -> None:
     assert split_sections([]) == []
 
 
-def test_resume_section_dataclass_defaults():
+def test_resume_section_dataclass_defaults() -> None:
     section = ResumeSection(
         section_type=ResumeSectionType.SKILLS,
         title="技能",

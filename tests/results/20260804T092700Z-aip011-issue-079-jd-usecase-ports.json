@@ -1,0 +1,61 @@
+{
+  "issue": "079",
+  "title": "aip011-jd-usecase-ports",
+  "spec": "AIP-011",
+  "timestamp_utc": "20260804T092700Z",
+  "decision": "GREEN",
+  "delivery_mode": "local-reviewed",
+  "gates": {
+    "jd-usecase-unit": {
+      "status": "PASS",
+      "command": "pytest backend/tests/unit/test_jd_{processing,matching,api,import_service,extractor}.py backend/tests/unit/test_safe_web_fetcher.py",
+      "passed": 43,
+      "failed": 0
+    },
+    "jd-integration": {
+      "status": "PASS",
+      "command": "pytest backend/tests/integration/test_jd_plan_api.py",
+      "passed": 12,
+      "failed": 0
+    },
+    "arch-check-unit": {
+      "status": "PASS",
+      "command": "pytest backend/tests/unit/test_arch_check.py",
+      "passed": 20,
+      "failed": 0
+    },
+    "arch-check-make": {
+      "status": "PASS",
+      "command": "make arch-check",
+      "new_violations": 0,
+      "waived": 61,
+      "note": "all #079 exception rows removed"
+    },
+    "ruff-touched": {
+      "status": "PASS",
+      "command": "ruff check backend/domain/jd backend/application/jd_service backend/api/v1/jd.py backend/tasks/jd_tasks.py ..."
+    }
+  },
+  "acceptance": {
+    "jd_domain_pure": true,
+    "typed_import_retry_reextract_match_usecases": true,
+    "adapters_composed_outside_route_domain": true,
+    "url_duplicate_failure_retry_api_arch_tests_pass": true
+  },
+  "changes_summary": [
+    "Moved JDProcessingService to application/jd_service/processing.py",
+    "Moved JDMatchingService to application/jd_service/matching.py",
+    "Pure policies in domain/jd/policies.py; domain services/matching re-export pure only",
+    "API thinned via application/jd_service/queries.py + commands.py",
+    "Celery jd_tasks retargeted + _run_async loop reuse",
+    "Plan domain match caller retargeted to application matching",
+    "Pruned all #079 arch_exceptions rows"
+  ],
+  "residual_nits": [
+    "application still constructs concrete adapters inside use cases (no formal Protocol ports)",
+    "domain/job_search_plan still impure (#080) and now imports application matching",
+    "API still imports JDImportService concrete class (acceptable application dependency)",
+    "legacy POST /jd still uses settings-based LLM gateway path"
+  ],
+  "pii_secrets_check": "no real PII/secrets/prompts/resume text in evidence"
+}

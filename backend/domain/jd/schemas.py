@@ -10,12 +10,14 @@ from backend.domain.jd.enums import JDProcessingStep, JDSourceType, JDStatus
 
 class RequiredSkill(BaseModel):
     """岗位必备技能。"""
+
     name: str
     critical: bool = False  # 是否关键技能（缺失将显著影响结论）
 
 
 class SkillMatchItem(BaseModel):
     """单项技能匹配结果。"""
+
     skill: str
     matched: bool
     critical: bool = False
@@ -24,18 +26,21 @@ class SkillMatchItem(BaseModel):
 
 class RiskItem(BaseModel):
     """风险点。"""
+
     level: str  # high | medium | low
     message: str
 
 
 class GapItem(BaseModel):
     """差距分析项。"""
+
     area: str
     description: str
 
 
 class JDMatchResult(BaseModel):
     """JD 匹配结论。"""
+
     match_score: float = Field(ge=0, le=100)
     skill_match: list[SkillMatchItem] = []
     missing_skills: list[str] = []
@@ -47,6 +52,7 @@ class JDMatchResult(BaseModel):
 
 class JobDescriptionInput(BaseModel):
     """创建 JD 的输入。"""
+
     title: str | None = None
     company: str | None = None
     raw_text: str
@@ -56,8 +62,9 @@ class JobDescriptionInput(BaseModel):
 
 class ExtractedSkill(BaseModel):
     """LLM 从 JD 原文抽取的单项技能，附原文证据便于追溯。"""
+
     name: str = Field(min_length=1, max_length=500)
-    critical: bool = False       # 是否关键技能
+    critical: bool = False  # 是否关键技能
     evidence: str | None = Field(default=None, max_length=500)  # 支撑该技能要求的 JD 原文片段
 
 
@@ -70,6 +77,7 @@ class JDExtraction(BaseModel):
     required_skills / responsibilities 必填：键缺失或键名走样的 LLM 输出
     会触发 ValidationError 走重试→报错链路，避免静默返回空结果。
     """
+
     title: str | None = Field(default=None, max_length=200)
     company: str | None = Field(default=None, max_length=200)
     location: str | None = Field(default=None, max_length=200)

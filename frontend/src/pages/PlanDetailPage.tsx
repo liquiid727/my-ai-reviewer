@@ -13,6 +13,16 @@ import {
   reorderPlanTasks,
   retryPlan,
 } from '@/api/plans'
+import {
+  PLAN_POLL_FAST_MS,
+  PLAN_POLL_MAX_MS,
+  PLAN_POLL_SLOW_AFTER_MS,
+  PLAN_POLL_SLOW_MS,
+  isPlanGeneratingStatus,
+  isPollTimedOut,
+  nextPollIntervalMs,
+  shouldContinuePolling,
+} from '@/lib/polling'
 import { PlanStatusBadge } from '@/components/plans/PlanStatusBadge'
 import { PlanTaskEditor } from '@/components/plans/PlanTaskEditor'
 import { RegeneratePlanDialog } from '@/components/plans/RegeneratePlanDialog'
@@ -93,7 +103,7 @@ export function PlanDetailPage() {
     setReconciliationVersion((value) => value + 1)
   }, [load])
 
-  const isGenerating = plan?.status === 'generating' || plan?.status === 'regenerating'
+  const isGenerating = isPlanGeneratingStatus(plan?.status)
   useEffect(() => {
     if (!isGenerating) {
       pollingStartedAt.current = null
@@ -102,13 +112,36 @@ export function PlanDetailPage() {
     pollingStartedAt.current ??= Date.now()
     let stopped = false
     let timer: number | undefined
+    let ownershipLost = false
     const schedule = () => {
-      if (stopped || document.visibilityState !== 'visible') return
+      if (stopped) return
       const elapsed = Date.now() - (pollingStartedAt.current ?? Date.now())
+      const timedOut = isPollTimedOut(elapsed, PLAN_POLL_MAX_MS)
+      if (
+        !shouldContinuePolling({
+          mounted: !stopped,
+          timedOut,
+          terminal: !isGenerating,
+          ownershipLost,
+          visible: document.visibilityState === 'visible',
+        })
+      ) {
+        if (timedOut && !ownershipLost) {
+          ownershipLost = true
+          toast.error(t('plans.generationTimedOut'))
+        }
+        return
+      }
+      const interval = nextPollIntervalMs(
+        elapsed,
+        PLAN_POLL_SLOW_AFTER_MS,
+        PLAN_POLL_FAST_MS,
+        PLAN_POLL_SLOW_MS,
+      )
       timer = window.setTimeout(async () => {
         await load(false, false)
         schedule()
-      }, elapsed >= 60_000 ? 5_000 : 2_000)
+      }, interval)
     }
     const onVisibility = () => {
       if (timer) window.clearTimeout(timer)
@@ -121,7 +154,7 @@ export function PlanDetailPage() {
       if (timer) window.clearTimeout(timer)
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [isGenerating, load])
+  }, [isGenerating, load, t])
 
   const enqueue = useCallback(async (
     request: (revision: number) => Promise<{ code: number; message: string; data: PlanMutationData }>,

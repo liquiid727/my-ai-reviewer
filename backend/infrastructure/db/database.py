@@ -12,20 +12,21 @@ settings = get_settings()
 # 创建异步数据库引擎（支持连接池健康检查）
 async_engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,       # DEBUG 模式下打印 SQL 语句
-    pool_pre_ping=True,        # 每次从连接池取连接前先 ping 一下
+    echo=settings.DEBUG,  # DEBUG 模式下打印 SQL 语句
+    pool_pre_ping=True,  # 每次从连接池取连接前先 ping 一下
 )
 
 # 异步会话工厂
 async_session_factory = async_sessionmaker(
     async_engine,
     class_=AsyncSession,
-    expire_on_commit=False,    # 提交后不自动过期属性，避免懒加载问题
+    expire_on_commit=False,  # 提交后不自动过期属性，避免懒加载问题
 )
 
 
 class Base(DeclarativeBase):
     """SQLAlchemy ORM 声明式基类。"""
+
     pass
 
 

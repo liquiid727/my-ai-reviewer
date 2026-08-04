@@ -45,7 +45,7 @@ VALID_REPORT = json.dumps(
 
 
 @pytest.mark.asyncio
-async def test_generate_success():
+async def test_generate_success() -> None:
     gateway = _make_gateway_mock(VALID_REPORT)
     agent = ReportGenerationAgent(gateway)
 
@@ -66,7 +66,7 @@ async def test_generate_success():
 
 
 @pytest.mark.asyncio
-async def test_generate_all_dimensions_have_required_fields():
+async def test_generate_all_dimensions_have_required_fields() -> None:
     gateway = _make_gateway_mock(VALID_REPORT)
     agent = ReportGenerationAgent(gateway)
 
@@ -79,7 +79,7 @@ async def test_generate_all_dimensions_have_required_fields():
 
 
 @pytest.mark.asyncio
-async def test_generate_per_question_summary():
+async def test_generate_per_question_summary() -> None:
     gateway = _make_gateway_mock(VALID_REPORT)
     agent = ReportGenerationAgent(gateway)
 
@@ -92,7 +92,7 @@ async def test_generate_per_question_summary():
 
 
 @pytest.mark.asyncio
-async def test_generate_stores_model_info():
+async def test_generate_stores_model_info() -> None:
     gateway = _make_gateway_mock(VALID_REPORT, model="gpt-4o-mini")
     agent = ReportGenerationAgent(gateway)
 
@@ -102,7 +102,7 @@ async def test_generate_stores_model_info():
 
 
 @pytest.mark.asyncio
-async def test_generate_retry_on_invalid_json():
+async def test_generate_retry_on_invalid_json() -> None:
     bad = LLMResponse(content="not json", model="gpt-4o")
     good = LLMResponse(content=VALID_REPORT, model="gpt-4o")
     gateway = AsyncMock()
@@ -116,7 +116,7 @@ async def test_generate_retry_on_invalid_json():
 
 
 @pytest.mark.asyncio
-async def test_generate_raises_after_max_retries():
+async def test_generate_raises_after_max_retries() -> None:
     gateway = _make_gateway_mock("broken")
     agent = ReportGenerationAgent(gateway)
 
@@ -127,7 +127,7 @@ async def test_generate_raises_after_max_retries():
 
 
 @pytest.mark.asyncio
-async def test_generate_score_validation():
+async def test_generate_score_validation() -> None:
     invalid_score = json.dumps(
         {
             "overall_score": 150,
@@ -146,7 +146,7 @@ async def test_generate_score_validation():
 
 
 @pytest.mark.asyncio
-async def test_generate_recommendation_values():
+async def test_generate_recommendation_values() -> None:
     for rec in ["strong_yes", "yes", "maybe", "no", "strong_no"]:
         report_data = json.loads(VALID_REPORT)
         report_data["recommendation"] = rec

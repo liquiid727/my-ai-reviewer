@@ -1,20 +1,19 @@
 """JD 匹配单元测试 —— 覆盖纯函数 _compute_match 的多种场景。"""
 
+from typing import Any
+
 from backend.domain.jd.matching import _compute_match
 from backend.domain.jd.schemas import RequiredSkill
 
 
-def _profile(skills, tags=None):
+def _profile(skills: list[str], tags: list[str] | None = None) -> dict[str, Any]:
     return {
-        "skills": [
-            {"name": n, "category": "x", "evidence": f"used {n}", "confidence": 0.9}
-            for n in skills
-        ],
+        "skills": [{"name": n, "category": "x", "evidence": f"used {n}", "confidence": 0.9} for n in skills],
         "ability_tags": tags or [],
     }
 
 
-def test_perfect_match_all_critical():
+def test_perfect_match_all_critical() -> None:
     profile = _profile(["Python", "FastAPI", "PostgreSQL"])
     required = [
         RequiredSkill(name="Python", critical=True),
@@ -27,7 +26,7 @@ def test_perfect_match_all_critical():
     assert result.recommendation == "strong_hire"
 
 
-def test_missing_critical_skill_downgrades_recommendation():
+def test_missing_critical_skill_downgrades_recommendation() -> None:
     profile = _profile(["Python", "FastAPI"])
     required = [
         RequiredSkill(name="Python", critical=True),
@@ -41,14 +40,14 @@ def test_missing_critical_skill_downgrades_recommendation():
     assert result.recommendation == "conditional"
 
 
-def test_alias_normalization_matches():
+def test_alias_normalization_matches() -> None:
     profile = _profile(["JavaScript", "TypeScript"])
     required = [RequiredSkill(name="JS", critical=False)]
     result = _compute_match(profile, required)
     assert result.skill_match[0].matched is True
 
 
-def test_partial_match_score_range():
+def test_partial_match_score_range() -> None:
     profile = _profile(["Python"])
     required = [
         RequiredSkill(name="Python", critical=False),
@@ -62,7 +61,7 @@ def test_partial_match_score_range():
     assert result.recommendation in ("conditional", "reject")
 
 
-def test_ability_tags_count_as_skills():
+def test_ability_tags_count_as_skills() -> None:
     profile = _profile([], tags=["kubernetes", "docker"])
     required = [RequiredSkill(name="Kubernetes", critical=False)]
     result = _compute_match(profile, required)

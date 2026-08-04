@@ -2,7 +2,7 @@
 name = "ai-interview-platform"
 version = "0.1.0"
 description = "AI-powered Interview Platform Backend"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
@@ -72,6 +72,11 @@ strict = true
 [[tool.mypy.overrides]]
 # celery 未提供类型存根（py.typed），忽略其导入未定义告警
 module = ["celery", "celery.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# pymupdf (fitz) 无类型存根
+module = ["fitz"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

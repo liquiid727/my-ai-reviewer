@@ -2,6 +2,8 @@
 
 import codecs
 import logging
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -33,14 +35,10 @@ MARKDOWN_SAMPLE = """# 李四
 - 公司 B：基础架构
 """
 
-LEGACY_TEXT = (
-    "张三\n"
-    "高级后端工程师\n"
-    "熟悉 Python、Redis、PostgreSQL、分布式系统\n"
-) * 8
+LEGACY_TEXT = ("张三\n高级后端工程师\n熟悉 Python、Redis、PostgreSQL、分布式系统\n") * 8
 
 
-def test_get_parser_mapping():
+def test_get_parser_mapping() -> None:
     assert isinstance(get_parser(".pdf"), PdfResumeParser)
     assert isinstance(get_parser(".docx"), DocxResumeParser)
     assert isinstance(get_parser(".doc"), DocResumeParser)
@@ -50,7 +48,7 @@ def test_get_parser_mapping():
     assert isinstance(get_parser(".htm"), HtmlResumeParser)
 
 
-def test_html_parser_strips_scripts_and_extracts_text(tmp_path):
+def test_html_parser_strips_scripts_and_extracts_text(tmp_path: Path) -> None:
     f = tmp_path / "resume.html"
     f.write_text(HTML_SAMPLE, encoding="utf-8")
 
@@ -64,7 +62,7 @@ def test_html_parser_strips_scripts_and_extracts_text(tmp_path):
     assert result.page_count is None
 
 
-def test_markdown_parser_preserves_structure(tmp_path):
+def test_markdown_parser_preserves_structure(tmp_path: Path) -> None:
     f = tmp_path / "resume.md"
     f.write_text(MARKDOWN_SAMPLE, encoding="utf-8")
 
@@ -76,7 +74,7 @@ def test_markdown_parser_preserves_structure(tmp_path):
     assert result.page_count is None
 
 
-def test_doc_parser_best_effort_recovers_text(tmp_path):
+def test_doc_parser_best_effort_recovers_text(tmp_path: Path) -> None:
     # 模拟旧版 .doc 二进制流：可读文本夹杂空字节
     blob = b"\x00\x00Some Company Resume\x00\x01Python Developer\x00\x02"
     f = tmp_path / "legacy.doc"
@@ -89,7 +87,7 @@ def test_doc_parser_best_effort_recovers_text(tmp_path):
     assert result.page_count is None
 
 
-def test_text_parser_reads_plain_text(tmp_path):
+def test_text_parser_reads_plain_text(tmp_path: Path) -> None:
     f = tmp_path / "note.txt"
     f.write_text("纯文本简历内容", encoding="utf-8")
 
@@ -98,7 +96,7 @@ def test_text_parser_reads_plain_text(tmp_path):
 
 
 @pytest.mark.parametrize("parser_cls", [TextResumeParser, MarkdownResumeParser])
-def test_text_parsers_strip_utf8_bom(tmp_path, parser_cls):
+def test_text_parsers_strip_utf8_bom(tmp_path: Path, parser_cls: type[Any]) -> None:
     f = tmp_path / "resume.txt"
     f.write_bytes(codecs.BOM_UTF8 + "张三\nPython".encode("utf-8"))
 
@@ -111,7 +109,7 @@ def test_text_parsers_strip_utf8_bom(tmp_path, parser_cls):
 
 @pytest.mark.parametrize("parser_cls", [TextResumeParser, MarkdownResumeParser])
 @pytest.mark.parametrize("encoding", ["gbk", "gb18030"])
-def test_text_parsers_detect_legacy_chinese_encodings(tmp_path, parser_cls, encoding):
+def test_text_parsers_detect_legacy_chinese_encodings(tmp_path: Path, parser_cls: type[Any], encoding: str) -> None:
     f = tmp_path / "resume.txt"
     f.write_bytes(LEGACY_TEXT.encode(encoding))
 
@@ -123,11 +121,16 @@ def test_text_parsers_detect_legacy_chinese_encodings(tmp_path, parser_cls, enco
 
 @pytest.mark.parametrize("parser_cls", [TextResumeParser, MarkdownResumeParser])
 def test_text_parsers_replace_bytes_when_encoding_detection_fails(
-    tmp_path, monkeypatch, caplog, parser_cls
-):
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    parser_cls: type[Any],
+) -> None:
     f = tmp_path / "malformed.txt"
     f.write_bytes(b"Resume\xff\xfe\xfa\xfb")
-    monkeypatch.setattr(parser_base.charset_normalizer, "from_path", lambda _: [])
+    import charset_normalizer
+
+    monkeypatch.setattr(charset_normalizer, "from_path", lambda _: [])
 
     with caplog.at_level(logging.WARNING, logger=parser_base.__name__):
         result = parser_cls().parse(str(f))

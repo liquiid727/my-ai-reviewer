@@ -68,13 +68,17 @@ class LLMResumeEditor:
                 last_error = exc
                 logger.warning("Resume edit proposal attempt %d failed: %s", attempt + 1, str(exc)[:200])
                 if attempt < MAX_RETRIES:
-                    messages.extend([
-                        {"role": "assistant", "content": response.content},
-                        {
-                            "role": "user",
-                            "content": f"The response was invalid: {exc}. Return only a valid proposal JSON object.",
-                        },
-                    ])
+                    messages.extend(
+                        [
+                            {"role": "assistant", "content": response.content},
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"The response was invalid: {exc}. Return only a valid proposal JSON object."
+                                ),
+                            },
+                        ]
+                    )
 
         raise ValueError(f"Failed to produce a valid edit proposal: {last_error}")
 

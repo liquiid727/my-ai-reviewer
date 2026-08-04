@@ -17,16 +17,16 @@
 |---|---|---|---|
 | `lint-backend` | Ruff rules | `PYTHONPATH=. uv run --project backend ruff check backend` | `make lint` |
 | `format-backend` | Ruff formatting | `PYTHONPATH=. uv run --project backend ruff format --check backend` | `make lint` |
-| `type-backend` | strict mypy | `PYTHONPATH=. uv run --project backend mypy backend` | `make type-check` |
+| `type-backend` | strict mypy | `PYTHONPATH=. uv run --project backend mypy backend --config-file backend/pyproject.toml` | `make type-check` |
 | `lint-frontend` | Oxlint | `cd frontend && pnpm lint` | `make lint` |
 | `build-frontend` | TypeScript + Vite build | `cd frontend && pnpm build` | `make build` / `make ci` |
 | `test-backend-unit` | backend unit tests | `PYTHONPATH=. uv run --project backend pytest backend/tests/unit -q` | `make test-unit` |
 | `test-backend-integration` | DB/API integration | `PYTHONPATH=. uv run --project backend pytest backend/tests/integration -q` | `make test-integration` |
-| `test-frontend` | component/workflow tests | unavailable until AIP-010 | `make test-frontend` |
+| `test-frontend` | component/workflow tests | `cd frontend && pnpm test` (`vitest run`) | `make test-frontend` |
 | `architecture` | dependency and exception rules | manual/import scan until AIP-011 | `make arch-check` |
 | `diff-integrity` | whitespace/conflict markers and final scope | `git diff --check` plus `git status --short` | `make ci` retains explicit evidence |
 
-QA MUST inspect the Makefile/package scripts before using a target. A target listed as planned above MUST be reported as `NOT RUN` if it does not exist; QA then runs the current direct command where possible.
+QA MUST inspect the Makefile/package scripts before using a target. A target listed as planned above MUST be reported as `NOT_RUN` if it does not exist; QA then runs the current direct command where possible.
 
 ## Target Make Contract
 
@@ -69,7 +69,18 @@ Target required check names are stable:
 - `test / frontend`
 - `build / frontend`
 
-CI pins Python 3.12 and the repository's package-manager versions, restores lockfile-based dependencies, uses synthetic data, and uploads normalized reports without secrets/PII. Branch protection activation requires explicit ship/repository authorization and is recorded separately from workflow creation.
+Workflow sources (AIP-010 #076):
+
+| Check | Workflow file | Job name |
+|---|---|---|
+| `quality / lint-and-type` | `.github/workflows/quality.yml` | `lint-and-type` |
+| `quality / architecture` | `.github/workflows/quality.yml` | `architecture` |
+| `test / backend-unit` | `.github/workflows/test.yml` | `backend-unit` |
+| `test / backend-integration` | `.github/workflows/test.yml` | `backend-integration` |
+| `test / frontend` | `.github/workflows/test.yml` | `frontend` |
+| `build / frontend` | `.github/workflows/build.yml` | `frontend` |
+
+CI pins Python 3.12 and the repository's package-manager versions, restores lockfile-based dependencies (`uv sync --frozen`, `pnpm install --frozen-lockfile`), uses synthetic data/keys, and uploads safe result artifacts without secrets/PII. Jobs call the same `make` targets / `scripts/quality/*` runners as local gates. Branch protection activation requires explicit ship/repository authorization and is recorded separately from workflow creation — see `docs/ci/branch-protection-activation.md`.
 
 ## Evidence Format
 

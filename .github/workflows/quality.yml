@@ -1,0 +1,194 @@
+# Hosted quality static gates (AIP-010).
+# Stable check names (rules/quality-gates.md):
+#   quality / lint-and-type
+#   quality / architecture
+#
+# Calls the same scripts/quality/* runners as local `make lint`,
+# `make type-check`, and `make arch-check`.
+# Branch-protection activation is separate — see
+# docs/ci/branch-protection-activation.md.
+
+name: quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+  PNPM_VERSION: "10.11.0"
+  # Synthetic configuration only — never production secrets or real PII.
+  DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/ai_interview
+  REDIS_URL: redis://localhost:6379/0
+  CELERY_BROKER_URL: redis://localhost:6379/1
+  CELERY_RESULT_BACKEND: redis://localhost:6379/2
+  MINIO_ENDPOINT: localhost:9000
+  MINIO_ACCESS_KEY: minioadmin
+  MINIO_SECRET_KEY: minioadmin
+  MINIO_BUCKET_RESUMES: resumes
+  MINIO_BUCKET_EXPORTS: exports
+  MINIO_BUCKET_PHOTOS: photos
+  MINIO_BUCKET_QUARANTINE: resume-quarantine
+  MINIO_USE_SSL: "false"
+  # Deterministic synthetic Fernet keys for CI only (not production).
+  ENCRYPTION_KEY: JkbsxD3hBkPl1Xy3j970yBYCLkRoF2hV3pQUz-VmyZQ=
+  PRIVACY_QUARANTINE_KEY: 8yJMb3sgSj8U77NJh2iLjmr-AiqDLQfFtl2lIpdUGvs=
+  PRIVACY_QUARANTINE_TTL_SECONDS: "3600"
+  PRIVACY_REVIEW_REQUIRED: "false"
+  DEBUG: "false"
+  DEFAULT_LLM_PROVIDER: openai
+  DEFAULT_LLM_MODEL: gpt-4o
+  OPENAI_API_KEY: ""
+  ANTHROPIC_API_KEY: ""
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-type:
+    name: lint-and-type
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            backend/uv.lock
+            backend/pyproject.toml
+
+      - name: Install backend dependencies (lockfile)
+        run: uv sync --project backend --frozen
+
+      - name: Setup pnpm ${{ env.PNPM_VERSION }}
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies (lockfile)
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare result artifact dir
+        run: mkdir -p artifacts/lint-and-type
+
+      - name: Lint (make lint → scripts/quality/lint.sh)
+        id: lint
+        continue-on-error: true
+        run: |
+          set +e
+          make lint 2>&1 | tee artifacts/lint-and-type/lint.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=${rc}" >> artifacts/lint-and-type/result.env
+          exit "${rc}"
+
+      - name: Type check (make type-check → scripts/quality/typecheck.sh)
+        id: typecheck
+        continue-on-error: true
+        run: |
+          set +e
+          make type-check 2>&1 | tee artifacts/lint-and-type/typecheck.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "typecheck_exit_code=${rc}" >> artifacts/lint-and-type/result.env
+          exit "${rc}"
+
+      - name: Upload lint-and-type artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-lint-and-type
+          path: artifacts/lint-and-type/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Fail job if any gate failed
+        if: always()
+        run: |
+          lint_rc="${{ steps.lint.outcome }}"
+          type_rc="${{ steps.typecheck.outcome }}"
+          if [[ "${lint_rc}" != "success" || "${type_rc}" != "success" ]]; then
+            echo "FAIL: lint outcome=${lint_rc} type-check outcome=${type_rc}"
+            exit 1
+          fi
+          echo "PASS: lint-and-type"
+
+  architecture:
+    name: architecture
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            backend/uv.lock
+            backend/pyproject.toml
+
+      - name: Install backend dependencies (lockfile)
+        run: uv sync --project backend --frozen
+
+      - name: Prepare result artifact dir
+        run: mkdir -p artifacts/architecture
+
+      - name: Architecture check (make arch-check → scripts/quality/arch_check.py)
+        id: arch
+        continue-on-error: true
+        run: |
+          set +e
+          make arch-check 2>&1 | tee artifacts/architecture/arch.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=${rc}" > artifacts/architecture/result.env
+          exit "${rc}"
+
+      - name: Upload architecture artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-architecture
+          path: artifacts/architecture/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Fail job if architecture gate failed
+        if: always()
+        run: |
+          if [[ "${{ steps.arch.outcome }}" != "success" ]]; then
+            echo "FAIL: architecture"
+            exit 1
+          fi
+          echo "PASS: architecture"

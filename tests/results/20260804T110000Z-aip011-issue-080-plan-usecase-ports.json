@@ -1,0 +1,38 @@
+{
+  "issue": "080",
+  "title": "aip011-plan-usecase-ports",
+  "spec": "AIP-011",
+  "delivery_mode": "local-reviewed",
+  "decision": "GREEN",
+  "recorded_at": "2026-08-04T11:00:00Z",
+  "summary": "Plan domain purified to policies-only; ORM/LLM/match freshness and API list/detail moved into application plan_service + plan_queries. #080 arch exceptions pruned (new=0).",
+  "changes": [
+    "backend/domain/job_search_plan/policies.py (new pure policies)",
+    "backend/domain/job_search_plan/services.py (pure re-exports only)",
+    "backend/application/plan_service.py (get_fresh_match, generate_plan_output)",
+    "backend/application/plan_queries.py (list/detail/eligible resumes)",
+    "backend/api/v1/plans.py (no ORM imports)",
+    "backend/api/v1/resume.py (eligible resumes via plan_queries)",
+    "scripts/quality/arch_exceptions.toml (#080 rows removed)"
+  ],
+  "gates": {
+    "plan-generation-unit": {"result": "PASS", "count": 11, "command": "pytest backend/tests/unit/test_plan_generation.py backend/tests/unit/test_plan_task_service.py"},
+    "plan-jd-integration": {"result": "PASS", "count": 12, "command": "pytest backend/tests/integration/test_jd_plan_api.py"},
+    "arch-check-unit": {"result": "PASS", "count": 20, "command": "pytest backend/tests/unit/test_arch_check.py"},
+    "arch-check-make": {"result": "PASS", "new": 0, "waived": 33, "command": "make arch-check"},
+    "ruff-touched": {"result": "PASS", "command": "ruff check (touched plan paths) --fix"}
+  },
+  "semantics_preserved": [
+    "generation_run_id guard on initial/regeneration persist",
+    "revision conflict codes 1007",
+    "manual/completed task preservation on regenerate",
+    "retry only from FAILED",
+    "stale worker returns without clobber",
+    "eligible resume options never expose identity"
+  ],
+  "residual_nits": [
+    {"severity": "P3", "note": "Application still constructs concrete JDMatchingService/LLMPlanGenerator adapters inside use cases (no formal Protocol ports yet)."},
+    {"severity": "P3", "note": "PlanDomainError remains domain-owned API-code carrier (same pattern as JDProcessingError)."}
+  ],
+  "secrets_pii": "none in evidence"
+}

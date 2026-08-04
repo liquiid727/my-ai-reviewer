@@ -33,4 +33,3 @@ def test_only_approved_masked_status_can_enter_llm_pipeline() -> None:
     assert privacy_allows_llm("privacy_review_required") is False
     assert privacy_allows_llm("privacy_scanning") is False
     assert privacy_allows_llm("failed") is False
-
