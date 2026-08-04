@@ -18,7 +18,6 @@ class APIResponse(BaseModel):
 class ResumeUploadData(BaseModel):
     """简历上传成功后的返回数据。"""
     resume_id: str
-    file_id: str
     status: str
 
 
@@ -31,11 +30,12 @@ class ResumeStatusData(BaseModel):
 
 
 class ResumeDetailData(BaseModel):
-    """简历详情（含原始文本和解析结果）。"""
+    """Resume detail containing approved masked text and parsed results."""
     resume_id: str
     status: str
-    raw_text: str | None = None
+    masked_text: str | None = None
     parsed_result: dict[str, Any] | None = None
+    privacy: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -21,6 +21,10 @@ from backend.infrastructure.db.models import ResumeModel
 logger = logging.getLogger(__name__)
 
 
+def privacy_allows_llm(status: str) -> bool:
+    return status == "text_masked"
+
+
 async def _run_step(
     step_fn: Callable[[AsyncSession, uuid.UUID], Awaitable[ResumeModel]],
     resume_id: uuid.UUID,
@@ -61,8 +65,8 @@ def text_extract_task(self: Any, resume_id_str: str) -> str:
 )
 def llm_parse_task(self: Any, prev_status: str, resume_id_str: str) -> str:
     """步骤二：调用 LLM 进行结构化提取（限时 120 秒，最多重试 2 次）。"""
-    if prev_status == "failed":
-        return "failed"
+    if not privacy_allows_llm(prev_status):
+        return prev_status
     resume_id = uuid.UUID(resume_id_str)
     try:
         return asyncio.run(_run_step(services.extract_facts, resume_id))
@@ -77,8 +81,8 @@ def llm_parse_task(self: Any, prev_status: str, resume_id_str: str) -> str:
 @celery.task(bind=True, name="tasks.classify", time_limit=30, max_retries=0)  # type: ignore[untyped-decorator]
 def classify_task(self: Any, prev_status: str, resume_id_str: str) -> str:
     """步骤三：基于规则进行简历分类（限时 30 秒，不重试）。"""
-    if prev_status == "failed":
-        return "failed"
+    if prev_status != "fact_extracted":
+        return prev_status
     resume_id = uuid.UUID(resume_id_str)
     try:
         return asyncio.run(_run_step(services.classify_resume, resume_id))
@@ -96,8 +100,8 @@ def classify_task(self: Any, prev_status: str, resume_id_str: str) -> str:
 )
 def evaluate_task(self: Any, prev_status: str, resume_id_str: str) -> str:
     """步骤四：调用 LLM 进行多维度评估（限时 120 秒，最多重试 2 次）。"""
-    if prev_status == "failed":
-        return "failed"
+    if prev_status != "classified":
+        return prev_status
     resume_id = uuid.UUID(resume_id_str)
     try:
         return asyncio.run(_run_step(services.evaluate_resume, resume_id))
@@ -114,6 +118,16 @@ def process_resume_pipeline(resume_id: str) -> None:
     pipeline = chain(
         text_extract_task.s(resume_id),
         llm_parse_task.s(resume_id),
+        classify_task.s(resume_id),
+        evaluate_task.s(resume_id),
+    )
+    pipeline.apply_async()
+
+
+def process_masked_resume_pipeline(resume_id: str) -> None:
+    """Resume an approved review at the first LLM step."""
+    pipeline = chain(
+        llm_parse_task.s("text_masked", resume_id),
         classify_task.s(resume_id),
         evaluate_task.s(resume_id),
     )

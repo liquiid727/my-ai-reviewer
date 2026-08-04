@@ -56,6 +56,14 @@ export interface ResumeDraftData {
   summary: string | null
   sections: DraftSection[]
   design_tokens: DesignTokens
+  privacy_placeholders: PrivacyPlaceholder[]
+}
+
+export interface PrivacyPlaceholder {
+  token: string
+  entity_type: string
+  occurrence_count: number
+  context?: string
 }
 
 export interface PolishResult {
@@ -117,6 +125,8 @@ export interface ExportPayload {
   template_id?: TemplateId
   layout_policy?: LayoutPolicy
   persist?: boolean
+  replacements?: Record<string, string>
+  photo_data_uri?: string | null
 }
 
 export type PhotoBgColor = 'white' | 'blue' | 'red'

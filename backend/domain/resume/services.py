@@ -14,6 +14,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
+from backend.domain.privacy import PrivacyGuard, ResumePrivacyRedactor
 from backend.domain.resume.enums import ResumeStatus
 from backend.domain.resume.schemas import CandidateProfile
 from backend.infrastructure.classifiers.rule_classifier import RuleBasedResumeClassifier
@@ -23,6 +24,7 @@ from backend.infrastructure.db.models import (
     ResumeEvaluationModel,
     ResumeFactModel,
     ResumeModel,
+    ResumePrivacyManifestModel,
     ResumeSectionModel,
 )
 from backend.infrastructure.evaluators.llm_evaluator import LLMResumeEvaluator
@@ -30,7 +32,8 @@ from backend.infrastructure.extractors.llm_extractor import LLMResumeExtractor
 from backend.infrastructure.extractors.section_splitter import split_sections
 from backend.infrastructure.llm.gateway import LLMGateway
 from backend.infrastructure.parsers import get_parser
-from backend.infrastructure.storage.minio_client import download_file
+from backend.infrastructure.privacy import QuarantineCipher
+from backend.infrastructure.storage.minio_client import delete_file, download_file
 
 
 async def extract_text(session: AsyncSession, resume_id: uuid.UUID) -> ResumeModel:
@@ -52,7 +55,11 @@ async def extract_text(session: AsyncSession, resume_id: uuid.UUID) -> ResumeMod
     tmp_path: str | None = None
     try:
         # 从对象存储下载文件到本地临时目录
-        file_bytes = download_file(settings.MINIO_BUCKET_RESUMES, file_record.storage_path)
+        encrypted = download_file(settings.MINIO_BUCKET_QUARANTINE, file_record.storage_path)
+        encryption_key = settings.PRIVACY_QUARANTINE_KEY or settings.ENCRYPTION_KEY
+        if not encryption_key:
+            raise RuntimeError("Privacy quarantine key is not configured")
+        file_bytes = QuarantineCipher(encryption_key).decrypt(encrypted)
 
         with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
             tmp.write(file_bytes)
@@ -69,14 +76,20 @@ async def extract_text(session: AsyncSession, resume_id: uuid.UUID) -> ResumeMod
             await session.commit()
             return resume
 
-        resume.raw_text = result.raw_text
+        redaction = ResumePrivacyRedactor().redact(result.raw_text)
+        PrivacyGuard().assert_masked(redaction.masked_text)
+        resume.masked_text = redaction.masked_text
         resume.parser_version = parser.version
         resume.parse_error = None
         # 将结构化文本块（Paragraph/Heading/Block/Page）可选落库到 parsed_result
         prior = resume.parsed_result or {}
         parsed: dict[str, Any] = {
             "text_blocks": [
-                {"type": b.type, "text": b.text, "page": b.page}
+                {
+                    "type": b.type,
+                    "text": ResumePrivacyRedactor().redact(b.text).masked_text,
+                    "page": b.page,
+                }
                 for b in result.blocks
             ],
         }
@@ -84,7 +97,26 @@ async def extract_text(session: AsyncSession, resume_id: uuid.UUID) -> ResumeMod
         if prior.get("history"):
             parsed["history"] = prior["history"]
         resume.parsed_result = parsed
-        resume.status = ResumeStatus.TEXT_PARSED
+        manifest = await session.get(ResumePrivacyManifestModel, resume_id)
+        if manifest is None:
+            raise ValueError(f"Privacy manifest not found: {resume_id}")
+        manifest.placeholders = [p.model_dump(mode="json") for p in redaction.manifest.placeholders]
+        manifest.risk_flags = redaction.manifest.risk_flags
+        review_required = bool(manifest.risk_flags) or settings.PRIVACY_REVIEW_REQUIRED
+        if review_required:
+            manifest.status = "review_required"
+            resume.status = ResumeStatus.PRIVACY_REVIEW_REQUIRED
+        else:
+            manifest.status = "approved"
+            manifest.reviewed_at = datetime.now(timezone.utc)
+            quarantine_path = manifest.quarantine_path
+            if quarantine_path:
+                delete_file(settings.MINIO_BUCKET_QUARANTINE, quarantine_path)
+            manifest.quarantine_path = None
+            manifest.quarantine_expires_at = None
+            resume.file_id = None
+            await session.delete(file_record)
+            resume.status = ResumeStatus.TEXT_MASKED
         await session.commit()
 
     except Exception as exc:
@@ -110,12 +142,16 @@ async def extract_facts(session: AsyncSession, resume_id: uuid.UUID) -> ResumeMo
     if resume is None:
         raise ValueError(f"Resume not found: {resume_id}")
 
-    if not resume.raw_text:
-        raise ValueError(f"No raw text for resume: {resume_id}")
+    if not resume.masked_text:
+        raise ValueError(f"No masked text for resume: {resume_id}")
+    manifest = await session.get(ResumePrivacyManifestModel, resume_id)
+    if manifest is None or manifest.status != "approved":
+        raise ValueError(f"Resume privacy is not approved: {resume_id}")
+    PrivacyGuard().assert_masked(resume.masked_text)
 
     gateway = LLMGateway.from_settings()
     extractor = LLMResumeExtractor(gateway)
-    result = await extractor.extract(resume.raw_text)
+    result = await extractor.extract(resume.masked_text)
 
     # 保留文本提取阶段落库的结构化文本块与历史快照，避免被 LLM 解析结果覆盖
     prior = resume.parsed_result or {}
@@ -200,6 +236,7 @@ async def evaluate_resume(session: AsyncSession, resume_id: uuid.UUID) -> Resume
     parsed_result: dict[str, Any] = resume.parsed_result or {}
     if not parsed_result:
         raise ValueError(f"No parsed result for resume: {resume_id}")
+    PrivacyGuard().assert_masked(parsed_result)
 
     gateway = LLMGateway.from_settings()
     evaluator = LLMResumeEvaluator(gateway)
@@ -274,6 +311,7 @@ async def _persist_sections(
     （覆盖 basic_info/awards/self_evaluation 等 LLM 画像不含的区块）；
     切分不出结果时回退到基于画像顶层区块的方式。
     """
+    PrivacyGuard().assert_masked({"profile": profile, "text_blocks": text_blocks or []})
     await session.execute(delete(ResumeSectionModel).where(ResumeSectionModel.resume_id == resume_id))
 
     sections = split_sections(text_blocks) if text_blocks else []

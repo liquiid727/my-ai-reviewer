@@ -73,6 +73,8 @@ class ExportRequest(BaseModel):
     template_id: TemplateId | None = None
     layout_policy: LayoutPolicy | None = None
     persist: bool = False
+    replacements: dict[str, str] = Field(default_factory=dict)
+    photo_data_uri: str | None = None
 
 
 class ConfirmPhotoRequest(BaseModel):
@@ -117,6 +119,7 @@ def _serialize_draft(model: Any) -> dict[str, Any]:
         "summary": draft.summary,
         "sections": [s.model_dump(mode="json") for s in draft.sections],
         "design_tokens": draft.design_tokens.model_dump(mode="json"),
+        "privacy_placeholders": (model.privacy_manifest or {}).get("placeholders", []),
     }
 
 
@@ -420,6 +423,40 @@ async def preview_draft(
             "X-Page-Count": str(result.page_count),
             "X-Target-Met": "true" if result.target_met else "false",
             "X-Layout-Density": result.applied_density.value,
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.post("/{draft_id}/preview")
+async def preview_draft_with_replacements(
+    draft_id: uuid.UUID,
+    body: ExportRequest,
+    session: AsyncSession = Depends(get_db),
+) -> Response:
+    """Render a no-store preview with replacements held only for this request."""
+    model = await services.get_draft(session, draft_id)
+    options = ExportOptions(
+        template_id=body.template_id,
+        layout_policy=body.layout_policy,
+        persist=False,
+        replacements=body.replacements,
+    )
+    if body.photo_data_uri:
+        pdf_bytes, result = await services.export_draft_pdf(
+            session, model, options, photo_data_uri=body.photo_data_uri,
+        )
+    else:
+        pdf_bytes, result = await services.export_draft_pdf(session, model, options)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": "inline; filename=resume-preview.pdf",
+            "X-Page-Count": str(result.page_count),
+            "X-Target-Met": "true" if result.target_met else "false",
+            "X-Layout-Density": result.applied_density.value,
+            "Cache-Control": "no-store",
         },
     )
 
@@ -435,9 +472,15 @@ async def export_draft(
     options = ExportOptions(
         template_id=body.template_id,
         layout_policy=body.layout_policy,
-        persist=body.persist,
+        persist=False,
+        replacements=body.replacements,
     )
-    pdf_bytes, result = await services.export_draft_pdf(session, model, options)
+    if body.photo_data_uri:
+        pdf_bytes, result = await services.export_draft_pdf(
+            session, model, options, photo_data_uri=body.photo_data_uri,
+        )
+    else:
+        pdf_bytes, result = await services.export_draft_pdf(session, model, options)
     # 非 ASCII 标题用 RFC 5987 编码，避免响应头 latin-1 编码失败；filename= 提供 ASCII 回退
     filename = f"{model.title or 'resume'}.pdf"
     disposition = f"attachment; filename=\"resume.pdf\"; filename*=UTF-8''{quote(filename, safe='')}"
@@ -449,6 +492,7 @@ async def export_draft(
             "X-Page-Count": str(result.page_count),
             "X-Target-Met": "true" if result.target_met else "false",
             "X-Layout-Density": result.applied_density.value,
+            "Cache-Control": "no-store",
         },
     )
 

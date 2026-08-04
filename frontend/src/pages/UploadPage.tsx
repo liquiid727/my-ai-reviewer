@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import { useTranslation } from 'react-i18next'
-import { ArrowRight, Lightbulb, TriangleAlert } from 'lucide-react'
+import { ArrowRight, Lightbulb, ShieldCheck, TriangleAlert } from 'lucide-react'
 import { FileUploader } from '@/components/FileUploader'
 import { LLMGateDialog } from '@/components/LLMGateDialog'
 import { Progress } from '@/components/ui/progress'
@@ -12,7 +12,15 @@ import { Badge } from '@/components/ui/badge'
 import { useResumeStore } from '@/stores/resumeStore'
 import { useResumeHistoryStore } from '@/stores/resumeHistoryStore'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { uploadResume, getResumeStatus, retryResume } from '@/api/resume'
+import {
+  addPrivacyMasks,
+  approvePrivacy,
+  getPrivacyReview,
+  uploadResume,
+  getResumeStatus,
+  retryResume,
+} from '@/api/resume'
+import type { PrivacyReviewData } from '@/types/resume'
 
 const MAX_POLL_DURATION = 10 * 60 * 1000
 
@@ -30,6 +38,10 @@ export function UploadPage() {
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [gateOpen, setGateOpen] = useState(false)
+  const [privacyReview, setPrivacyReview] = useState<PrivacyReviewData | null>(null)
+  const [privacyBusy, setPrivacyBusy] = useState(false)
+  const [privacyEntityType, setPrivacyEntityType] = useState('person')
+  const privacyTextRef = useRef<HTMLTextAreaElement | null>(null)
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const startTimeRef = useRef<number>(0)
   const mountedRef = useRef(true)
@@ -62,6 +74,13 @@ export function UploadPage() {
       setStatus(s, current_step, completed_steps, err)
       // 同步刷新本地历史记录的状态（供「简历列表」页展示）
       useResumeHistoryStore.getState().updateStatus(id, s)
+
+      if (s === 'privacy_review_required') {
+        stopPolling()
+        const review = await getPrivacyReview(id)
+        if (review.code === 0) setPrivacyReview(review.data)
+        return
+      }
 
       if (s === 'evaluated') {
         stopPolling()
@@ -126,11 +145,13 @@ export function UploadPage() {
 
       const id = res.data.resume_id
       setResumeId(id)
+      setPrivacyReview(null)
       setStatus('uploaded', 'text_extract', [], null)
       // 写入本地历史（localStorage，按 resume_id 去重，最多保留 10 条）
       useResumeHistoryStore.getState().addEntry({
         resume_id: id,
-        file_name: file.name,
+        // The client history must not retain the user-controlled filename.
+        file_name: 'resume',
         uploaded_at: new Date().toISOString(),
         status: 'uploaded',
       })
@@ -145,6 +166,47 @@ export function UploadPage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setResumeId, setStatus, setPolling, pollStatus, refreshSettings])
+
+  const maskSelectedPrivacyText = useCallback(async () => {
+    if (!resumeId || !privacyReview || !privacyTextRef.current) return
+    const { selectionStart, selectionEnd } = privacyTextRef.current
+    if (selectionStart === selectionEnd) return
+    setPrivacyBusy(true)
+    try {
+      const response = await addPrivacyMasks(resumeId, privacyReview.revision, [{
+        start: selectionStart,
+        end: selectionEnd,
+        entity_type: privacyEntityType,
+      }])
+      if (response.code !== 0) {
+        toast.error(response.message || t('upload.privacyMaskFailed'))
+        return
+      }
+      setPrivacyReview((current) => current ? { ...current, ...response.data } : response.data)
+    } finally {
+      setPrivacyBusy(false)
+    }
+  }, [privacyEntityType, privacyReview, resumeId, t])
+
+  const approvePrivacyReview = useCallback(async () => {
+    if (!resumeId || !privacyReview) return
+    setPrivacyBusy(true)
+    try {
+      const response = await approvePrivacy(resumeId, privacyReview.revision)
+      if (response.code !== 0) {
+        toast.error(response.message || t('upload.privacyApproveFailed'))
+        return
+      }
+      setPrivacyReview(null)
+      setStatus('text_masked', 'llm_parse', ['text_extract', 'privacy_scan'], null)
+      setPolling(true)
+      startTimeRef.current = Date.now()
+      pollStatus(resumeId)
+      toast.success(t('upload.privacyApproved'))
+    } finally {
+      setPrivacyBusy(false)
+    }
+  }, [pollStatus, privacyReview, resumeId, setPolling, setStatus, t])
 
   const handleRetry = useCallback(async () => {
     if (!resumeId) return
@@ -215,7 +277,45 @@ export function UploadPage() {
         </div>
       )}
 
-      {resumeId && status && status !== 'evaluated' && (
+      {resumeId && status === 'privacy_review_required' && privacyReview && (
+        <div className="space-y-4 rounded-lg border-4 border-black bg-white p-6 shadow-[4px_4px_0_0_#000]">
+          <div className="flex items-center gap-3">
+            <ShieldCheck className="size-6" />
+            <div>
+              <h2 className="text-xl font-black">{t('upload.privacyTitle')}</h2>
+              <p className="text-sm text-gray-600">{t('upload.privacyDescription')}</p>
+            </div>
+          </div>
+          <textarea
+            ref={privacyTextRef}
+            value={privacyReview.masked_text || ''}
+            readOnly
+            aria-label={t('upload.privacyMaskedText')}
+            className="min-h-64 w-full resize-y rounded-base border-2 border-border bg-secondary-background p-3 font-mono text-sm"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={privacyEntityType}
+              onChange={(event) => setPrivacyEntityType(event.target.value)}
+              className="rounded-base border-2 border-border bg-white px-3 py-2 text-sm"
+              aria-label={t('upload.privacyEntityType')}
+            >
+              {['person', 'phone', 'email', 'organization', 'school', 'address', 'project', 'url'].map((type) => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+            <Button variant="neutral" onClick={() => void maskSelectedPrivacyText()} disabled={privacyBusy}>
+              {t('upload.privacyMaskSelection')}
+            </Button>
+            <Button onClick={() => void approvePrivacyReview()} disabled={privacyBusy}>
+              <ShieldCheck className="size-4" />
+              {t('upload.privacyApprove')}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {resumeId && status && status !== 'evaluated' && status !== 'privacy_review_required' && (
         <div className="rounded-lg border-4 border-black bg-white p-6 shadow-[4px_4px_0_0_#000]">
           <div className="mb-4 flex items-center gap-3">
             <h2 className="text-xl font-black">{t('upload.processing')}</h2>

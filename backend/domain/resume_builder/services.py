@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import logging
 import uuid
+from collections import defaultdict
 from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
+from backend.domain.privacy import PrivacyGuard, ResumePrivacyRedactor, apply_privacy_replacements
 from backend.domain.resume.enums import ResumeSectionType
 from backend.domain.resume_builder.editing import DraftRevisionConflictError
 from backend.domain.resume_builder.enums import LayoutMode, TemplateId
@@ -28,18 +29,13 @@ from backend.domain.resume_builder.schemas import (
 from backend.infrastructure.db.models import (
     CandidateProfileModel,
     ResumeDraftModel,
-    ResumeExportModel,
 )
 from backend.infrastructure.evaluators.llm_evaluator import LLMResumeEvaluator
 from backend.infrastructure.llm.gateway import LLMGateway
 from backend.infrastructure.polishers.llm_polisher import LLMResumePolisher
 from backend.infrastructure.rendering.html_renderer import HtmlRenderer
 from backend.infrastructure.rendering.pdf_renderer import PdfRenderer
-from backend.infrastructure.storage.minio_client import (
-    download_file,
-    ensure_bucket,
-    upload_file,
-)
+from backend.infrastructure.storage.minio_client import download_file
 
 logger = logging.getLogger(__name__)
 
@@ -157,14 +153,14 @@ def profile_to_draft(profile: CandidateProfileModel) -> ResumeDraft:
     if profile.certificates:
         sections.append(_certificates_section(list(profile.certificates)))
 
-    return ResumeDraft(
+    return _sanitize_draft_for_persistence(ResumeDraft(
         title=str(identity.get("name") or "我的简历"),
         identity=identity,
         summary=summary,
         sections=sections,
         template_id=TemplateId.CLASSIC,
         design_tokens=DesignTokens(),
-    )
+    ))[0]
 
 
 # ─────────────────────────── 草稿模型 ↔ schema ───────────────────────────
@@ -177,6 +173,41 @@ def _draft_content(draft: ResumeDraft) -> dict[str, Any]:
         "summary": draft.summary,
         "sections": [s.model_dump(mode="json") for s in draft.sections],
     }
+
+
+def _sanitize_draft_for_persistence(draft: ResumeDraft) -> tuple[ResumeDraft, dict[str, Any]]:
+    """Redact every user-editable string before persisting a draft."""
+    counters: dict[str, int] = defaultdict(int)
+    placeholders: list[dict[str, Any]] = []
+
+    protected_keys = {
+        "title", "section_type", "template_id", "density", "mode", "layout_mode",
+        "target_page_count", "order", "visible", "item_id", "section_id",
+    }
+
+    def redact(value: Any, key: str | None = None) -> Any:
+        if key in protected_keys and not (key == "title" and value not in {"我的简历", "Resume", "简历"}):
+            return value
+        if isinstance(value, str):
+            result = ResumePrivacyRedactor().redact(value)
+            text = result.masked_text
+            for placeholder in result.manifest.placeholders:
+                counters[placeholder.entity_type] += 1
+                prefix = "ORG" if placeholder.entity_type == "organization" else placeholder.entity_type.upper()
+                token = f"[[{prefix}_{counters[placeholder.entity_type]:02d}]]"
+                text = text.replace(placeholder.token, token)
+                placeholders.append(placeholder.model_copy(update={"token": token}).model_dump(mode="json"))
+            return text
+        if isinstance(value, list):
+            return [redact(item, key) for item in value]
+        if isinstance(value, dict):
+            return {child_key: redact(item, child_key) for child_key, item in value.items()}
+        return value
+
+    sanitized = redact(draft.model_dump(mode="json"))
+    clean = ResumeDraft(**sanitized)
+    PrivacyGuard().assert_masked(clean.model_dump(mode="json"))
+    return clean, {"placeholders": placeholders, "policy_version": "resume-privacy-v1"}
 
 
 def draft_model_to_schema(model: ResumeDraftModel) -> ResumeDraft:
@@ -219,6 +250,19 @@ def draft_model_to_schema(model: ResumeDraftModel) -> ResumeDraft:
     )
 
 
+def hydrate_draft_for_export(
+    draft: ResumeDraft,
+    replacements: dict[str, str],
+    *,
+    allowed_tokens: set[str],
+) -> ResumeDraft:
+    """Hydrate a short-lived structured copy for preview/export only."""
+    hydrated = apply_privacy_replacements(
+        draft.model_dump(mode="json"), replacements, allowed_tokens=allowed_tokens,
+    )
+    return ResumeDraft(**hydrated)
+
+
 # ─────────────────────────── 服务函数 ───────────────────────────
 
 
@@ -234,7 +278,7 @@ async def create_draft_from_profile(
     if profile is None:
         raise ValueError(f"Candidate profile not found for resume: {resume_id}")
 
-    draft = profile_to_draft(profile)
+    draft, privacy_manifest = _sanitize_draft_for_persistence(profile_to_draft(profile))
     # 新建草稿放在列表首位，保持用户刚创建的草稿可立即找到。
     await session.execute(
         update(ResumeDraftModel).values(
@@ -252,6 +296,7 @@ async def create_draft_from_profile(
         target_page_count=draft.layout_policy.target_page_count,
         status="draft",
         sort_order=0,
+        privacy_manifest=privacy_manifest,
     )
     session.add(model)
     await session.commit()
@@ -271,7 +316,7 @@ async def create_draft_from_reference(
     if template is None:
         raise ValueError(f"Reference template not found: {template_key}")
 
-    draft = template.build_draft()
+    draft, privacy_manifest = _sanitize_draft_for_persistence(template.build_draft())
     # 新建草稿放在列表首位，保持用户刚创建的草稿可立即找到。
     await session.execute(
         update(ResumeDraftModel).values(
@@ -289,6 +334,7 @@ async def create_draft_from_reference(
         target_page_count=draft.layout_policy.target_page_count,
         status="draft",
         sort_order=0,
+        privacy_manifest=privacy_manifest,
     )
     session.add(model)
     await session.commit()
@@ -353,13 +399,9 @@ async def update_draft(
     # content 相关字段（identity / summary / sections）合并进 content JSONB
     content = dict(model.content or {})
     if "identity" in patch and patch["identity"] is not None:
-        # photo 为服务端受控字段，仅经 confirm/delete 照片端点写入，
-        # 避免绕过归属校验直写任意对象名
+        # Photo data is intentionally excluded from persisted resume content.
         incoming = dict(patch["identity"])
         incoming.pop("photo", None)
-        existing_photo = (content.get("identity") or {}).get("photo")
-        if existing_photo:
-            incoming["photo"] = existing_photo
         content["identity"] = incoming
     if "summary" in patch:
         content["summary"] = patch["summary"]
@@ -367,7 +409,25 @@ async def update_draft(
         # 用 schema 校验后再序列化，保证结构合法
         validated = [DraftSection(**s) for s in patch["sections"]]
         content["sections"] = [s.model_dump(mode="json") for s in validated]
-    model.content = content
+    candidate = ResumeDraft(
+        title=model.title,
+        identity=content.get("identity") or {},
+        summary=content.get("summary"),
+        sections=[DraftSection(**section) for section in content.get("sections", [])],
+        template_id=TemplateId(model.template_id),
+        design_tokens=DesignTokens(**(model.design_tokens or {})),
+        layout_policy=LayoutPolicy(
+            mode=LayoutMode(model.layout_mode),
+            target_page_count=model.target_page_count,
+        ),
+    )
+    candidate, privacy_manifest = _sanitize_draft_for_persistence(candidate)
+    model.title = candidate.title
+    model.content = _draft_content(candidate)
+    model.design_tokens = candidate.design_tokens.model_dump(mode="json")
+    model.layout_mode = candidate.layout_policy.mode.value
+    model.target_page_count = candidate.layout_policy.target_page_count
+    model.privacy_manifest = privacy_manifest
     model.revision = int(getattr(model, "revision", 0)) + 1
 
     await session.commit()
@@ -443,6 +503,7 @@ async def polish_draft_section(
     context: str | None = None,
 ) -> PolishResult:
     """对某区块的一组要点做 AI 润色，返回原文 + 建议（保留原文供逐条接受）。"""
+    PrivacyGuard().assert_masked({"items": items, "context": context})
     polisher = LLMResumePolisher(gateway)
     return await polisher.polish(section_type, items, context)
 
@@ -458,6 +519,7 @@ def draft_to_parsed_result(draft: ResumeDraft) -> dict[str, Any]:
 
 async def score_draft(gateway: LLMGateway, draft: ResumeDraft) -> dict[str, Any]:
     """复用 9 维评估器对草稿打分。"""
+    PrivacyGuard().assert_masked(draft.model_dump(mode="json"))
     evaluator = LLMResumeEvaluator(gateway)
     parsed_result = draft_to_parsed_result(draft)
     return await evaluator.evaluate(parsed_result)
@@ -491,14 +553,18 @@ async def export_draft_pdf(
     session: AsyncSession,
     draft_model: ResumeDraftModel,
     options: ExportOptions,
+    photo_data_uri: str | None = None,
 ) -> tuple[bytes, ExportResult]:
     """渲染 HTML → Playwright 出 PDF →（可选）上传 MinIO 并记录导出历史。"""
     draft = draft_model_to_schema(draft_model)
     if options.template_id is not None:
         draft.template_id = options.template_id
 
-    # 照片以 data URI 内联，Playwright 离线打印无外部网络请求
-    photo_data_uri = await asyncio.to_thread(draft_photo_data_uri, draft)
+    allowed_tokens = {
+        item.get("token") for item in (getattr(draft_model, "privacy_manifest", None) or {}).get("placeholders", [])
+        if isinstance(item, dict) and item.get("token")
+    }
+    draft = hydrate_draft_for_export(draft, options.replacements, allowed_tokens=allowed_tokens)
 
     layout_policy = options.layout_policy or draft.layout_policy
     pdf_bytes, page_count, target_met, applied_density = await PdfRenderer().render_pdf(
@@ -507,32 +573,9 @@ async def export_draft_pdf(
         photo_data_uri=photo_data_uri,
     )
 
-    storage_path: str | None = None
-    if options.persist:
-        settings = get_settings()
-        ensure_bucket(settings.MINIO_BUCKET_EXPORTS)
-        storage_path = f"{draft_model.id}/{uuid.uuid4()}.pdf"
-        upload_file(
-            bucket=settings.MINIO_BUCKET_EXPORTS,
-            object_name=storage_path,
-            data=pdf_bytes,
-            content_type="application/pdf",
-        )
-        session.add(ResumeExportModel(
-            draft_id=draft_model.id,
-            storage_path=storage_path,
-            template_id=draft.template_id.value,
-            page_count=page_count,
-            layout_mode=layout_policy.mode.value,
-            target_page_count=layout_policy.target_page_count,
-            applied_density=applied_density.value,
-            target_met=target_met,
-        ))
-        await session.commit()
-
     return pdf_bytes, ExportResult(
         page_count=page_count,
         target_met=target_met,
         applied_density=applied_density,
-        storage_path=storage_path,
+        storage_path=None,
     )

@@ -46,9 +46,13 @@ async def create_llm_config(
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """新增一条 LLM 配置。"""
-    config = await llm_config_service.create_config(
-        session, body.provider, body.api_key, body.model_name, body.base_url,
-    )
+    try:
+        config = await llm_config_service.create_config(
+            session, body.provider, body.api_key, body.model_name, body.base_url,
+        )
+    except RuntimeError as exc:
+        # 常见于 ENCRYPTION_KEY 未配置
+        return APIResponse(code=500, message=str(exc))
     return APIResponse(data=_serialize(config))
 
 
@@ -69,7 +73,10 @@ async def update_llm_config(
 ) -> APIResponse:
     """更新指定的 LLM 配置。"""
     kwargs = body.model_dump(exclude_unset=True)
-    config = await llm_config_service.update_config(session, config_id, **kwargs)
+    try:
+        config = await llm_config_service.update_config(session, config_id, **kwargs)
+    except RuntimeError as exc:
+        return APIResponse(code=500, message=str(exc))
     if config is None:
         return APIResponse(code=404, message="Config not found")
     return APIResponse(data=_serialize(config))

@@ -62,8 +62,8 @@ def test_profile_to_draft_maps_sections() -> None:
     )
     draft = profile_to_draft(profile)  # type: ignore[arg-type]
 
-    assert draft.title == "张三"
-    assert draft.identity["email"] == "z@example.com"
+    assert draft.title == "[[PERSON_01]]"
+    assert draft.identity["email"] == "[[EMAIL_01]]"
     assert draft.summary == "高并发、分布式"
     assert draft.template_id == TemplateId.CLASSIC
 
@@ -75,7 +75,7 @@ def test_profile_to_draft_maps_sections() -> None:
     assert ResumeSectionType.CERTIFICATES in types
 
     work = next(s for s in draft.sections if s.section_type == ResumeSectionType.WORK_EXPERIENCE)
-    assert work.items[0].heading == "字节跳动"
+    assert work.items[0].heading.startswith("[[")
     assert work.items[0].date_range == "2020 ~ 2023"
     # responsibilities + achievements 合并为 bullets
     assert "负责订单系统" in work.items[0].bullets

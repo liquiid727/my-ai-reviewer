@@ -28,6 +28,7 @@ import {
   updateLLMConfig,
   testLLMConnection,
 } from '@/api/settings'
+import { ApiRequestError } from '@/api/client'
 import {
   PROVIDERS,
   PROVIDER_LABELS,
@@ -36,6 +37,17 @@ import {
 } from '@/lib/llm-providers'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { LLMConfig } from '@/types/settings'
+
+/** 从 API / 异常中提取可读错误文案，避免一律落到笼统失败提示 */
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiRequestError) {
+    return err.message || fallback
+  }
+  if (err instanceof Error && err.message) {
+    return err.message
+  }
+  return fallback
+}
 
 interface FormState {
   provider: string
@@ -96,15 +108,18 @@ export function LLMConfigForm({ editingConfig, onSaved, onCancelEdit }: LLMConfi
 
   function handleProviderChange(provider: string) {
     const models = PROVIDER_MODELS[provider]
-    // 切换供应商时预填默认 Base URL（custom / openai / anthropic 留空走官方端点）
-    const baseUrl = PROVIDER_BASE_URLS[provider] ?? ''
     // 实测模型列表与供应商绑定，切换后不再适用
     setLiveModels([])
     setForm((prev) => ({
       ...prev,
       provider,
-      model_name: models ? models[0] : '',
-      base_url: baseUrl,
+      // 有预置模型时取第一个；custom 无预置则保留当前填写，避免误清空
+      model_name: models ? models[0] : prev.model_name,
+      // deepseek 等有默认 URL 时预填；其余保留已有值（编辑态切到 custom 不丢 Base URL）
+      base_url:
+        PROVIDER_BASE_URLS[provider] !== undefined
+          ? PROVIDER_BASE_URLS[provider]
+          : prev.base_url,
     }))
   }
 
@@ -117,6 +132,11 @@ export function LLMConfigForm({ editingConfig, onSaved, onCancelEdit }: LLMConfi
       setFeedback({ kind: 'error', message: t('settings.modelRequiredTest') })
       return
     }
+    // custom 渠道必须有 Base URL，否则会误打官方 OpenAI 端点
+    if (form.provider === 'custom' && !form.base_url.trim()) {
+      setFeedback({ kind: 'error', message: t('settings.baseUrlRequired') })
+      return
+    }
 
     setFeedback(null)
     setTesting(true)
@@ -126,18 +146,21 @@ export function LLMConfigForm({ editingConfig, onSaved, onCancelEdit }: LLMConfi
         // 编辑模式下未重填 Key 时省略，后端使用已保存的 Key 测试
         api_key: form.api_key || undefined,
         model_name: form.model_name,
-        base_url: form.base_url || undefined,
+        base_url: form.base_url.trim() || undefined,
         config_id: editingConfig?.id,
       })
       if (res.code === 0 && res.data.success) {
         const models = res.data.models ?? []
         // 将实测可用模型并入模型选择区，供用户点选
         setLiveModels(models.filter(Boolean))
+        const baseMsg = models.length
+          ? t('settings.connectionSuccessModels', { count: models.length })
+          : t('settings.connectionSuccess')
         setFeedback({
           kind: 'success',
-          message: models.length
-            ? t('settings.connectionSuccessModels', { count: models.length })
-            : t('settings.connectionSuccess'),
+          message: res.data.warning
+            ? `${baseMsg} ${t('settings.connectionSuccessFallback')}`
+            : baseMsg,
         })
         if (editingConfig) await refreshSettings()
       } else {
@@ -150,8 +173,11 @@ export function LLMConfigForm({ editingConfig, onSaved, onCancelEdit }: LLMConfi
         })
         if (editingConfig) await refreshSettings()
       }
-    } catch {
-      setFeedback({ kind: 'error', message: t('settings.testErrorGeneric') })
+    } catch (err) {
+      setFeedback({
+        kind: 'error',
+        message: extractErrorMessage(err, t('settings.testErrorGeneric')),
+      })
     } finally {
       setTesting(false)
     }
@@ -181,10 +207,12 @@ export function LLMConfigForm({ editingConfig, onSaved, onCancelEdit }: LLMConfi
         }),
       })
       return false
-    } catch {
+    } catch (err) {
       setFeedback({
         kind: 'error',
-        message: t('settings.verifyFailed', { msg: t('settings.testErrorGeneric') }),
+        message: t('settings.verifyFailed', {
+          msg: extractErrorMessage(err, t('settings.testErrorGeneric')),
+        }),
       })
       return false
     }

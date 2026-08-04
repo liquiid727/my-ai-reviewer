@@ -47,7 +47,11 @@ class LLMPlanGenerator:
             },
         ]
         try:
-            response = await self._gateway.complete(messages=messages, response_format={"type": "json_object"})
+            response = await self._gateway.complete(
+                messages=messages,
+                response_format={"type": "json_object"},
+                privacy_required=True,
+            )
         except Exception as exc:
             raise LLMPlanGenerationError("Plan generation request failed") from exc
         self.model_info = response.model

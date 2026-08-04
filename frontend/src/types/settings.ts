@@ -15,4 +15,6 @@ export interface LLMTestResult {
   success: boolean
   models?: string[]
   error?: string
+  /** models.list 不可用时回退 chat 验证的提示 */
+  warning?: string
 }

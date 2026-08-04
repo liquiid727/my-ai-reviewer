@@ -157,3 +157,95 @@ async def test_connection_without_any_key_fails():
     result = await llm_config_service.test_connection("openai", None, "gpt-5.5")
     assert result["success"] is False
     assert "API key" in str(result["error"])
+
+
+async def test_run_connection_test_falls_back_to_chat_when_models_list_fails(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """OpenAI 兼容渠道未实现 models.list 时，回退 chat.completions 仍应成功。"""
+
+    class _FakeModels:
+        async def list(self) -> Any:
+            raise RuntimeError("models endpoint not found")
+
+    class _FakeCompletions:
+        async def create(self, **_kwargs: Any) -> dict[str, str]:
+            return {"id": "chatcmpl-test"}
+
+    class _FakeChat:
+        completions = _FakeCompletions()
+
+    class _FakeOpenAI:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.models = _FakeModels()
+            self.chat = _FakeChat()
+
+    monkeypatch.setattr(
+        "openai.AsyncOpenAI",
+        _FakeOpenAI,
+        raising=False,
+    )
+    # 直接 patch 导入路径：_run_connection_test 内部 from openai import AsyncOpenAI
+    import openai as openai_mod
+
+    monkeypatch.setattr(openai_mod, "AsyncOpenAI", _FakeOpenAI)
+
+    result = await llm_config_service._run_connection_test(
+        "custom", "sk-test", "gpt-5.5", "https://example.com/v1",
+    )
+    assert result["success"] is True
+    assert result["models"] == ["gpt-5.5"]
+    assert "warning" in result
+
+
+async def test_run_connection_test_returns_models_list(monkeypatch: pytest.MonkeyPatch):
+    """models.list 成功时返回去重后的模型清单，当前模型置顶。"""
+
+    class _Model:
+        def __init__(self, model_id: str) -> None:
+            self.id = model_id
+
+    class _FakeModels:
+        async def list(self) -> Any:
+            return type(
+                "Resp",
+                (),
+                {"data": [_Model("zeta"), _Model("alpha"), _Model("gpt-5.5")]},
+            )()
+
+    class _FakeOpenAI:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.models = _FakeModels()
+
+    import openai as openai_mod
+
+    monkeypatch.setattr(openai_mod, "AsyncOpenAI", _FakeOpenAI)
+
+    result = await llm_config_service._run_connection_test(
+        "openai", "sk-test", "gpt-5.5", None,
+    )
+    assert result["success"] is True
+    assert result["models"][0] == "gpt-5.5"
+    assert set(result["models"]) == {"gpt-5.5", "alpha", "zeta"}
+
+
+async def test_run_connection_test_client_init_error_is_caught(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """客户端构造失败（如缺 socksio）不得抛出，应返回 success=false。"""
+
+    class _Boom:
+        def __init__(self, **_kwargs: Any) -> None:
+            raise ImportError(
+                "Using SOCKS proxy, but the 'socksio' package is not installed."
+            )
+
+    import openai as openai_mod
+
+    monkeypatch.setattr(openai_mod, "AsyncOpenAI", _Boom)
+
+    result = await llm_config_service._run_connection_test(
+        "openai", "sk-test", "gpt-5.5", None,
+    )
+    assert result["success"] is False
+    assert "socksio" in str(result["error"]).lower() or "SOCKS" in str(result["error"])

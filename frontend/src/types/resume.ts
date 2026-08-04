@@ -7,8 +7,24 @@ export interface ResumeStatusData {
 
 export interface ResumeUploadData {
   resume_id: string
-  file_id: string
   status: string
+}
+
+export interface PrivacyPlaceholder {
+  token: string
+  entity_type: string
+  occurrence_count: number
+  context?: string
+}
+
+export interface PrivacyReviewData {
+  resume_id: string
+  status: string
+  revision: number
+  masked_text: string | null
+  placeholders: PrivacyPlaceholder[]
+  risk_flags: string[]
+  quarantine_expires_at: string | null
 }
 
 export interface APIResponse<T = unknown> {
@@ -94,7 +110,7 @@ export interface ParsedResult {
 export interface ResumeDetailData {
   resume_id: string
   status: string
-  raw_text: string | null
+  masked_text: string | null
   parsed_result: ParsedResult | null
   created_at: string
   updated_at: string

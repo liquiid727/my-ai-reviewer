@@ -21,10 +21,13 @@ function loadEntries(): ResumeHistoryEntry[] {
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
-    return parsed.filter(
+    const entries = parsed.filter(
       (e): e is ResumeHistoryEntry =>
         typeof e?.resume_id === 'string' && typeof e?.file_name === 'string',
-    )
+    ).map((entry) => ({ ...entry, file_name: 'resume' }))
+    // Remove filename-derived history from earlier releases as soon as it is read.
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries))
+    return entries
   } catch {
     return []
   }

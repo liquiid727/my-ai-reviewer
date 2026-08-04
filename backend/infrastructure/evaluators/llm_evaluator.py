@@ -47,6 +47,7 @@ class LLMResumeEvaluator(ResumeEvaluator):
         response = await self._gateway.complete(
             messages,
             response_format={"type": "json_object"},
+            privacy_required=True,
         )
 
         evaluation = _parse_response(response.content)

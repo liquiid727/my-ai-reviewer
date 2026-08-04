@@ -3,9 +3,10 @@
 import asyncio
 import hashlib
 import uuid
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import PurePosixPath
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
@@ -13,8 +14,9 @@ from backend.domain.resume.exceptions import (
     FileTooLargeError,
     UnsupportedFileFormatError,
 )
-from backend.infrastructure.db.models import FileModel, ResumeModel
-from backend.infrastructure.storage.minio_client import upload_file
+from backend.infrastructure.db.models import FileModel, ResumeModel, ResumePrivacyManifestModel
+from backend.infrastructure.privacy import QuarantineCipher
+from backend.infrastructure.storage.minio_client import ensure_bucket, upload_file
 from backend.tasks.resume_tasks import process_resume_pipeline
 
 # 允许上传的文件扩展名
@@ -49,6 +51,34 @@ def _compute_sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+@dataclass(frozen=True)
+class PreparedQuarantinedUpload:
+    safe_name: str
+    object_name: str
+    encrypted_data: bytes
+    content_hash: str
+    source_content_type: str
+
+
+def prepare_quarantined_upload(
+    *,
+    resume_id: uuid.UUID,
+    filename: str,
+    file_data: bytes,
+    encryption_key: str,
+) -> PreparedQuarantinedUpload:
+    """Encrypt a validated source and remove user-controlled filename data."""
+    ext = _validate_file(filename, len(file_data))
+    encrypted = QuarantineCipher(encryption_key).encrypt(file_data)
+    return PreparedQuarantinedUpload(
+        safe_name=f"resume{ext}",
+        object_name=f"{resume_id}/{uuid.uuid4()}.enc",
+        encrypted_data=encrypted,
+        content_hash=_compute_sha256(encrypted),
+        source_content_type=CONTENT_TYPE_MAP.get(ext, "application/octet-stream"),
+    )
+
+
 async def upload_resume(
     session: AsyncSession,
     filename: str,
@@ -56,45 +86,33 @@ async def upload_resume(
     user_id: uuid.UUID | None = None,
 ) -> dict[str, str]:
     """上传简历的完整流程：校验 → 去重 → 存储 → 建记录 → 触发流水线。"""
-    ext = _validate_file(filename, len(file_data))
-    sha256_hash = _compute_sha256(file_data)
-
-    # ── 去重检测：如果相同文件已上传过，直接返回已有记录 ──
-    stmt = select(FileModel).where(FileModel.sha256_hash == sha256_hash)
-    result = await session.execute(stmt)
-    existing_file = result.scalar_one_or_none()
-
-    if existing_file is not None:
-        resume_stmt = select(ResumeModel).where(ResumeModel.file_id == existing_file.id)
-        resume_result = await session.execute(resume_stmt)
-        existing_resume = resume_result.scalar_one_or_none()
-        if existing_resume is not None:
-            return {
-                "resume_id": str(existing_resume.id),
-                "file_id": str(existing_file.id),
-                "status": str(existing_resume.status),
-            }
-
-    # ── 上传文件到 MinIO 对象存储 ──
     settings = get_settings()
-    owner_id = user_id or uuid.uuid4()
-    object_name = f"{owner_id}/{uuid.uuid4()}{ext}"
-    content_type = CONTENT_TYPE_MAP.get(ext, "application/octet-stream")
-
-    upload_file(
-        bucket=settings.MINIO_BUCKET_RESUMES,
-        object_name=object_name,
-        data=file_data,
-        content_type=content_type,
+    encryption_key = settings.PRIVACY_QUARANTINE_KEY or settings.ENCRYPTION_KEY
+    if not encryption_key:
+        raise RuntimeError("Privacy quarantine key is not configured")
+    resume_id = uuid.uuid4()
+    prepared = prepare_quarantined_upload(
+        resume_id=resume_id,
+        filename=filename,
+        file_data=file_data,
+        encryption_key=encryption_key,
     )
 
-    # ── 创建文件记录和简历记录 ──
+    ensure_bucket(settings.MINIO_BUCKET_QUARANTINE)
+    upload_file(
+        bucket=settings.MINIO_BUCKET_QUARANTINE,
+        object_name=prepared.object_name,
+        data=prepared.encrypted_data,
+        content_type="application/octet-stream",
+    )
+
+    owner_id = user_id or resume_id
     file_record = FileModel(
-        original_name=filename,
-        storage_path=object_name,
-        content_type=content_type,
-        size_bytes=len(file_data),
-        sha256_hash=sha256_hash,
+        original_name=prepared.safe_name,
+        storage_path=prepared.object_name,
+        content_type=prepared.source_content_type,
+        size_bytes=len(prepared.encrypted_data),
+        sha256_hash=prepared.content_hash,
         owner_type="resume",
         owner_id=owner_id,
     )
@@ -102,11 +120,20 @@ async def upload_resume(
     await session.flush()
 
     resume_record = ResumeModel(
+        id=resume_id,
         user_id=user_id,
         file_id=file_record.id,
         status="uploaded",
     )
     session.add(resume_record)
+    session.add(ResumePrivacyManifestModel(
+        resume_id=resume_id,
+        status="scanning",
+        quarantine_path=prepared.object_name,
+        quarantine_expires_at=datetime.now(timezone.utc) + timedelta(
+            seconds=settings.PRIVACY_QUARANTINE_TTL_SECONDS,
+        ),
+    ))
     await session.flush()
     await session.commit()
 
@@ -116,6 +143,5 @@ async def upload_resume(
 
     return {
         "resume_id": str(resume_record.id),
-        "file_id": str(file_record.id),
         "status": resume_record.status,
     }

@@ -103,6 +103,7 @@ class ExportOptions(BaseModel):
     template_id: Optional[TemplateId] = None   # 覆盖草稿模板（可选）
     layout_policy: LayoutPolicy | None = None  # 覆盖草稿分页策略（可选）
     persist: bool = False                      # 是否将 PDF 存入对象存储并记录
+    replacements: dict[str, str] = Field(default_factory=dict)
 
 
 class ExportResult(BaseModel):

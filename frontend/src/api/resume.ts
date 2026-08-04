@@ -1,5 +1,11 @@
 import { apiRequest } from './client'
-import type { APIResponse, ResumeDetailData, ResumeStatusData, ResumeUploadData } from '@/types/resume'
+import type {
+  APIResponse,
+  PrivacyReviewData,
+  ResumeDetailData,
+  ResumeStatusData,
+  ResumeUploadData,
+} from '@/types/resume'
 
 export async function uploadResume(file: File): Promise<APIResponse<ResumeUploadData>> {
   const formData = new FormData()
@@ -32,4 +38,29 @@ export async function retryResume(resumeId: string): Promise<APIResponse<ResumeS
 
 export async function getResumeDetail(resumeId: string): Promise<APIResponse<ResumeDetailData>> {
   return apiRequest(`/resume/${resumeId}`)
+}
+
+export async function getPrivacyReview(resumeId: string): Promise<APIResponse<PrivacyReviewData>> {
+  return apiRequest(`/resume/${resumeId}/privacy`)
+}
+
+export async function addPrivacyMasks(
+  resumeId: string,
+  baseRevision: number,
+  spans: Array<{ start: number; end: number; entity_type: string }>,
+): Promise<APIResponse<PrivacyReviewData>> {
+  return apiRequest(`/resume/${resumeId}/privacy/masks`, {
+    method: 'POST',
+    body: JSON.stringify({ base_revision: baseRevision, spans }),
+  })
+}
+
+export async function approvePrivacy(
+  resumeId: string,
+  baseRevision: number,
+): Promise<APIResponse<{ resume_id: string; status: string }>> {
+  return apiRequest(`/resume/${resumeId}/privacy/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ base_revision: baseRevision }),
+  })
 }

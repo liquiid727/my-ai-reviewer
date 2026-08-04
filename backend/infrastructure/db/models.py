@@ -20,7 +20,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
 from backend.infrastructure.db.database import Base
 
@@ -70,7 +70,9 @@ class ResumeModel(Base):
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     file_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("files.id"), nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="uploaded")  # 处理状态
-    raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)           # 提取的原始文本
+    masked_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Transitional internal alias. The database and public API expose only masked_text.
+    raw_text = synonym("masked_text")
     parsed_result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)    # LLM 解析结果（JSON）
     parser_version: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 解析器版本
     parse_error: Mapped[str | None] = mapped_column(Text, nullable=True)        # 失败时的错误信息
@@ -95,6 +97,9 @@ class ResumeModel(Base):
     sections: Mapped[list["ResumeSectionModel"]] = relationship(
         back_populates="resume", lazy="selectin", cascade="all, delete-orphan",
         order_by="ResumeSectionModel.section_index",
+    )
+    privacy_manifest: Mapped["ResumePrivacyManifestModel | None"] = relationship(
+        back_populates="resume", lazy="selectin", uselist=False, cascade="all, delete-orphan",
     )
     jd_matches: Mapped[list["JDMatchResultModel"]] = relationship(
         back_populates="resume", lazy="selectin", order_by="JDMatchResultModel.created_at",
@@ -257,7 +262,7 @@ class ResumeSectionModel(Base):
     section_index: Mapped[int] = mapped_column(Integer, nullable=False)        # 区块在文档中的顺序
     section_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 区块类型（work/education/skills/...）
     title: Mapped[str | None] = mapped_column(String(200), nullable=True)      # 区块标题
-    raw_text: Mapped[str] = mapped_column(Text, nullable=False)               # 区块原文
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False)               # 已脱敏区块文本
     page: Mapped[int | None] = mapped_column(Integer, nullable=True)           # 所在页码（PDF 有值）
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -266,6 +271,34 @@ class ResumeSectionModel(Base):
     __table_args__ = (
         Index("ix_resume_sections_resume", "resume_id"),
     )
+
+
+class ResumePrivacyManifestModel(Base):
+    """Safe privacy metadata. Original entity values are never stored here."""
+
+    __tablename__ = "resume_privacy_manifests"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    resume_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="CASCADE"), nullable=False, unique=True,
+    )
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="scanning")
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    policy_version: Mapped[str] = mapped_column(String(50), nullable=False, default="resume-privacy-v1")
+    engine_version: Mapped[str] = mapped_column(String(50), nullable=False, default="local-redactor-v1")
+    placeholders: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    risk_flags: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    quarantine_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    quarantine_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(),
+    )
+
+    resume: Mapped["ResumeModel"] = relationship(back_populates="privacy_manifest", lazy="selectin")
+
+    __table_args__ = (Index("ix_resume_privacy_status", "status"),)
 
 
 class ResumeFactModel(Base):
@@ -338,6 +371,7 @@ class ResumeDraftModel(Base):
     content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)  # 结构化草稿
     template_id: Mapped[str] = mapped_column(String(50), nullable=False, default="classic")  # 模板
     design_tokens: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)  # 设计令牌
+    privacy_manifest: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     layout_mode: Mapped[str] = mapped_column(String(50), nullable=False, default="auto_pages")
     target_page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="draft")

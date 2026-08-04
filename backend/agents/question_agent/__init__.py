@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from backend.domain.interview.schemas import QuestionGenerationOutput
+from backend.domain.privacy import PrivacyGuard
 from backend.infrastructure.llm.gateway import LLMGateway
 from backend.infrastructure.llm.prompts.question_gen import (
     QUESTION_GEN_SYSTEM_PROMPT,
@@ -32,6 +33,7 @@ class QuestionGenerationAgent:
         count: int,
         experience_level: str = "Mid",
     ) -> QuestionGenerationOutput:
+        PrivacyGuard().assert_masked(resume_data)
         jd_display = jd_text if jd_text else "No JD provided. Generate all questions based on the resume."
 
         messages = [
@@ -58,6 +60,7 @@ class QuestionGenerationAgent:
 
             try:
                 data = json.loads(response.content)
+                PrivacyGuard().assert_masked(data)
                 return QuestionGenerationOutput(**data)
             except (json.JSONDecodeError, ValidationError) as exc:
                 last_error = exc

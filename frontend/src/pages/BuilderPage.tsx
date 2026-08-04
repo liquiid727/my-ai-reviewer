@@ -45,6 +45,7 @@ import {
   polishSection,
   scoreDraft,
   exportDraftPdf,
+  previewDraftPdf,
   previewUrl,
   uploadPhoto,
   confirmPhoto,
@@ -134,7 +135,6 @@ export function BuilderPage() {
   const [error, setError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [previewNonce, setPreviewNonce] = useState(0)
-
   const [polishTarget, setPolishTarget] = useState<PolishTarget | null>(null)
   const [polishingKey, setPolishingKey] = useState<string | null>(null)
   const [polishingAll, setPolishingAll] = useState(false)
@@ -143,6 +143,9 @@ export function BuilderPage() {
   const [scoreOpen, setScoreOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportPreviewOpen, setExportPreviewOpen] = useState(false)
+  const [exportReplacements, setExportReplacements] = useState<Record<string, string>>({})
+  const [previewSrc, setPreviewSrc] = useState('')
+  const [previewRequestKey, setPreviewRequestKey] = useState(0)
 
   // 当前打开的编辑面板； null 表示关闭（预览独占）
   const [activePanel, setActivePanel] = useState<PanelKey | null>(null)
@@ -256,6 +259,29 @@ export function BuilderPage() {
       alive = false
     }
   }, [draftId, t])
+
+  useEffect(() => {
+    if (!exportPreviewOpen || !draftId || !draft) return
+    let alive = true
+    let objectUrl = ''
+    setPreviewSrc('')
+    previewDraftPdf(draftId, {
+      layout_policy: draft.layout_policy,
+      replacements: exportReplacements,
+    })
+      .then((blob) => {
+        if (!alive) return
+        objectUrl = URL.createObjectURL(blob)
+        setPreviewSrc(objectUrl)
+      })
+      .catch(() => {
+        if (alive) setPreviewSrc('')
+      })
+    return () => {
+      alive = false
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [draftId, draft, exportPreviewOpen, exportReplacements, previewRequestKey])
 
   useEffect(() => {
     draftRef.current = draft
@@ -722,6 +748,9 @@ export function BuilderPage() {
   // ─────────────────────────── 导出 PDF ───────────────────────────
   const openExportPreview = useCallback(() => {
     if (!draftId || !draft) return
+    setExportReplacements(
+      Object.fromEntries(draft.privacy_placeholders.map((placeholder) => [placeholder.token, ''])),
+    )
     setExportPreviewOpen(true)
   }, [draftId, draft])
 
@@ -731,6 +760,7 @@ export function BuilderPage() {
     try {
       const { blob, pageCount, targetMet } = await exportDraftPdf(draftId, {
         layout_policy: draft.layout_policy,
+        replacements: exportReplacements,
       })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -751,7 +781,15 @@ export function BuilderPage() {
     } finally {
       setExporting(false)
     }
-  }, [draftId, draft, t])
+  }, [draftId, draft, exportReplacements, t])
+
+  const printPreview = useCallback(() => {
+    if (!previewSrc) return
+    const printWindow = window.open(previewSrc, '_blank', 'noopener,noreferrer')
+    printWindow?.addEventListener('load', () => printWindow.print(), { once: true })
+  }, [previewSrc])
+
+  const src = draftId ? `${previewUrl(draftId)}?v=${previewNonce}` : ''
 
   // ─────────────────────────── 证件照 ───────────────────────────
   // 后端错误差异化文案：501 未安装图像组件 / 422 未检测到人脸 / 400 解码失败等
@@ -868,8 +906,6 @@ export function BuilderPage() {
     if (!score) return []
     return score.dimension_scores.map((d) => ({ name: d.name, score: d.score }))
   }, [score])
-
-  const src = draftId ? `${previewUrl(draftId)}?v=${previewNonce}` : ''
 
   const togglePreviewFullscreen = useCallback(async () => {
     const element = previewElementRef.current
@@ -1809,11 +1845,18 @@ export function BuilderPage() {
       {exportPreviewOpen && (
         <ExportPreviewDialog
           open
-          src={src}
+          src={previewSrc}
           title={draft.title}
           exporting={exporting}
           onOpenChange={setExportPreviewOpen}
           onConfirm={doExport}
+          placeholders={draft.privacy_placeholders}
+          replacements={exportReplacements}
+          onReplacementChange={(token, value) => {
+            setExportReplacements((current) => ({ ...current, [token]: value }))
+          }}
+          onPrint={printPreview}
+          onRetry={() => setPreviewRequestKey((key) => key + 1)}
         />
       )}
     </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CircleAlert, Download, Loader2 } from 'lucide-react'
+import { CircleAlert, Download, Loader2, Printer } from 'lucide-react'
 
 import {
   Dialog,
@@ -11,6 +11,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import type { PrivacyPlaceholder } from '@/types/builder'
 
 const A4_WIDTH = 794
 const A4_HEIGHT = 1123
@@ -24,6 +26,11 @@ interface ExportPreviewDialogProps {
   exporting: boolean
   onOpenChange: (open: boolean) => void
   onConfirm: () => void
+  placeholders: PrivacyPlaceholder[]
+  replacements: Record<string, string>
+  onReplacementChange: (token: string, value: string) => void
+  onPrint: () => void
+  onRetry: () => void
 }
 
 export function ExportPreviewDialog({
@@ -33,6 +40,11 @@ export function ExportPreviewDialog({
   exporting,
   onOpenChange,
   onConfirm,
+  placeholders,
+  replacements,
+  onReplacementChange,
+  onPrint,
+  onRetry,
 }: ExportPreviewDialogProps) {
   const { t } = useTranslation()
   const [previewState, setPreviewState] = useState<PreviewState>('loading')
@@ -46,6 +58,7 @@ export function ExportPreviewDialog({
   const retryPreview = () => {
     setPreviewState('loading')
     setRetryKey((key) => key + 1)
+    onRetry()
   }
 
   return (
@@ -63,17 +76,19 @@ export function ExportPreviewDialog({
 
         <div className="relative min-h-0 overflow-auto rounded-base border-2 border-border bg-zinc-300 p-3">
           <div className="mx-auto w-fit min-w-0">
-            <iframe
-              key={`${src}-${retryKey}`}
-              src={src}
-              title={`${t('builder.preview')} - ${title}`}
-              className={`block border-0 bg-white shadow-[4px_4px_0_0_rgba(0,0,0,0.35)] ${
-                previewState === 'error' ? 'invisible' : ''
-              }`}
-              style={{ width: A4_WIDTH, height: A4_HEIGHT }}
-              onLoad={() => setPreviewState('ready')}
-              onError={() => setPreviewState('error')}
-            />
+            {src && (
+              <iframe
+                key={`${src}-${retryKey}`}
+                src={src}
+                title={`${t('builder.preview')} - ${title}`}
+                className={`block border-0 bg-white shadow-[4px_4px_0_0_rgba(0,0,0,0.35)] ${
+                  previewState === 'error' ? 'invisible' : ''
+                }`}
+                style={{ width: A4_WIDTH, height: A4_HEIGHT }}
+                onLoad={() => setPreviewState('ready')}
+                onError={() => setPreviewState('error')}
+              />
+            )}
           </div>
 
           {previewState === 'loading' && (
@@ -98,6 +113,25 @@ export function ExportPreviewDialog({
           )}
         </div>
 
+        {placeholders.length > 0 && (
+          <div className="max-h-40 space-y-2 overflow-y-auto border-2 border-border bg-background p-3">
+            <p className="text-sm font-heading">{t('builder.privacyReplacementsTitle')}</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {placeholders.map((placeholder) => (
+                <label key={placeholder.token} className="flex items-center gap-2 text-xs">
+                  <span className="w-28 shrink-0 font-mono">{placeholder.token}</span>
+                  <Input
+                    value={replacements[placeholder.token] ?? ''}
+                    onChange={(event) => onReplacementChange(placeholder.token, event.target.value)}
+                    placeholder={t('builder.privacyReplacementPlaceholder')}
+                    aria-label={placeholder.token}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
         <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
           <Button
             type="button"
@@ -106,6 +140,10 @@ export function ExportPreviewDialog({
             disabled={exporting}
           >
             {t('common.cancel')}
+          </Button>
+          <Button type="button" variant="neutral" onClick={onPrint} disabled={previewState !== 'ready' || exporting}>
+            <Printer className="h-4 w-4" />
+            {t('builder.printPreview')}
           </Button>
           <Button type="button" onClick={onConfirm} disabled={previewState !== 'ready' || exporting}>
             {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}

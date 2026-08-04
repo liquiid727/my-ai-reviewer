@@ -53,6 +53,7 @@ class LLMResumeEditor:
             response = await self._gateway.complete(
                 messages=messages,
                 response_format={"type": "json_object"},
+                privacy_required=True,
             )
             try:
                 parsed = _parse_response(response.content)

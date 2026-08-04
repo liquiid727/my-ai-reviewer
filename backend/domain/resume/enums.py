@@ -6,7 +6,10 @@ from enum import Enum
 class ResumeStatus(str, Enum):
     """简历处理流水线的状态机。"""
     UPLOADED = "uploaded"             # 已上传，等待处理
-    TEXT_PARSED = "text_parsed"       # 文本提取完成
+    PRIVACY_SCANNING = "privacy_scanning"
+    PRIVACY_REVIEW_REQUIRED = "privacy_review_required"
+    TEXT_MASKED = "text_masked"
+    TEXT_PARSED = "text_masked"       # Backward-compatible symbolic alias
     FACT_EXTRACTED = "fact_extracted"  # LLM 结构化提取完成
     CLASSIFIED = "classified"         # 规则分类完成
     EVALUATED = "evaluated"           # LLM 评估完成

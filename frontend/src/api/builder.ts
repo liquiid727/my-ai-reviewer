@@ -158,7 +158,21 @@ export async function scoreDraft(draftId: string): Promise<APIResponse<ScoreResu
   return apiRequest(`/builder/${draftId}/score`, { method: 'POST' })
 }
 
-/** 分页预览 URL —— 直接给 iframe 的 src 使用（返回与导出一致的 PDF）。 */
+/** 生成临时预览 PDF；替换值只存在于本次请求和浏览器 Blob URL。 */
+export async function previewDraftPdf(
+  draftId: string,
+  payload: ExportPayload,
+): Promise<Blob> {
+  const res = await fetch(`${BASE}/${draftId}/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(`Preview failed (${res.status})`)
+  return res.blob()
+}
+
+/** Legacy read-only preview URL used by the resume list thumbnail. */
 export function previewUrl(draftId: string): string {
   return `${BASE}/${draftId}/preview`
 }

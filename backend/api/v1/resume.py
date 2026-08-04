@@ -2,9 +2,11 @@
 
 import asyncio
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, UploadFile
+from fastapi import APIRouter, Depends, Query, Response, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,29 +21,36 @@ from backend.api.v1.schemas import (
 )
 from backend.application.llm_config_service import has_verified_config
 from backend.application.resume_service import upload_resume
+from backend.config import get_settings
 from backend.domain.job_search_plan.services import get_eligible_resume_options
+from backend.domain.privacy import PrivacyGuard, PrivacyManifest, apply_manual_mask_spans
 from backend.domain.resume.enums import ResumeStatus
 from backend.domain.resume.services import snapshot_and_reset_for_reparse
 from backend.infrastructure.db.database import get_db
 from backend.infrastructure.db.models import (
     CandidateProfileModel,
+    FileModel,
     ResumeFactModel,
     ResumeModel,
+    ResumePrivacyManifestModel,
 )
-from backend.tasks.resume_tasks import process_resume_pipeline
+from backend.infrastructure.storage.minio_client import delete_file
+from backend.tasks.resume_tasks import process_masked_resume_pipeline, process_resume_pipeline
 
 router = APIRouter(prefix="/resume", tags=["resume"])
 
 # 处理流水线的四个步骤（按顺序执行）
-PIPELINE_STEPS = ["text_extract", "llm_parse", "classify", "evaluate"]
+PIPELINE_STEPS = ["text_extract", "privacy_scan", "llm_parse", "classify", "evaluate"]
 
 # 状态 → 已完成到第几步的映射（-1 表示还没开始）
 STATUS_TO_STEP_INDEX: dict[str, int] = {
     ResumeStatus.UPLOADED.value: -1,
-    ResumeStatus.TEXT_PARSED.value: 0,
-    ResumeStatus.FACT_EXTRACTED.value: 1,
-    ResumeStatus.CLASSIFIED.value: 2,
-    ResumeStatus.EVALUATED.value: 3,
+    ResumeStatus.PRIVACY_SCANNING.value: 0,
+    ResumeStatus.PRIVACY_REVIEW_REQUIRED.value: 1,
+    ResumeStatus.TEXT_MASKED.value: 1,
+    ResumeStatus.FACT_EXTRACTED.value: 2,
+    ResumeStatus.CLASSIFIED.value: 3,
+    ResumeStatus.EVALUATED.value: 4,
 }
 
 
@@ -78,6 +87,21 @@ def _current_step(status: str) -> str:
     if idx + 1 < len(PIPELINE_STEPS):
         return PIPELINE_STEPS[idx + 1]
     return "done"
+
+
+class ManualPrivacySpan(BaseModel):
+    start: int = Field(ge=0)
+    end: int = Field(gt=0)
+    entity_type: str
+
+
+class PrivacyMasksRequest(BaseModel):
+    base_revision: int = Field(ge=1)
+    spans: list[ManualPrivacySpan] = Field(min_length=1, max_length=50)
+
+
+class PrivacyApproveRequest(BaseModel):
+    base_revision: int = Field(ge=1)
 
 
 @router.post("/upload", response_model=APIResponse)
@@ -146,20 +170,174 @@ async def get_resume_detail(
     resume_id: uuid.UUID,
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:
-    """获取简历详情（含原始文本和 LLM 解析结果）。"""
+    """获取简历详情（仅含脱敏文本和 LLM 解析结果）。"""
     resume = await session.get(ResumeModel, resume_id)
     if resume is None:
         return APIResponse(code=404, message="Resume not found")
 
+    manifest = await session.get(ResumePrivacyManifestModel, resume_id)
+    privacy = None if manifest is None else {
+        "status": manifest.status,
+        "revision": manifest.revision,
+        "placeholders": manifest.placeholders,
+        "risk_flags": manifest.risk_flags,
+    }
     data = ResumeDetailData(
         resume_id=str(resume.id),
         status=resume.status,
-        raw_text=resume.raw_text,
+        masked_text=resume.masked_text,
         parsed_result=resume.parsed_result,
+        privacy=privacy,
         created_at=resume.created_at,
         updated_at=resume.updated_at,
     )
     return APIResponse(data=data.model_dump(mode="json"))
+
+
+async def _privacy_records(
+    session: AsyncSession,
+    resume_id: uuid.UUID,
+) -> tuple[ResumeModel | None, ResumePrivacyManifestModel | None]:
+    resume = await session.get(ResumeModel, resume_id)
+    manifest = await session.get(ResumePrivacyManifestModel, resume_id)
+    return resume, manifest
+
+
+async def _expire_quarantine_if_needed(
+    session: AsyncSession,
+    resume: ResumeModel,
+    manifest: ResumePrivacyManifestModel,
+) -> bool:
+    expires = manifest.quarantine_expires_at
+    if expires is None or expires > datetime.now(timezone.utc):
+        return False
+    if manifest.quarantine_path:
+        settings = get_settings()
+        await asyncio.to_thread(
+            delete_file, settings.MINIO_BUCKET_QUARANTINE, manifest.quarantine_path,
+        )
+    if resume.file_id is not None:
+        file_record = await session.get(FileModel, resume.file_id)
+        resume.file_id = None
+        if file_record is not None:
+            await session.delete(file_record)
+    manifest.quarantine_path = None
+    manifest.quarantine_expires_at = None
+    manifest.status = "expired"
+    resume.status = ResumeStatus.FAILED.value
+    resume.parse_error = "Privacy review expired; upload the resume again"
+    await session.commit()
+    return True
+
+
+@router.get("/{resume_id}/privacy", response_model=APIResponse)
+async def get_privacy_review(
+    resume_id: uuid.UUID,
+    response: Response,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    resume, manifest = await _privacy_records(session, resume_id)
+    if resume is None or manifest is None:
+        return APIResponse(code=404, message="Privacy review not found")
+    if await _expire_quarantine_if_needed(session, resume, manifest):
+        return APIResponse(code=410, message="Privacy review expired")
+    return APIResponse(data={
+        "resume_id": str(resume.id),
+        "status": manifest.status,
+        "revision": manifest.revision,
+        "masked_text": resume.masked_text,
+        "placeholders": manifest.placeholders,
+        "risk_flags": manifest.risk_flags,
+        "quarantine_expires_at": (
+            manifest.quarantine_expires_at.isoformat() if manifest.quarantine_expires_at else None
+        ),
+    })
+
+
+@router.post("/{resume_id}/privacy/masks", response_model=APIResponse)
+async def add_privacy_masks(
+    resume_id: uuid.UUID,
+    body: PrivacyMasksRequest,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    resume, manifest = await _privacy_records(session, resume_id)
+    if resume is None or manifest is None:
+        return APIResponse(code=404, message="Privacy review not found")
+    if await _expire_quarantine_if_needed(session, resume, manifest):
+        return APIResponse(code=410, message="Privacy review expired")
+    if manifest.status != "review_required":
+        return APIResponse(code=1003, message="Privacy review is not editable")
+    if manifest.revision != body.base_revision:
+        return APIResponse(code=409, message="Privacy review revision conflict")
+    current_manifest = PrivacyManifest(
+        policy_version=manifest.policy_version,
+        engine_version=manifest.engine_version,
+        placeholders=manifest.placeholders,
+        risk_flags=manifest.risk_flags,
+    )
+    try:
+        result = apply_manual_mask_spans(
+            resume.masked_text or "",
+            [(span.start, span.end, span.entity_type) for span in body.spans],
+            existing_manifest=current_manifest,
+        )
+    except ValueError:
+        return APIResponse(code=1001, message="Invalid privacy mask span")
+    resume.masked_text = result.masked_text
+    # Rebuild downstream structured blocks from the approved masked text; the
+    # previous block snapshot may have omitted a manually selected span.
+    resume.parsed_result = {}
+    manifest.placeholders = [item.model_dump(mode="json") for item in result.manifest.placeholders]
+    manifest.revision += 1
+    await session.commit()
+    return APIResponse(data={
+        "status": manifest.status,
+        "revision": manifest.revision,
+        "masked_text": resume.masked_text,
+        "placeholders": manifest.placeholders,
+    })
+
+
+@router.post("/{resume_id}/privacy/approve", response_model=APIResponse)
+async def approve_privacy(
+    resume_id: uuid.UUID,
+    body: PrivacyApproveRequest,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    resume, manifest = await _privacy_records(session, resume_id)
+    if resume is None or manifest is None:
+        return APIResponse(code=404, message="Privacy review not found")
+    if await _expire_quarantine_if_needed(session, resume, manifest):
+        return APIResponse(code=410, message="Privacy review expired")
+    if manifest.status != "review_required":
+        return APIResponse(code=1003, message="Privacy review cannot be approved")
+    if manifest.revision != body.base_revision:
+        return APIResponse(code=409, message="Privacy review revision conflict")
+    try:
+        PrivacyGuard().assert_masked(resume.masked_text or "")
+    except ValueError:
+        return APIResponse(code=422, message="Residual sensitive data detected")
+
+    quarantine_path = manifest.quarantine_path
+    if quarantine_path:
+        settings = get_settings()
+        await asyncio.to_thread(delete_file, settings.MINIO_BUCKET_QUARANTINE, quarantine_path)
+    if resume.file_id is not None:
+        file_record = await session.get(FileModel, resume.file_id)
+        resume.file_id = None
+        if file_record is not None:
+            await session.delete(file_record)
+    manifest.status = "approved"
+    manifest.reviewed_at = datetime.now(timezone.utc)
+    manifest.quarantine_path = None
+    manifest.quarantine_expires_at = None
+    manifest.risk_flags = []
+    resume.status = ResumeStatus.TEXT_MASKED.value
+    await session.commit()
+    await asyncio.to_thread(process_masked_resume_pipeline, str(resume_id))
+    return APIResponse(data={"resume_id": str(resume_id), "status": resume.status})
 
 
 @router.get("/{resume_id}/facts", response_model=APIResponse)
@@ -253,6 +431,8 @@ async def retry_resume(
 
     if resume.status != ResumeStatus.FAILED.value:
         return APIResponse(code=400, message="Resume is not in failed state")
+    if resume.file_id is None:
+        return APIResponse(code=410, message="Original resume quarantine is no longer available")
 
     # 重置状态，清除错误信息
     resume.parse_error = None
@@ -289,6 +469,11 @@ async def reparse_resume_endpoint(
     与 /retry 不同：/retry 仅适用于 failed 状态；/reparse 适用于任意状态（如
     parser/extractor 版本升级后对历史简历重跑），并将当前结果快照入历史。
     """
+    existing = await session.get(ResumeModel, resume_id)
+    if existing is None:
+        return APIResponse(code=404, message="Resume not found")
+    if existing.file_id is None:
+        return APIResponse(code=410, message="Original resume quarantine is no longer available")
     try:
         resume = await snapshot_and_reset_for_reparse(session, resume_id)
     except ValueError:

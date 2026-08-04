@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from backend.domain.privacy import PrivacyGuard
 from backend.infrastructure.llm.providers.anthropic_provider import AnthropicProvider
 from backend.infrastructure.llm.providers.base import BaseLLMProvider, LLMResponse
 from backend.infrastructure.llm.providers.openai_provider import OpenAIProvider
@@ -22,9 +23,17 @@ class LLMGateway:
         self,
         messages: list[dict[str, Any]],
         response_format: dict[str, Any] | None = None,
+        *,
+        privacy_required: bool = False,
     ) -> LLMResponse:
         """发送对话消息并获取 LLM 响应。"""
-        return await self._provider.complete(messages, response_format=response_format)
+        guard = PrivacyGuard()
+        if privacy_required:
+            guard.assert_masked(messages)
+        response = await self._provider.complete(messages, response_format=response_format)
+        if privacy_required:
+            guard.assert_masked(response.content)
+        return response
 
     @classmethod
     def from_config(cls, llm_config: LLMConfigModel) -> LLMGateway:

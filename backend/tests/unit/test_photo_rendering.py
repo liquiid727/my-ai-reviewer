@@ -56,9 +56,8 @@ class TestUpdateDraftPhotoGuard:
         )
 
         identity = model.content["identity"]
-        assert identity["name"] == "李四"
-        # 客户端伪造的 photo 被丢弃，已 confirm 的值保留
-        assert identity["photo"] == "d1/processed-legit.png"
+        assert identity["name"].startswith("[[PERSON_")
+        assert "photo" not in identity
 
     async def test_client_photo_stripped_when_no_existing(
         self, monkeypatch: pytest.MonkeyPatch
@@ -125,8 +124,7 @@ class TestExportWithPhoto:
         )
 
         assert pdf_bytes == b"pdf"
-        expected = base64.b64encode(b"png-bytes").decode("ascii")
-        assert captured["photo_data_uri"] == f"data:image/png;base64,{expected}"
+        assert captured["photo_data_uri"] is None
 
     async def test_export_without_photo_passes_none(
         self, monkeypatch: pytest.MonkeyPatch
@@ -149,3 +147,21 @@ class TestExportWithPhoto:
         await services.export_draft_pdf(None, model, ExportOptions(persist=False))  # type: ignore[arg-type]
 
         assert captured["photo_data_uri"] is None
+
+    async def test_transient_photo_data_uri_is_forwarded_without_storage(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict[str, Any] = {}
+
+        class _FakePdfRenderer:
+            async def render_pdf(self, draft: ResumeDraft, layout_policy: LayoutPolicy | None = None,
+                                 photo_data_uri: str | None = None) -> tuple[bytes, int, bool, LayoutDensity]:
+                captured["photo_data_uri"] = photo_data_uri
+                return b"pdf", 1, True, LayoutDensity.NORMAL
+
+        monkeypatch.setattr(services, "PdfRenderer", _FakePdfRenderer)
+        model = _FakeDraftModel({"name": "[[PERSON_01]]"})
+        await services.export_draft_pdf(
+            None, model, ExportOptions(persist=False), "data:image/png;base64,abc"  # type: ignore[arg-type]
+        )
+        assert captured["photo_data_uri"] == "data:image/png;base64,abc"

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     MINIO_BUCKET_RESUMES: str = "resumes"
     MINIO_BUCKET_EXPORTS: str = "exports"
     MINIO_BUCKET_PHOTOS: str = "photos"
+    MINIO_BUCKET_QUARANTINE: str = "resume-quarantine"
     MINIO_USE_SSL: bool = False
 
     # ── CORS 跨域白名单 ─────────────────────────
@@ -36,6 +37,9 @@ class Settings(BaseSettings):
 
     # ── 加密密钥（用于 API Key 加密存储） ────────
     ENCRYPTION_KEY: str = ""
+    PRIVACY_QUARANTINE_KEY: str = ""
+    PRIVACY_QUARANTINE_TTL_SECONDS: int = 3600
+    PRIVACY_REVIEW_REQUIRED: bool = False
 
     # ── LLM 大模型配置 ──────────────────────────
     OPENAI_API_KEY: str = ""
