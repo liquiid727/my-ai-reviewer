@@ -1,0 +1,38 @@
+{
+  "schema_version": "1.0",
+  "spec_id": "AIP-XXX",
+  "spec_version": "draft-or-commit",
+  "run_id": "YYYYMMDDTHHMMSSZ-unique",
+  "test_type": "quality-gate",
+  "baseline_ref": "git-ref",
+  "head_ref": "git-ref-or-WORKTREE",
+  "started_at": "RFC3339 timestamp",
+  "finished_at": "RFC3339 timestamp",
+  "environment": {
+    "python": "version",
+    "node": "version",
+    "platform": "name"
+  },
+  "gates": [
+    {
+      "id": "lint-backend",
+      "command": "exact command",
+      "status": "PASS|FAIL|BLOCKED|NOT_RUN",
+      "exit_code": null,
+      "duration_ms": null,
+      "summary": "short factual result",
+      "evidence": ["relative/path-or-ci-artifact"]
+    }
+  ],
+  "ratchet": {
+    "baseline_findings": 0,
+    "new_findings": 0,
+    "resolved_findings": 0,
+    "exceptions": []
+  },
+  "decision": "GREEN|YELLOW|RED|BLOCKED",
+  "blocking_findings": [],
+  "environment_blockers": [],
+  "residual_risks": [],
+  "evidence": []
+}
