@@ -1,32 +1,32 @@
-# React + TypeScript + Vite
+# Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The frontend is a React 19 + TypeScript + Vite single-page application. It communicates with the FastAPI backend under `/api/v1`; Vite proxies `/api` to `http://localhost:8000` during local development.
 
-Currently, two official plugins are available:
+The canonical frontend design document is [`design/frontend-architecture.md`](../design/frontend-architecture.md). The system-level and backend documents are available from [`design/architecture.md`](../design/architecture.md) and [`design/backend-architecture.md`](../design/backend-architecture.md).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Run Locally
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```text
+pnpm install
+pnpm dev
+pnpm build
+pnpm lint
+pnpm preview
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## Source Layout
+
+```text
+src/
+  api/          typed backend request modules
+  components/   shared feature components and UI primitives
+  i18n/         Chinese/English translations and formatting
+  lib/          shared helpers and provider metadata
+  pages/        route-level screens
+  stores/       Zustand cross-page state
+  types/        API and UI TypeScript contracts
+  App.tsx       route table
+  main.tsx      browser bootstrap
+```
+
+`dist/` is generated output. Feature-level behavior and acceptance criteria belong in `specs/` and `tasks/issues/`, not in this README.

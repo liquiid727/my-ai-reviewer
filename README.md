@@ -31,7 +31,7 @@
 ## 技术栈速览
 
 ```text
-Frontend:    Next.js
+Frontend:    React + Vite + TypeScript
 API:         FastAPI (Python 3.12)
 Workflow:    LangGraph
 ORM:         SQLAlchemy + Alembic

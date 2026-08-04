@@ -6,6 +6,11 @@ Author: Alex Walker
 
 Status: Draft
 
+> Historical draft: stable platform and system design now lives under `design/`.
+> Start with `design/architecture.md`, `design/backend-architecture.md`, and
+> `design/frontend-architecture.md`. This file is retained for traceability and
+> is not the canonical implementation reference.
+
 ---
 
 # 1. 项目背景

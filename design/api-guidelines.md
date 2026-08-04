@@ -32,17 +32,21 @@ AI 追问（Followup Agent）
 
 ## REST 接口规范
 
+当前实现统一挂载在 `/api/v1` 下。本文中的资源路径均以该版本前缀为准；新接口不应直接挂载到未版本化的 `/api` 路径。
+
 ### URL 命名
 ```text
-/api/{resource}/{action}
+/api/v1/{resource}
+/api/v1/{resource}/{id}
+/api/v1/{resource}/{action}
 
 示例：
-POST   /api/resume/upload
-POST   /api/interview/create
-GET    /api/interview/{id}
-POST   /api/interview/{id}/start
-POST   /api/interview/{id}/answer
-GET    /api/interview/{id}/report
+POST   /api/v1/resume/upload
+POST   /api/v1/interview/create
+GET    /api/v1/interview/{id}/status
+POST   /api/v1/interview/{id}/start
+POST   /api/v1/interview/{id}/answer
+GET    /api/v1/interview/{id}/report
 ```
 
 ### 响应格式

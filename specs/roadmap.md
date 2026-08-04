@@ -98,3 +98,26 @@ MVP 方案：Docker 容器隔离
 **目标**：多租户企业级部署
 
 模块：Multi-tenant / RBAC / Billing / Quota / Audit
+
+---
+
+## Resume Privacy Increment
+
+| Feature ID | Name | Depends On | Status |
+| --- | --- | --- | --- |
+| RIP-009 | Resume Privacy and Transient Real-Data Export | RIP-001, RIP-002, RIP-004, RIP-006 | Planned |
+
+---
+
+## Engineering Quality Governance Program
+
+Source: `reviews/project-architecture-quality-2026-08-04.md`
+
+| Feature ID | Name | Depends On | Status |
+| --- | --- | --- | --- |
+| AIP-009 | Quality Governance Foundation | — | Proposed |
+| AIP-010 | CI And Test Quality Gates | AIP-009 | Proposed |
+| AIP-011 | Architecture Modularization | AIP-009, AIP-010 | Proposed |
+| AIP-012 | Error And Observability Foundation | AIP-009, AIP-010 | Proposed |
+
+Delivery order is baseline-first: establish governance, restore and automate gates, then migrate architecture and error/logging paths in independently testable slices. Branch protection, commit, PR, merge, and issue closure remain separately authorized ship actions.
