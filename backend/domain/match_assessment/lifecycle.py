@@ -125,7 +125,7 @@ class MatchLifecycle:
             return False, uuid.uuid4()
         if existing.is_active:
             raise MatchActiveExistsError(
-                "an assessment is already running for this version/policy tuple"
+                f"an assessment is already running for this version/policy tuple: {existing.id}"
             )
         if existing.is_completed and not force:
             return True, existing.run_id

@@ -65,6 +65,16 @@ ALLOWED_SEVERITIES: tuple[str, ...] = ("low", "medium", "high")
 class MatchSemanticError(Exception):
     """Safe public diagnostic; provider payloads never reach this message."""
 
+    # Structured classification for the worker (RIP-013 §7.3): evidence
+    # failures are terminal, dependency failures are safe to retry.
+    evidence_invalid: bool = False
+    retryable: bool = False
+
+    def __init__(self, message: str, *, evidence_invalid: bool = False, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.evidence_invalid = evidence_invalid
+        self.retryable = retryable
+
 
 @dataclass(frozen=True)
 class MatchedGap:
@@ -131,7 +141,9 @@ class ConstrainedSemanticMatcher:
                     privacy_required=True,
                 )
             except Exception as exc:
-                raise MatchSemanticError("LLM gateway error during match classification") from exc
+                raise MatchSemanticError(
+                    "LLM gateway error during match classification", retryable=True
+                ) from exc
 
             try:
                 data = json.loads(response.content)
@@ -155,7 +167,9 @@ class ConstrainedSemanticMatcher:
                             ),
                         }
                     )
-        raise MatchSemanticError(f"match classification failed after {MAX_RETRIES + 1} attempts")
+        raise MatchSemanticError(
+            f"match classification failed after {MAX_RETRIES + 1} attempts", retryable=True
+        )
 
     def _build_payload(
         self,
@@ -166,7 +180,7 @@ class ConstrainedSemanticMatcher:
         """Bound the items sent to the provider to the requested dimensions."""
         unknown_dims = [dim for dim in dimensions if dim not in ALLOWED_DIMENSIONS]
         if unknown_dims:
-            raise MatchSemanticError(f"invalid dimension requested: {unknown_dims}")
+            raise MatchSemanticError(f"invalid dimension requested: {unknown_dims}", evidence_invalid=True)
 
         keep: list[Any] = []
         for item in catalog.items:
@@ -213,33 +227,33 @@ def _validate_output(
 ) -> dict[str, Any]:
     """Strict structural validation; any violation rejects the completion."""
     if not isinstance(data, dict):
-        raise MatchSemanticError("matcher output is not an object")
+        raise MatchSemanticError("matcher output is not an object", evidence_invalid=True)
 
     raw_dimensions = data.get("dimensions")
     if not isinstance(raw_dimensions, list) or not raw_dimensions:
-        raise MatchSemanticError("matcher output has no dimensions")
+        raise MatchSemanticError("matcher output has no dimensions", evidence_invalid=True)
 
     dimensions: list[MatchedDimension] = []
     for item in raw_dimensions:
         if not isinstance(item, dict):
-            raise MatchSemanticError("dimension entry is not an object")
+            raise MatchSemanticError("dimension entry is not an object", evidence_invalid=True)
         key = item.get("key")
         if key not in ALLOWED_DIMENSIONS:
-            raise MatchSemanticError("dimension entry references an invalid dimension key")
+            raise MatchSemanticError("dimension entry references an invalid dimension key", evidence_invalid=True)
         raw_score = item.get("raw_score")
         if not isinstance(raw_score, (int, float)) or not (0 <= raw_score <= 100):
-            raise MatchSemanticError("dimension raw_score is outside [0, 100]")
+            raise MatchSemanticError("dimension raw_score is outside [0, 100]", evidence_invalid=True)
         confidence = item.get("confidence", 1.0)
         if not isinstance(confidence, (int, float)) or not (0 <= confidence <= 1):
-            raise MatchSemanticError("dimension confidence is outside [0, 1]")
+            raise MatchSemanticError("dimension confidence is outside [0, 1]", evidence_invalid=True)
         jd_evidence = item.get("cited_jd_evidence") or []
         resume_evidence = item.get("cited_resume_evidence") or []
         for item_id in [*jd_evidence, *resume_evidence]:
             if not isinstance(item_id, str) or item_id not in allowed_ids:
-                raise MatchSemanticError("dimension cites an unknown evidence ID")
+                raise MatchSemanticError("dimension cites an unknown evidence ID", evidence_invalid=True)
         explanation = item.get("explanation")
         if explanation is not None and not isinstance(explanation, str):
-            raise MatchSemanticError("dimension explanation is not a string")
+            raise MatchSemanticError("dimension explanation is not a string", evidence_invalid=True)
         dimensions.append(
             MatchedDimension(
                 key=key,
@@ -253,40 +267,40 @@ def _validate_output(
 
     keys = [dim.key for dim in dimensions]
     if len(keys) != len(set(keys)):
-        raise MatchSemanticError("dimension keys are duplicated")
+        raise MatchSemanticError("dimension keys are duplicated", evidence_invalid=True)
     if set(keys) != set(ALLOWED_DIMENSIONS):
-        raise MatchSemanticError("matcher output must cover every dimension exactly once")
+        raise MatchSemanticError("matcher output must cover every dimension exactly once", evidence_invalid=True)
 
     raw_gaps = data.get("gaps")
     if not isinstance(raw_gaps, list):
-        raise MatchSemanticError("matcher gaps is not a list")
+        raise MatchSemanticError("matcher gaps is not a list", evidence_invalid=True)
     if len(raw_gaps) > 200:
-        raise MatchSemanticError("matcher gaps exceeds the 200 requirement bound")
+        raise MatchSemanticError("matcher gaps exceeds the 200 requirement bound", evidence_invalid=True)
 
     gaps: list[MatchedGap] = []
     seen: set[str] = set()
     for item in raw_gaps:
         if not isinstance(item, dict):
-            raise MatchSemanticError("gap entry is not an object")
+            raise MatchSemanticError("gap entry is not an object", evidence_invalid=True)
         requirement_id = item.get("requirement_id")
         if not isinstance(requirement_id, str) or not requirement_id:
-            raise MatchSemanticError("gap entry has no requirement_id")
+            raise MatchSemanticError("gap entry has no requirement_id", evidence_invalid=True)
         if requirement_id in seen:
-            raise MatchSemanticError("gap entry duplicates a requirement")
+            raise MatchSemanticError("gap entry duplicates a requirement", evidence_invalid=True)
         seen.add(requirement_id)
         category = item.get("category")
         if category not in ALLOWED_CATEGORIES:
-            raise MatchSemanticError("gap entry has an invalid category")
+            raise MatchSemanticError("gap entry has an invalid category", evidence_invalid=True)
         severity = item.get("severity")
         if severity not in ALLOWED_SEVERITIES:
-            raise MatchSemanticError("gap entry has an invalid severity")
+            raise MatchSemanticError("gap entry has an invalid severity", evidence_invalid=True)
         candidate_evidence = item.get("candidate_evidence") or []
         for item_id in candidate_evidence:
             if not isinstance(item_id, str) or item_id not in allowed_ids:
-                raise MatchSemanticError("gap cites an unknown evidence ID")
+                raise MatchSemanticError("gap cites an unknown evidence ID", evidence_invalid=True)
         confidence = item.get("confidence", 0.5)
         if not isinstance(confidence, (int, float)) or not (0 <= confidence <= 1):
-            raise MatchSemanticError("gap confidence is outside [0, 1]")
+            raise MatchSemanticError("gap confidence is outside [0, 1]", evidence_invalid=True)
         gaps.append(
             MatchedGap(
                 requirement_id=requirement_id,

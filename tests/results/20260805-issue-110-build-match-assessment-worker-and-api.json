@@ -1,0 +1,74 @@
+{
+  "issue": 110,
+  "slug": "build-match-assessment-worker-and-api",
+  "title": "Build Match Assessment worker and API",
+  "spec": "RIP-013",
+  "sections": ["7", "9"],
+  "ts": "2026-08-05T00:00:00Z",
+  "branch": "main",
+  "head": "3c97c27",
+  "type": "backend",
+  "status": "accepted",
+  "mode": "local-reviewed",
+  "gates": {
+    "ruff": "pass (touched files clean)",
+    "mypy": "pass (10 source files, 0 new errors)",
+    "arch_check": "pass (33 waived pre-existing, 0 new)",
+    "unit": "429 passed / 2 failed (pre-existing baselines: test_resume_builder_llm_gate.py::test_score_uses_active_verified_config_for_gateway, test_resume_draft_list_api.py::test_reorder_draft_returns_persisted_order)",
+    "integration": "129 passed (9 new in test_match_assessment_api.py)",
+    "alembic": "head unchanged t4e5f6a7b8c9 (no migration in this issue)"
+  },
+  "acceptance": [
+    {
+      "ac": "POST /match-assessments validates exact versions and ensures/validates the active Job Target",
+      "status": "met",
+      "evidence": "create() loads JD/Resume versions (AssessmentVersionNotFoundError 409, AssessmentInputNotReadyError 409) and ensures the active target from the JD identity or the supplied job_target_id; MatchScopeMismatchError maps to 422. Integration tests: test_create_persists_queued_then_broker_failure_is_safe_diagnostic, test_create_active_duplicate_conflict."
+    },
+    {
+      "ac": "Return a reused completed assessment or persist queued and dispatch after commit",
+      "status": "met",
+      "evidence": "pick_create reuses completed unless force (200 with reused=true) or raises 409 for an active duplicate with the safe ID; new rows persist queued with run_id and dispatch only after commit. Tests: test_create_reuses_completed_without_force, test_create_force_new_row_after_completion."
+    },
+    {
+      "ac": "Worker builds catalog, applies deterministic/semantic stages, and finalizes only under current run ownership",
+      "status": "met",
+      "evidence": "MatchAssessmentWorker.evaluate guards (missing/stale), sets evaluating, builds the Source Catalog, runs ConstrainedSemanticMatcher through the gateway + PrivacyGuard, evaluates the deterministic engine, and completes under lifecycle.complete(run_id). The worker rolls back before any provider call so no external call holds a transaction. Tests: test_worker_completes_with_immutable_result, test_stale_worker_exits_without_result_write."
+    },
+    {
+      "ac": "Broker failure, dependency timeout, invalid evidence, terminal failure, and explicit retry persist safe state",
+      "status": "met",
+      "evidence": "Broker failure persists ASSESSMENT_DEPENDENCY_TIMEOUT/retryable=true (deterministic via patched dispatch); structured MatchSemanticError flags classify evidence_invalid (terminal, ASSESSMENT_EVIDENCE_INVALID) vs retryable (ASSESSMENT_FAILED/ASSESSMENT_DEPENDENCY_TIMEOUT); retry clears the diagnostic, bumps attempt, and requeues the same row with a new run_id. Tests: test_create_persists_queued_then_broker_failure_is_safe_diagnostic, test_retry_failed_clears_diagnostic_and_requeues."
+    },
+    {
+      "ac": "Add cursor list, detail, and retry endpoints with public immutable result schemas",
+      "status": "met",
+      "evidence": "GET /match-assessments returns newest-first cursor pages with a terminal cursor (next_before_id=null on the final page), GET /{id} returns status or the completed immutable result only (never provider raw output), POST /{id}/retry takes no body. Queries.get uses populate_existing so detail always reflects committed state. Tests: test_list_cursor_and_detail (pages, terminal cursor, 404)."
+    },
+    {
+      "ac": "Integration tests cover reuse, force, active duplicate, retry, stale worker, and low-score eligibility",
+      "status": "met",
+      "evidence": "test_create_reuses_completed_without_force, test_create_force_new_row_after_completion, test_create_active_duplicate_conflict, test_retry_failed_clears_diagnostic_and_requeues, test_stale_worker_exits_without_result_write, test_low_score_still_returns_completed_result (low scores return a normal completed result with recommendation=reject; they never block eligibility)."
+    }
+  ],
+  "files": [
+    "backend/application/match_assessment/__init__.py",
+    "backend/api/v1/match_assessments.py",
+    "backend/tasks/match_tasks.py",
+    "backend/domain/match_assessment/lifecycle.py",
+    "backend/infrastructure/matchers/__init__.py",
+    "backend/api/v1/router.py",
+    "backend/celery_app.py",
+    "backend/tests/integration/test_match_assessment_api.py"
+  ],
+  "reviews": [
+    {
+      "verdict": "accepted",
+      "mode": "local-reviewed",
+      "note": "All 6 acceptance criteria verified by integration tests; worker/API layering per RIP-013 §7/§9 (application-owned ORM boundary; API never imports models); structured MatchSemanticError flags replace string matching; cursor list emits a terminal cursor; retry endpoint matches the no-body contract. Arch-check clean (0 new violations). Browser acceptance n/a (backend issue)."
+    }
+  ],
+  "residual_risks": [
+    "Real LLM/provider path (non-fake matcher) is not exercised in integration tests; it is covered by matcher unit tests and the worker's rollback-before-provider-call invariant.",
+    "Task timeout (240s) and broker retry behavior are Celery-level and not integration-tested here."
+  ]
+}
