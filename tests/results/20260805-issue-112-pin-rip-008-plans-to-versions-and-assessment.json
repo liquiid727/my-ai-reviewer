@@ -5,7 +5,7 @@
   "date": "2026-08-05",
   "status": "accepted",
   "branch": "feat/issue-112-pin-plans-to-versions",
-  "commit": "PENDING",
+  "commit": "794bb61",
   "delivery_mode": "local-reviewed",
   "gates": {
     "unit_tests": "446 passed (7 version-tuple + full unit); 2 pre-existing baseline failures (test_resume_builder_llm_gate, test_resume_draft_list_api)",
