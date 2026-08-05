@@ -1,0 +1,29 @@
+{
+  "issue": 95,
+  "slug": "implement-job-target-lifecycle-commands-and-api",
+  "spec": "RIP-010",
+  "date": "2026-08-05",
+  "status": "accepted",
+  "branch": "feat/issue-095-job-target-api",
+  "commit": "62666a7",
+  "delivery_mode": "local-reviewed",
+  "gates": {
+    "integration_tests": "12 passed",
+    "ruff": "PASS",
+    "mypy": "PASS",
+    "arch_check": "PASS (33 waived pre-existing, 0 new)"
+  },
+  "review_verdict": "APPROVE",
+  "qa_decision": "GREEN",
+  "review_rounds": 1,
+  "residual_risks": [
+    "browser AC n/a (backend API only)",
+    "application errors subclass domain policy errors for consistent HTTP mapping"
+  ],
+  "changed_files": [
+    "backend/application/job_target.py",
+    "backend/api/v1/job_targets.py",
+    "backend/api/v1/router.py",
+    "backend/tests/integration/test_job_target_lifecycle.py"
+  ]
+}
