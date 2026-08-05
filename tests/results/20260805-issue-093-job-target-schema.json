@@ -1,0 +1,35 @@
+{
+  "issue": 93,
+  "slug": "add-job-target-schema-and-active-target-invariants",
+  "spec": "RIP-010",
+  "date": "2026-08-05",
+  "status": "accepted",
+  "branch": "feat/issue-093-job-target-schema",
+  "commit": "30f15d0",
+  "delivery_mode": "local-reviewed",
+  "gates": {
+    "unit_tests": "11 passed (policy) + 309 full unit (2 pre-existing baseline failures unrelated)",
+    "integration_tests": "3 passed (concurrency)",
+    "ruff": "PASS",
+    "mypy": "PASS",
+    "arch_check": "PASS (33 waived pre-existing, 0 new)",
+    "alembic_up_down_up": "PASS"
+  },
+  "review_verdict": "APPROVE",
+  "qa_decision": "GREEN",
+  "review_rounds": 1,
+  "residual_risks": [
+    "browser AC n/a (database + domain only)",
+    "job_descriptions.current_version_id FK uses use_alter + explicit name to break create/drop cycle",
+    "test DB had a stale auto-named FK from an earlier session; reconciled manually"
+  ],
+  "changed_files": [
+    "backend/domain/job_target/policies.py",
+    "backend/domain/job_target/__init__.py",
+    "backend/infrastructure/db/models.py",
+    "infra/alembic/versions/q1b2c3d4e5f6_add_job_targets.py",
+    "backend/tests/unit/test_job_target_policies.py",
+    "backend/tests/integration/test_job_target_concurrency.py",
+    "design/database.md"
+  ]
+}
