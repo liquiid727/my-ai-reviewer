@@ -176,7 +176,9 @@ def migration_engine() -> Iterator[Any]:
     """Async engine bound to the pytest-asyncio session loop for the migration DB."""
     engine = create_async_engine(MIGRATION_DB_URL, echo=False)
     yield engine
-    asyncio.get_event_loop().run_until_complete(engine.dispose())
+    # Teardown runs outside the session loop; dispose on a fresh loop instead of
+    # reaching for the already-closed session loop.
+    asyncio.new_event_loop().run_until_complete(engine.dispose())
 
 
 @pytest.mark.asyncio

@@ -343,31 +343,48 @@ async def publish_jd_version(
     )
 
 
-@router.get("/{jd_id}/versions", response_model=APIResponse)
-async def list_jd_versions(
+@router.post("/{jd_id}/reparse", response_model=APIResponse)
+async def reparse_jd(
     jd_id: uuid.UUID,
-    limit: int = Query(default=50, ge=1, le=200),
+    payload: JDReextractRequest | None = None,
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:
-    from backend.application.jd_publish import JDPublishUseCases
+    from backend.application.jd_lifecycle import JDLifecycleError, JDLifecycleUseCases
 
-    versions = await JDPublishUseCases().list_for_jd(session, jd_id, limit=limit)
-    return APIResponse(
-        data={
-            "versions": [
-                {
-                    "id": str(v.id),
-                    "version_no": v.version_no,
-                    "content_hash": v.content_hash,
-                    "schema_version": v.schema_version,
-                    "parser_version": v.parser_version,
-                    "publication_reason": v.publication_reason,
-                    "published_at": v.published_at.isoformat() if v.published_at else None,
-                }
-                for v in versions
-            ]
-        }
-    )
+    overwrite_manual = bool(payload.overwrite_manual) if payload else False
+    try:
+        run_id = await JDLifecycleUseCases().start_reparse(session, jd_id, overwrite_manual=overwrite_manual)
+    except JDLifecycleError as exc:
+        return APIResponse(code=409, message=str(exc))
+    return APIResponse(data={"run_id": str(run_id), "status": "processing"})
+
+
+@router.post("/{jd_id}/draft/abandon", response_model=APIResponse)
+async def abandon_jd_draft(
+    jd_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    from backend.application.jd_lifecycle import JDLifecycleError, JDLifecycleUseCases
+
+    try:
+        await JDLifecycleUseCases().abandon_draft(session, jd_id)
+    except JDLifecycleError as exc:
+        return APIResponse(code=409, message=str(exc))
+    return APIResponse(message="Draft abandoned")
+
+
+@router.post("/{jd_id}/archive", response_model=APIResponse)
+async def archive_jd(
+    jd_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    from backend.application.jd_lifecycle import JDLifecycleError, JDLifecycleUseCases
+
+    try:
+        await JDLifecycleUseCases().archive(session, jd_id)
+    except JDLifecycleError as exc:
+        return APIResponse(code=409, message=str(exc))
+    return APIResponse(message="Job description archived")
 
 
 @router.delete("/{jd_id}", response_model=APIResponse)
