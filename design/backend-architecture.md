@@ -71,6 +71,12 @@ Rules for new code:
 - Celery task functions are thin process boundaries. They should load state, call a use case, persist a terminal/intermediate status, and make retry behavior explicit.
 - LangGraph nodes do one meaningful operation and return partial state updates; they must not silently replace the complete graph state.
 
+### 3.1 Celery async runtime and database ownership
+
+Celery uses the default prefork worker in local development. Synchronous task entry points must call `backend.tasks.async_runtime.run_async()`; they must not call `asyncio.run()`, create a module-local event loop, or keep a loop in an individual task module. The runner owns exactly one event loop per worker child process, identified by the child PID, so all async SQLAlchemy work in that child uses the same asyncpg loop.
+
+The `worker_process_init` signal disposes the inherited SQLAlchemy pool with `close=False` after fork. The child then creates its own connections on its own loop. The `worker_process_shutdown` signal disposes async connections on that same loop before closing it. This keeps the normal pooled engine while preventing parent-process connections or connections created by another loop from crossing the worker boundary. A different Celery execution pool requires an explicit lifecycle design and must not bypass this rule.
+
 ## 4. Feature Modules
 
 ### 4.1 Resume intelligence and privacy

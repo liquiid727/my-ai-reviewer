@@ -1,6 +1,10 @@
 # Handoff
 
-**Last Updated**: 2026-08-02
+**Last Updated**: 2026-08-05
+
+## 2026-08-05 Celery 运行时交接
+
+已修复 Celery prefork 子进程内 asyncpg 连接跨 event loop 复用的问题。实现、测试、上线和回滚步骤见 [RIP-009 implementation notes](../implementation/RIP-009-resume-privacy/implementation-notes.md)。后续接手者需要先运行定向单测和真实数据库集成测试，再停止并重启旧 worker/beat；旧 worker 不会自动加载新的生命周期 hook。该修复没有数据库迁移。
 
 ---
 
@@ -17,6 +21,7 @@
 5. `tasks/issues/issue-038-txt-md-encoding-fallback.md` — issue 验收清单
 6. `design/architecture.md` — 技术架构
 7. `design/coding-guidelines.md` — 编码规范
+8. `implementation/RIP-009-resume-privacy/implementation-notes.md` — Celery async runtime 修复与执行步骤
 
 ---
 

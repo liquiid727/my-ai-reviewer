@@ -1,5 +1,11 @@
 # Domain
 
+## Planned Job Target Interview Model
+
+The accepted 2026-08-05 product direction introduces a planned domain model for `Job Description`, `JD Review Draft`, `JD Version`, `Resume Version`, `Job Target`, `Match Assessment`, `Interview Scenario`, `Interview Plan`, `Interview Session`, `Coverage Item`, `Answer Evaluation`, and `Session Event`.
+
+The canonical meanings, invariants, and compatibility rules are defined in [`job-target-interview-architecture.md`](job-target-interview-architecture.md). Until the related Specs are implemented and shipped, these terms describe target behavior rather than the as-built runtime.
+
 ## DDD 分层结构
 
 ```text

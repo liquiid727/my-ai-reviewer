@@ -12,3 +12,9 @@
 | #065 | Export replacement and print UI | #063 | frontend/browser tests |
 | #066 | Legacy remediation and acceptance closeout | #061-#065 | dry-run, E2E, docs |
 
+## Runtime Correction (2026-08-05)
+
+- Status: implemented locally; review and worker restart pending.
+- The Celery prefork worker now uses one PID-owned async runner/event loop for resume, watchdog, JD, plan, and interview tasks.
+- The worker resets the inherited SQLAlchemy pool after fork and disposes async connections on the same loop during shutdown.
+- Evidence: `implementation/RIP-009-resume-privacy/implementation-notes.md`, `backend/tests/unit/test_celery_async_runtime.py`, and `backend/tests/integration/test_celery_async_runtime.py`.

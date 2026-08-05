@@ -8,3 +8,4 @@
 - Export: full/partial replacements, unknown token, control/HTML input, photo validation, no persistence, same preview/download bytes, print fallback.
 - Migration: dry-run has no writes; execute is idempotent and removes source/photo/export/AI-history artifacts.
 - Frontend: empty, loading, success, failure, expiry, partial hydration, close-to-clear, download, and print on desktop/mobile.
+- Celery runtime: every task module uses the same child-process event loop; forked workers discard inherited pools; a real PostgreSQL integration test runs watchdog then resume work in sequence.

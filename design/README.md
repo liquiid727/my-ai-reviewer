@@ -17,6 +17,7 @@ Feature-specific behavior belongs in `specs/`, not in a second architecture docu
 | [deployment.md](deployment.md) | Local infrastructure, service dependencies, and operational configuration |
 | [coding-guidelines.md](coding-guidelines.md) | Layering, typing, FastAPI, and workflow coding conventions |
 | [quality-architecture.md](quality-architecture.md) | Target quality governance baseline (AIP-009–012): ownership, boundaries, gates, errors, logging, rollout — not pure as-built |
+| [job-target-interview-architecture.md](job-target-interview-architecture.md) | Proposed target architecture for immutable inputs, Job Targets, match assessments, interview plans, recoverable sessions, and reports |
 
 ## Documentation Rules
 

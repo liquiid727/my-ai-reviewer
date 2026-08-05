@@ -1,6 +1,6 @@
 # Active Context
 
-**Last Updated**: 2026-08-02
+**Last Updated**: 2026-08-05
 
 ---
 
@@ -11,6 +11,7 @@
 - 所有设计文档已从 `docs/` 迁移拆分至 `design/`
 - `AIP-001` 已有代码实现，但历史任务清单和评审记录尚未完全回填
 - RIP-001 的六格式解析器已接入工厂，#038 已完成本地实现，待评审 / 发布
+- Celery prefork 的 asyncpg 跨 loop 故障已完成本地修复：任务共享 PID-owned runner，worker fork 后重置 SQLAlchemy pool；详见 `implementation/RIP-009-resume-privacy/implementation-notes.md`
 
 ---
 
