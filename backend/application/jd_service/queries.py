@@ -90,7 +90,7 @@ async def list_job_descriptions(
     page: int,
     page_size: int,
     q: str | None,
-    source_type: Literal["text", "file", "url"] | None,
+    source_type: Literal["text", "file", "url", "image", "manual"] | None,
     status: Literal["processing", "duplicate_pending", "needs_review", "ready", "failed", "archived"] | None,
     direction: Literal["asc", "desc"],
 ) -> dict[str, Any]:

@@ -269,7 +269,7 @@ class JDProcessingService:
             if not jd.source_url:
                 raise JDProcessingError("URL source is missing")
             return await SafeWebFetcher().fetch_text(jd.source_url), "safe-web-v1"
-        if jd.source_type != JDSourceType.FILE.value or jd.source_file_id is None:
+        if jd.source_type not in {JDSourceType.FILE.value, JDSourceType.IMAGE.value} or jd.source_file_id is None:
             raise JDProcessingError("File source is missing")
 
         file_record = await session.get(FileModel, jd.source_file_id)
@@ -286,7 +286,8 @@ class JDProcessingService:
             storage_path,
         )
         extension = Path(original_name).suffix.lower()
-        if extension not in {".pdf", ".docx", ".txt", ".md"}:
+        supported = {".pdf", ".docx", ".txt", ".md", ".png", ".jpg", ".jpeg"}
+        if extension not in supported:
             raise JDProcessingError("Source file type is not supported")
         temporary_path = ""
         try:

@@ -7,6 +7,8 @@ class JDSourceType(StrEnum):
     TEXT = "text"
     FILE = "file"
     URL = "url"
+    IMAGE = "image"
+    MANUAL = "manual"
 
 
 class JDStatus(StrEnum):

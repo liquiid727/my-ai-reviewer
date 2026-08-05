@@ -8,6 +8,7 @@ from backend.infrastructure.parsers.base import (
 from backend.infrastructure.parsers.doc_parser import DocResumeParser
 from backend.infrastructure.parsers.docx_parser import DocxResumeParser
 from backend.infrastructure.parsers.html_parser import HtmlResumeParser
+from backend.infrastructure.parsers.image_parser import ImageOcrParser
 from backend.infrastructure.parsers.markdown_parser import MarkdownResumeParser
 from backend.infrastructure.parsers.pdf_parser import PdfResumeParser
 from backend.infrastructure.parsers.text_parser import TextResumeParser
@@ -21,6 +22,9 @@ _PARSER_MAP: dict[str, type[ResumeParser]] = {
     ".md": MarkdownResumeParser,  # Markdown（保留原文结构）
     ".html": HtmlResumeParser,  # HTML 网页简历
     ".htm": HtmlResumeParser,  # HTML 网页简历（简写）
+    ".png": ImageOcrParser,  # PNG 图片（OCR，RIP-012）
+    ".jpg": ImageOcrParser,  # JPEG 图片（OCR，RIP-012）
+    ".jpeg": ImageOcrParser,  # JPEG 图片（OCR，RIP-012）
 }
 
 # 支持的所有文件扩展名
@@ -45,6 +49,7 @@ __all__ = [
     "DocResumeParser",
     "DocxResumeParser",
     "HtmlResumeParser",
+    "ImageOcrParser",
     "MarkdownResumeParser",
     "PdfResumeParser",
     "TextResumeParser",

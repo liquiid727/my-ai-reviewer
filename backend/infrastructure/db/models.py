@@ -699,7 +699,7 @@ class JobDescriptionModel(Base):
     )
 
     __table_args__ = (
-        CheckConstraint("source_type IN ('text', 'file', 'url')", name="ck_jd_source_type"),
+        CheckConstraint("source_type IN ('text', 'file', 'url', 'image', 'manual')", name="ck_jd_source_type"),
         CheckConstraint(
             "status IN ('processing', 'duplicate_pending', 'needs_review', 'ready', 'failed', 'archived')",
             name="ck_jd_status",

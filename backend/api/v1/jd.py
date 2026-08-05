@@ -99,6 +99,28 @@ async def import_jd_file(
     return _import_result_response(result)
 
 
+@router.post("/import/image", response_model=APIResponse)
+async def import_jd_image(
+    file: UploadFile = File(...),
+    allow_duplicate: bool = Query(False),
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    gate = await _require_llm(session)
+    if gate is not None:
+        return gate
+    try:
+        result = await JDImportService().import_image(
+            session,
+            filename=file.filename or "job-description",
+            content_type=file.content_type,
+            data=await file.read(MAX_JD_FILE_SIZE + 1),
+            allow_duplicate=allow_duplicate,
+        )
+    except JDImportError as exc:
+        return APIResponse(code=exc.code, message=str(exc))
+    return _import_result_response(result)
+
+
 @router.post("/import/url", response_model=APIResponse)
 async def import_jd_url(
     payload: JDURLImportRequest,
