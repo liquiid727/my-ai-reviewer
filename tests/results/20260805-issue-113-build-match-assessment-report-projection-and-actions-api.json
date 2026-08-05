@@ -1,0 +1,36 @@
+{
+  "issue": 113,
+  "slug": "build-match-assessment-report-projection-and-actions-api",
+  "status": "accepted",
+  "mode": "local-reviewed",
+  "branch": "feat/issue-113-match-report-actions",
+  "commit": "05db7e9",
+  "delivery_mode": "local-reviewed",
+  "review": {
+    "verdict": "accepted",
+    "reviewer": "claude",
+    "mode": "local-reviewed",
+    "note": "Completed detail embeds a bounded read-only report (version facts, caps, gap classes, evidence sufficiency with explicit unknown citations, stale advisory, actions) and job-target history exposes the same payloads without per-row reads. Existing RIP-013 assertions (low-score completed result, failed->result None, cursor semantics) remain green."
+  },
+  "acceptance_mapping": {
+    "RIP-014_6.1_report_projection": "report_payload embeds exact version facts, pre/post-cap totals, 8 dimensions with weights, 4 gap classes, evidence sufficiency, policy/model metadata, explicit unknowns; never stored, never mutates the assessment",
+    "RIP-014_6.3_actions_never_score_gated": "low-score (reject) report keeps plan + interview actions eligible; resume_optimization only when the assessment's resume version is a builder draft",
+    "RIP-014_7.1_no_N_plus_1": "MatchReportQueries._build loads jd_version/resume_version/target/jd in one joined SELECT; history endpoint reuses MatchAssessmentQueries.list (limit+1 cursor) and embeds reports",
+    "RIP-014_7.3_VERSION_STALE_advisory": "stale flags jd_has_newer_published_version / target_default_*_moved vs current versions; assessment versions never replaced",
+    "RIP-014_9_target_history_endpoint": "GET /api/v1/job-targets/{id}/match-assessments cursor history with report on completed items; 404 for unknown target",
+    "issue_AC_unknown_evidence": "fake classifier cites fixed ids outside the Source Catalog; report marks them explicit_unknowns under evidence_citation",
+    "issue_AC_legacy_match_separation": "history only lists match_assessments of the target; legacy jd_match_results never conflated (empty-scope test)"
+  },
+  "gates": {
+    "unit": "451 passed, 2 pre-existing baseline failures (test_resume_builder_llm_gate, test_resume_draft_list_api)",
+    "integration": "150 passed (143 baseline + 7 new)",
+    "ruff": "PASS on changed files",
+    "mypy": "PASS on changed files (6)",
+    "arch_check": "PASS 33 waived, 0 new",
+    "migration": "not required (read-only projection; no schema change)"
+  },
+  "residual_risks": [
+    "Report unknown-citation detection cross-checks cited ids against a deterministic re-derivation of the Source Catalog from the pinned versions; if the version snapshot format ever changes, the catalog re-derivation must stay in sync with build_catalog",
+    "Action routes are stable API path hints resolved by the UI; a route change in the frontend does not break the report contract"
+  ]
+}
