@@ -675,6 +675,12 @@ class JobDescriptionModel(Base):
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     field_sources: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False, default=dict)
     parser_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # RIP-011 review-draft projection: the structured draft under review and its
+    # revision counter for optimistic concurrency. current_version_id remains the
+    # published immutable snapshot and stays usable while a draft is in review.
+    review_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    review_draft: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    review_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     current_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey(
@@ -694,9 +700,13 @@ class JobDescriptionModel(Base):
 
     __table_args__ = (
         CheckConstraint("source_type IN ('text', 'file', 'url')", name="ck_jd_source_type"),
-        CheckConstraint("status IN ('processing', 'duplicate_pending', 'ready', 'failed')", name="ck_jd_status"),
         CheckConstraint(
-            "processing_step IN ('queued', 'source_extract', 'duplicate_check', 'llm_extract', 'done')",
+            "status IN ('processing', 'duplicate_pending', 'needs_review', 'ready', 'failed', 'archived')",
+            name="ck_jd_status",
+        ),
+        CheckConstraint(
+            "processing_step IN ('queued', 'source_extract', 'duplicate_check', 'structure_parse', "
+            "'llm_extract', 'review', 'done')",
             name="ck_jd_processing_step",
         ),
         Index("ix_jd_user_updated", "user_id", "updated_at"),

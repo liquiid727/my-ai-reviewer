@@ -15,6 +15,7 @@ from backend.application.jd_service import queries as jd_queries
 from backend.application.llm_config_service import has_verified_config
 from backend.domain.jd.schemas import (
     JDReextractRequest,
+    JDReviewPatchRequest,
     JDStructuredPatch,
     JDTextImportRequest,
     JDURLImportRequest,
@@ -275,6 +276,32 @@ async def cancel_jd_duplicate(jd_id: uuid.UUID, session: AsyncSession = Depends(
     except jd_commands.JDCommandError as exc:
         return APIResponse(code=exc.code, message=exc.message)
     return APIResponse(message="Duplicate job description cancelled")
+
+
+@router.patch("/{jd_id}/review", response_model=APIResponse)
+async def patch_jd_review(
+    jd_id: uuid.UUID,
+    payload: JDReviewPatchRequest,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    from backend.application.jd_review_draft import (
+        JDReviewConflictError,
+        JDReviewDraftUseCases,
+        JDReviewNotInReviewError,
+    )
+
+    try:
+        result = await JDReviewDraftUseCases().save_review_draft(
+            session,
+            jd_id,
+            expected_review_revision=payload.expected_review_revision,
+            draft=payload.draft,
+        )
+    except JDReviewConflictError as exc:
+        return APIResponse(code=409, message=str(exc))
+    except JDReviewNotInReviewError as exc:
+        return APIResponse(code=409, message=str(exc))
+    return APIResponse(data=result)
 
 
 @router.delete("/{jd_id}", response_model=APIResponse)

@@ -176,6 +176,13 @@ class JDExtractionResult(BaseModel):
     schema_version: str = "jd-review-v1"
 
 
+class JDReviewPatchRequest(BaseModel):
+    """Revision-safe structured review edit request."""
+
+    expected_review_revision: int = Field(ge=0)
+    draft: ReviewDraft
+
+
 class JDTextImportRequest(BaseModel):
     raw_text: str = Field(min_length=1, max_length=100_000)
     title: str | None = Field(default=None, max_length=200)
