@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +22,11 @@ from backend.application.job_target import (
     TargetResult,
     UpdateDefaultsCommand,
     VersionScopeMismatchError,
+)
+from backend.application.match_assessment import (
+    MatchAssessmentQueries,
+    MatchReportQueries,
+    assessment_payload,
 )
 from backend.infrastructure.db.database import get_db
 
@@ -136,6 +142,47 @@ async def update_job_target_defaults(
     except JobTargetUseCaseError as exc:
         raise _error_response(exc) from exc
     return APIResponse(data=_target_payload(result))
+
+
+@router.get("/{target_id}/match-assessments")
+async def list_target_match_assessments(
+    target_id: uuid.UUID,
+    status: str | None = None,
+    limit: int = Query(default=20, ge=1, le=100),
+    before_created_at: datetime | None = None,
+    before_id: uuid.UUID | None = None,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    try:
+        await JobTargetUseCases().get(session, target_id)
+    except JobTargetUseCaseError as exc:
+        raise _error_response(exc) from exc
+    rows, has_more = await MatchAssessmentQueries().list(
+        session,
+        job_target_id=target_id,
+        status=status,
+        limit=limit,
+        before_created_at=before_created_at,
+        before_id=before_id,
+    )
+    items: list[dict[str, object]] = []
+    for row in rows:
+        item: dict[str, object] = assessment_payload(row)
+        if row.status == "completed":
+            report = await MatchReportQueries().report(session, row.id)
+            if report is not None:
+                item["report"] = report
+        items.append(item)
+    return APIResponse(
+        data={
+            "assessments": items,
+            "next_before_created_at": (
+                rows[-1].created_at.isoformat() if rows and rows[-1].created_at else None
+            ),
+            # a terminal page carries no cursor: the client must not page again
+            "next_before_id": str(rows[-1].id) if rows and has_more else None,
+        }
+    )
 
 
 @router.post("/{target_id}/archive")

@@ -29,6 +29,7 @@ from backend.application.job_target import (
     TargetResult,
 )
 from backend.application.llm_config_service import get_active_verified_config
+from backend.domain.match_assessment import report as report_rules
 from backend.domain.match_assessment.engine import evaluate
 from backend.domain.match_assessment.lifecycle import (
     Failure,
@@ -41,7 +42,9 @@ from backend.domain.match_assessment.policy import POLICY_VERSION
 from backend.domain.match_assessment.schemas import DimensionInput, GapInput
 from backend.domain.match_assessment.source_catalog import build_catalog
 from backend.infrastructure.db.models import (
+    JobDescriptionModel,
     JobDescriptionVersionModel,
+    JobTargetModel,
     MatchAssessmentModel,
     ResumeVersionModel,
 )
@@ -453,6 +456,165 @@ class MatchAssessmentQueries:
         rows = list(result.scalars().all())
         has_more = len(rows) > limit
         return (rows[:limit], has_more)
+
+
+def report_payload(
+    *,
+    assessment: MatchAssessmentModel,
+    jd_version: JobDescriptionVersionModel | None,
+    resume_version: ResumeVersionModel | None,
+    target: JobTargetModel | None,
+    jd: JobDescriptionModel | None,
+) -> dict[str, Any]:
+    """RIP-014 §6.1 report projection; safe public fields only.
+
+    The completed result is returned as evaluated (immutable). Staleness is
+    advisory metadata about current versions — it never replaces the report's
+    pinned version identities.
+    """
+    dimensions = assessment.dimension_scores or []
+    gaps = assessment.gaps or []
+    catalog_ids: set[str] = set()
+    if jd_version is not None and resume_version is not None:
+        catalog = build_catalog(
+            jd_version_id=str(jd_version.id),
+            jd_structured=jd_version.structured or {},
+            resume_version_id=str(resume_version.id),
+            resume_profile=resume_version.profile_snapshot or {},
+            resume_facts=resume_version.evidence_catalog or [],
+        )
+        catalog_ids = catalog.ids()
+
+    return {
+        "version_facts": {
+            "policy_version": assessment.policy_version,
+            "schema_version": assessment.schema_version,
+            "jd_version_id": str(assessment.jd_version_id),
+            "resume_version_id": str(assessment.resume_version_id),
+            "jd_version_no": jd_version.version_no if jd_version is not None else None,
+            "resume_version_source_type": (
+                resume_version.source_type if resume_version is not None else None
+            ),
+        },
+        "scores": {
+            "total_score": _num(assessment.total_score),
+            "score_before_caps": _num(assessment.score_before_caps),
+            "caps_applied": assessment.caps_applied or [],
+            "overall_confidence": _num(assessment.overall_confidence),
+            "recommendation": assessment.recommendation,
+        },
+        "dimensions": dimensions,
+        "gap_classes": report_rules.gap_class_counts(gaps),
+        "evidence_sufficiency": report_rules.evidence_sufficiency(
+            assessment.evidence_summary or {},
+            dimensions,
+            catalog_ids,
+        ),
+        "explicit_unknowns": [
+            {"kind": "evidence_citation", "evidence_id": item}
+            for item in report_rules.evidence_sufficiency(
+                assessment.evidence_summary or {},
+                dimensions,
+                catalog_ids,
+            )["unknown_citations"]
+        ],
+        "stale": report_rules.stale_versions(
+            jd_version_id=str(assessment.jd_version_id),
+            resume_version_id=str(assessment.resume_version_id),
+            current_jd_version_id=(
+                str(jd.current_version_id)
+                if jd is not None and jd.current_version_id is not None
+                else None
+            ),
+            target_default_jd_version_id=(
+                str(target.default_jd_version_id)
+                if target is not None and target.default_jd_version_id is not None
+                else None
+            ),
+            target_default_resume_version_id=(
+                str(target.default_resume_version_id)
+                if target is not None and target.default_resume_version_id is not None
+                else None
+            ),
+        ),
+        "actions": report_rules.action_routes(
+            resume_version_id=str(assessment.resume_version_id),
+            resume_version_source_type=(
+                resume_version.source_type if resume_version is not None else None
+            ),
+            parsed_resume_id=(
+                str(resume_version.resume_id) if resume_version is not None else None
+            ),
+            builder_draft_id=(
+                str(resume_version.draft_id) if resume_version is not None else None
+            ),
+        ),
+        "model": {
+            "name": assessment.model_name,
+            "version": assessment.model_version,
+            "prompt_version": assessment.prompt_version,
+        },
+        "completed_at": (
+            assessment.completed_at.isoformat() if assessment.completed_at else None
+        ),
+    }
+
+
+class MatchReportQueries:
+    """One batched read for the completed report projection (RIP-014 §7.1)."""
+
+    async def report(
+        self,
+        session: AsyncSession,
+        assessment_id: uuid.UUID,
+    ) -> dict[str, Any] | None:
+        row = await session.get(
+            MatchAssessmentModel, assessment_id, populate_existing=True
+        )
+        if row is None:
+            return None
+        if row.status != "completed":
+            return None
+        return await self._build(session, row)
+
+    async def _build(
+        self,
+        session: AsyncSession,
+        row: MatchAssessmentModel,
+    ) -> dict[str, Any]:
+        stmt = (
+            select(
+                JobDescriptionVersionModel,
+                ResumeVersionModel,
+                JobTargetModel,
+                JobDescriptionModel,
+            )
+            .select_from(JobTargetModel)
+            .join(
+                JobDescriptionModel,
+                JobDescriptionModel.id == JobTargetModel.job_description_id,
+            )
+            .outerjoin(
+                JobDescriptionVersionModel,
+                JobDescriptionVersionModel.id == row.jd_version_id,
+            )
+            .outerjoin(
+                ResumeVersionModel,
+                ResumeVersionModel.id == row.resume_version_id,
+            )
+            .where(JobTargetModel.id == row.job_target_id)
+        )
+        fetched = (await session.execute(stmt)).first()
+        if fetched is None:
+            return {}
+        jd_version, resume_version, target, jd = fetched
+        return report_payload(
+            assessment=row,
+            jd_version=jd_version,
+            resume_version=resume_version,
+            target=target,
+            jd=jd,
+        )
 
 
 class MatchAssessmentWorker:

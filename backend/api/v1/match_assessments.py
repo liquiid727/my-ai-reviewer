@@ -25,6 +25,7 @@ from backend.application.match_assessment import (
     MatchAssessmentError,
     MatchAssessmentQueries,
     MatchAssessmentUseCases,
+    MatchReportQueries,
     assessment_payload,
     created_payload,
 )
@@ -129,7 +130,12 @@ async def get_match_assessment(
         row = await MatchAssessmentQueries().get(session, assessment_id)
     except AssessmentNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return APIResponse(data=assessment_payload(row))
+    payload = assessment_payload(row)
+    if row.status == "completed":
+        report = await MatchReportQueries().report(session, assessment_id)
+        if report is not None:
+            payload["report"] = report
+    return APIResponse(data=payload)
 
 
 @router.post("/{assessment_id}/retry")
