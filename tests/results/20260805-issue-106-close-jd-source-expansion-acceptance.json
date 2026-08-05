@@ -1,0 +1,45 @@
+{
+  "issue": "106",
+  "title": "Close JD source-expansion acceptance",
+  "spec": "RIP-012 sections 10-12",
+  "verdict": "accepted",
+  "date": "2026-08-05",
+  "gates": {
+    "integration": "PASS - 114 passed (baseline 108 + 6 new acceptance tests); 39 JD-contract tests green incl. review-draft, publish, lifecycle, manual/image import suites",
+    "unit": "PASS - 346 passed / 2 pre-existing failures (baseline unchanged)",
+    "ruff": "PASS - 2 pre-existing errors (test_quality_scripts.py F841, test_reparse.py I001); 0 new",
+    "mypy": "PASS - 22 pre-existing errors; 0 new",
+    "arch_check": "PASS - 33 violations / 0 new (waived registry unchanged)",
+    "alembic_heads": "s3d4e5f6a7b8 (head) unchanged - no migration needed",
+    "browser_check": "DEFERRED - no local browser controller; recorded in reviews/20260805-browser-acceptance-waiver.md"
+  },
+  "acceptance": {
+    "all_five_sources_through_published_version": "PASS - test_each_worker_source_flow_ends_in_published_version[text|file|image|url] drives source_extract -> duplicate_check -> llm_extract -> publish and asserts a published JobDescriptionVersion with correct source_metadata; manual covered by test_manual_flow_makes_no_llm_call_and_publishes",
+    "image_uses_ocr_and_manual_makes_no_llm_call": "PASS - image source runs through the same file/parser path (OCR registry) as the other file sources with get_parser; manual import asserts processing_run_id is None, source_file_id/url None, provenance=manual in the published version, and dispatches no LLM stage",
+    "file_object_retention_and_cleanup": "PASS - duplicate cancel/failure/retry/archive/stale-work contract retained from #103/#104 suites (test_jd_lifecycle, test_jd_manual_import, test_jd_image_import, test_jd_publish all green); delete/cancel cleanup paths unchanged",
+    "no_import_mode_creates_job_target": "PASS - test_no_import_mode_creates_job_target asserts JobTargetModel has no processing-row leak and jd_import_service.py contains no JobTarget reference",
+    "migration_backend_frontend_browser_privacy_lint_type_build_diff_gates": "PASS except browser (deferred) - migration heads unchanged, privacy paths untouched (no diff in privacy modules), frontend unchanged by this issue (UI shipped in #105)",
+    "requirement_test_evidence_and_blockers": "PASS - this acceptance run exposed and closed the RIP-011 worker review-draft gap: llm_extract now writes a review draft and enters needs_review for text/file/image/url sources (see implementation_notes)"
+  },
+  "implementation_notes": [
+    "CRITICAL GAP CLOSED: llm_extract previously ended worker-sourced JDs in `ready` with plain columns and never wrote a review draft, making review/publish unreachable for text/file/url/image imports and contradicting RIP-011 spec 6.2 ('Extraction success produces needs_review') and DoD ('Existing text/file/URL imports end in needs_review and require explicit publish for a new version')",
+    "Added domain-pure draft_from_extraction (backend/domain/jd/policies.py): projects JDExtraction into ReviewDraft with stable per-list keys (res-N/sk-N/psk-N), source provenance, extractor evidence (evidence_status=available when the skill carries evidence, else unavailable - never fabricated), critical passthrough, parser_version/model_name metadata, overall_confidence 1.0",
+    "llm_extract (backend/application/jd_service/processing.py) now writes review_draft + review_revision+1 + status=needs_review + step=review under the existing run-ownership guard and returns needs_review; parser_version still lands on the JD row, model_name travels inside the draft (no JD-table column) and reaches the published version source_metadata via publish",
+    "finalize_draft_from_run remains for run-owned finalizer use; the worker now uses the same draft writer contract through llm_extract instead of ending in ready",
+    "test_jd_plan_api state-machine test updated: llm_extract now asserts needs_review/review step, review_revision 1, and draft title - manual-field preservation assertions unchanged",
+    "Acceptance fixtures use unique raw text per parametrized case to avoid content-hash duplicate collisions with rows persisted across the integration session, and stub SafeWebFetcher/download_file/parsers so the flow exercises the real duplicate-check and publish contract without network or OCR"
+  ],
+  "residual_risks": [
+    "Image OCR availability remains environment-dependent (503 when no OCR engine registered) - unchanged from #103",
+    "Browser-level verification of the five-mode UI flow deferred per waiver",
+    "legacy ready rows migrated at RIP-011 stay ready (review_revision 0) and are not forced back through an LLM - matches spec migration intent"
+  ],
+  "reviews": {
+    "verdict": "accepted",
+    "mode": "local-reviewed",
+    "note": "acceptance suite exercised all five sources end-to-end to a published immutable version and exposed the RIP-011 worker review-draft gap (llm_extract ended in ready without a draft); closed it with a domain-pure draft projection and needs_review transition under the existing run guard, updated the state-machine test, and re-verified full gates (integration 114, unit baseline, ruff/mypy 0 new, arch 0 new, no migration)"
+  },
+  "commits": [
+    "TBD"
+  ]
+}

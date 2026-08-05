@@ -387,6 +387,9 @@ async def test_jd_processing_state_machine_preserves_manual_fields_and_safe_fail
     await db_session.commit()
 
     class Extractor:
+        version = "jd-extractor-v1"
+        model_info = "fake-model"
+
         def __init__(self, _: object) -> None:
             pass
 
@@ -417,10 +420,12 @@ async def test_jd_processing_state_machine_preserves_manual_fields_and_safe_fail
     service = JDProcessingService()
     assert await service.source_extract(db_session, jd.id, run_id) == "processing"
     assert await service.duplicate_check(db_session, jd.id, run_id) == "processing"
-    assert await service.llm_extract(db_session, jd.id, run_id) == "ready"
+    assert await service.llm_extract(db_session, jd.id, run_id) == "needs_review"
     await db_session.refresh(jd)
-    assert jd.status == "ready"
-    assert jd.processing_step == "done"
+    assert jd.status == "needs_review"
+    assert jd.processing_step == "review"
+    assert jd.review_revision == 1
+    assert (jd.review_draft or {})["title"] == "LLM title must not replace manual title"
     assert jd.title == "Manual platform role"
     assert jd.company == "Example Co"
     assert jd.seniority is None

@@ -18,6 +18,7 @@ from backend.domain.jd.enums import JDProcessingStep, JDSourceType, JDStatus
 from backend.domain.jd.policies import (
     JDProcessingError,
     content_hash,
+    draft_from_extraction,
     merged_extraction_values,
     normalize_jd_text,
 )
@@ -202,16 +203,25 @@ class JDProcessingService:
         if current is None:
             return "stale"
         values = self._merged_extraction_values(current, extraction, overwrite_manual=overwrite_manual)
+        values["parser_version"] = extractor.version
+        # The model name has no JD-table column; it travels inside the review
+        # draft and lands in the published version's source_metadata.
+        values["review_draft"] = draft_from_extraction(
+            extraction,
+            parser_version=extractor.version,
+            model_name=extractor.model_info or None,
+        ).model_dump(mode="json")
+        values["review_revision"] = (current.review_revision or 0) + 1
         values.update(
             {
-                "status": JDStatus.READY.value,
-                "processing_step": JDProcessingStep.DONE.value,
+                "status": JDStatus.NEEDS_REVIEW.value,
+                "processing_step": JDProcessingStep.REVIEW.value,
                 "processing_error": None,
             }
         )
         if not await self._write_current(session, jd_id, run_id, values):
             return "stale"
-        return JDStatus.READY.value
+        return JDStatus.NEEDS_REVIEW.value
 
     async def mark_failed(
         self,

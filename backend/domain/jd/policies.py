@@ -9,10 +9,12 @@ from typing import Any
 
 from backend.domain.jd.enums import STRUCTURED_FIELD_NAMES
 from backend.domain.jd.schemas import (
+    DraftItem,
     GapItem,
     JDExtraction,
     JDMatchResult,
     RequiredSkill,
+    ReviewDraft,
     RiskItem,
     SkillMatchItem,
 )
@@ -67,6 +69,66 @@ def extraction_values(extraction: JDExtraction) -> dict[str, object]:
         "required_skills": [skill.model_dump() for skill in extraction.required_skills],
         "preferred_skills": [skill.model_dump() for skill in extraction.preferred_skills],
     }
+
+
+def draft_from_extraction(
+    extraction: JDExtraction,
+    *,
+    parser_version: str,
+    model_name: str | None = None,
+    schema_version: str = "jd-review-v1",
+) -> ReviewDraft:
+    """Project a raw LLM extraction into a RIP-011 review draft (RIP-011 §6.1).
+
+    Items keep the extractor's source evidence with `source` provenance and a
+    stable per-list key; missing evidence is `unavailable`, never fabricated.
+    """
+    return ReviewDraft(
+        title=extraction.title,
+        company=extraction.company,
+        location=extraction.location,
+        seniority=extraction.seniority,
+        responsibilities=[
+            DraftItem(
+                key=f"res-{index}",
+                value=value,
+                evidence=value,
+                evidence_status="available",
+                confidence=1.0,
+                provenance="source",
+            )
+            for index, value in enumerate(extraction.responsibilities)
+        ],
+        required_skills=[
+            DraftItem(
+                key=f"sk-{index}",
+                value=skill.name,
+                evidence=skill.evidence or skill.name,
+                evidence_status="available" if skill.evidence else "unavailable",
+                confidence=1.0,
+                provenance="source",
+                critical=skill.critical,
+            )
+            for index, skill in enumerate(extraction.required_skills)
+        ],
+        preferred_skills=[
+            DraftItem(
+                key=f"psk-{index}",
+                value=skill.name,
+                evidence=skill.evidence or skill.name,
+                evidence_status="available" if skill.evidence else "unavailable",
+                confidence=1.0,
+                provenance="source",
+                critical=skill.critical,
+            )
+            for index, skill in enumerate(extraction.preferred_skills)
+        ],
+        parser_version=parser_version,
+        model_name=model_name,
+        prompt_version=None,
+        schema_version=schema_version,
+        overall_confidence=1.0,
+    )
 
 
 def merged_extraction_values(
@@ -220,6 +282,7 @@ __all__ = [
     "_compute_match",
     "compute_match",
     "content_hash",
+    "draft_from_extraction",
     "extraction_values",
     "merged_extraction_values",
     "norm_skill",
