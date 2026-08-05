@@ -1,0 +1,63 @@
+{
+  "issue": "103",
+  "slug": "image-jd-import",
+  "title": "Image JD import through the OCR parser registry (RIP-012)",
+  "date": "2026-08-05",
+  "status": "accepted",
+  "delivery_mode": "local-reviewed",
+  "branch": "feat/issue-103-image-jd-import",
+  "commit": "a3c4412",
+  "pr": null,
+  "summary": "POST /jd/import/image with strict validation (extension/MIME/magic bytes/PIL decode bounds), durable MinIO persistence with rollback and compensation, OCR resolved through pluggable engine registry so no provider SDK enters JD code.",
+  "depends_on": [
+    "#030",
+    "#102"
+  ],
+  "gates": {
+    "ruff": "pass",
+    "mypy": "pass (touched files)",
+    "arch_check": "PASS violations=0 new",
+    "unit": "333 passed (2 pre-existing known failures)",
+    "integration": "102 passed",
+    "migration_upgrade": "pass",
+    "migration_downgrade": "pass",
+    "alembic_check": "baseline-only diff (pre-existing created_at/updated_at NOT NULL)"
+  },
+  "files": {
+    "api": "backend/api/v1/jd.py (POST /jd/import/image)",
+    "application": "backend/application/jd_import_service.py (import_image/_validate_image)",
+    "processing": "backend/application/jd_service/processing.py (_read_source image support)",
+    "ocr_registry": "backend/infrastructure/parsers/image_parser.py (OCREngine/register/get; ImageOcrParser)",
+    "parser_map": "backend/infrastructure/parsers/__init__.py (.png/.jpg/.jpeg)",
+    "enums": "backend/domain/jd/enums.py (JDSourceType.IMAGE, MANUAL)",
+    "models": "backend/infrastructure/db/models.py (check constraint)",
+    "migration": "infra/alembic/versions/s3d4e5f6a7b8_add_image_manual_jd_source_types.py",
+    "tests_unit": "backend/tests/unit/test_jd_image_import.py (11)",
+    "tests_integration": "backend/tests/integration/test_jd_image_import.py (5)"
+  },
+  "verification": {
+    "unit": {
+      "passed": 333,
+      "new": 11,
+      "known_failures": [
+        "test_resume_builder_llm_gate.py::test_score_uses_active_verified_config_for_gateway",
+        "test_resume_draft_list_api.py::test_reorder_draft_returns_persisted_order"
+      ]
+    },
+    "integration": {
+      "passed": 102,
+      "new": 5
+    }
+  },
+  "browser_acceptance": "deferred - see reviews/20260805-browser-acceptance-waiver.md (no local playwright browsers)",
+  "review": {
+    "verdict": "accepted",
+    "mode": "local-reviewed",
+    "note": "engine-agnostic OCR registry; unavailability fails closed (OCRAvailabilityError); provider errors never leak into JD code or API responses"
+  },
+  "residual_risks": [
+    "OCR engine registration is a process-level singleton; no default provider engine is configured yet (returns ocr-none-v0)",
+    "Image import gate: LLM must be verified even though OCR+extract run locally - consistent with existing import endpoints"
+  ],
+  "spec": "specs/RIP-012-job-target-jd-import-v2/"
+}
