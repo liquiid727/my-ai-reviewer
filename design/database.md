@@ -26,6 +26,7 @@
 | `resume_processing_runs` | 简历上传、隐私审批、重试和重解析的处理运行及安全失败诊断 |
 | `job_description_versions` | 不可变 JD 发布快照（版本号/内容哈希/结构化/证据/来源元数据），RIP-010 |
 | `resume_versions` | 不可变脱敏简历快照（parsed_resume / builder_draft），RIP-010 |
+| `job_targets` | Job Target 工作区（JD + 默认版本引用，活跃唯一性），RIP-010 |
 
 ---
 
@@ -159,3 +160,15 @@ job_search_plan_tasks → job_search_plans (plan_id)
 ### 兼容性与回滚
 - 迁移 `p0a1b2c3d4e5` 位于 `o5c6d7e8f9a0` 之后；downgrade 删除 `current_version_id` 外键/列与两张版本表。
 - `alembic check` 当前存在历史表 `created_at`/`updated_at` NOT NULL 的基线差异（与 RIP-010 无关），新表无差异。
+
+## Job Target 工作区（RIP-010）
+
+### job_targets
+- `job_description_id`: FK → job_descriptions（ON DELETE RESTRICT），索引。
+- `default_jd_version_id` / `default_resume_version_id`: 可空 FK → 对应版本表（ON DELETE RESTRICT），均索引。
+- `revision`: 乐观并发控制，默认 1；每次默认值变更/归档递增。
+- `created_at` / `updated_at` / 可空 `archived_at`。
+- 部分唯一索引 `uq_job_targets_active_jd`：`job_description_id WHERE archived_at IS NULL`，保证匿名作用域内每个 JD 至多一个活跃目标。归档释放该槽位，允许后续显式创建新活跃目标。
+- 复合索引 `(updated_at, id)` 支持目标历史游标查询。
+- **多用户/租户归属需要单独迁移**，不能静默放宽该不变量。
+- 迁移 `q1b2c3d4e5f6` 位于 `p0a1b2c3d4e5` 之后；downgrade 删除表与索引。

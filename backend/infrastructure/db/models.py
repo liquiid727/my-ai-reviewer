@@ -677,7 +677,12 @@ class JobDescriptionModel(Base):
     parser_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     current_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("job_description_versions.id", ondelete="RESTRICT"),
+        ForeignKey(
+            "job_description_versions.id",
+            ondelete="RESTRICT",
+            use_alter=True,
+            name="fk_job_descriptions_current_version",
+        ),
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -785,6 +790,52 @@ class ResumeVersionModel(Base):
             unique=True,
             postgresql_where=text("draft_id IS NOT NULL"),
         ),
+    )
+
+
+class JobTargetModel(Base):
+    """Job Target workspace: one active target per JD identity in the anonymous scope."""
+
+    __tablename__ = "job_targets"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_description_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("job_descriptions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    default_jd_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("job_description_versions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    default_resume_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("resume_versions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_job_targets_jd", "job_description_id"),
+        Index("ix_job_targets_default_jd_version", "default_jd_version_id"),
+        Index("ix_job_targets_default_resume_version", "default_resume_version_id"),
+        # One active (non-archived) target per JD identity in the anonymous scope.
+        Index(
+            "uq_job_targets_active_jd",
+            "job_description_id",
+            unique=True,
+            postgresql_where=text("archived_at IS NULL"),
+        ),
+        # Composite ordering for target history cursor queries.
+        Index("ix_job_targets_updated_id", "updated_at", "id"),
     )
 
 
