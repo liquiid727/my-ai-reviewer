@@ -1,0 +1,43 @@
+{
+  "issue": "108",
+  "title": "Add constrained semantic evidence matcher",
+  "spec": "RIP-013 sections 6.2/6.4, 7.1, 8",
+  "verdict": "accepted",
+  "date": "2026-08-05",
+  "gates": {
+    "unit": "PASS - 418 passed / 2 pre-existing failures (baseline 404 + 14 new matcher tests)",
+    "integration": "PASS - 114 passed (unchanged, no DB surface touched)",
+    "ruff": "PASS - 2 pre-existing errors (test_quality_scripts.py F841, test_reparse.py I001); 0 new",
+    "mypy": "PASS - 22 pre-existing errors (baseline); 0 new",
+    "arch_check": "PASS - 33 violations / 0 new (waived registry unchanged)",
+    "alembic_heads": "s3d4e5f6a7b8 (head) unchanged - no migration needed",
+    "browser_check": "N/A - backend-only issue"
+  },
+  "acceptance": {
+    "strict_pydantic_contracts_and_application_owned_interface": "PASS - dataclass-based strict contracts (MatchedDimension/MatchedGap/MatchSemanticResult) returned by the adapter; _validate_output is a strict structural validator (dimension key allow-list, raw_score/confidence bounds, evidence ID allow-list, gap category/severity bounds, duplicate detection); matcher takes the domain SourceCatalog (application-owned interface) and returns engine inputs ready for evaluate()",
+    "bounded_masked_catalog_through_gateway_and_privacyguard": "PASS - _build_payload bounds items to requested dimensions (MAX_DIMENSION_ITEMS=80, MAX_ITEM_EXCERPT_CHARS=300), excerpts are the catalog's masked values only; gateway.complete called with privacy_required=True so the gateway's PrivacyGuard fails closed on any unmasked resume-derived payload; gateway-spy test proves the sent messages contain only allow-listed catalog IDs and no candidate identifiers",
+    "reject_unknown_ids_conflicting_categories_invalid_dimensions_malformed_output_injection": "PASS - unknown cited evidence IDs rejected (retry then MatchSemanticError after exhaustion); conflicting categories for one requirement rejected as duplicate -> one primary gap; invalid/duplicated dimension keys rejected; raw_score outside [0,100] rejected; malformed JSON rejected; catalog claims containing injection instructions are sent only as data (system prompt demands ignoring them) - test proves the injected item stays bounded and masked",
+    "gateway_timeout_and_bounded_retry_without_db_transaction": "PASS - gateway exceptions (incl. timeout) surface as typed MatchSemanticError with no provider payload leaked; MAX_RETRIES=1 bounded retry appends previous response + validation context (test asserts retry messages contain assistant response and Validation error); caller pattern documented: config copied, then session.rollback() before awaiting the provider (no transaction held)",
+    "persist_no_prompt_completion_raw_response_api_key_or_unmasked_content": "PASS - the matcher never logs or returns prompts/completions; _safe() reduces errors to typed code or exception class name; MatchSemanticError messages carry only safe public diagnostics; API keys live in the gateway only; masked-excerpt-only payload means no unmasked resume content ever reaches the provider",
+    "deterministic_fake_and_gateway_spy_tests": "PASS - 14 tests: success, gateway-spy masking assertion, unknown-ID reject (retry-success and retry-exhausted), duplicate dimension, invalid dimension key, out-of-bounds score, conflicting gap categories, malformed JSON, timeout leak-free, prompt injection, dimension bounding, invalid dimension request, retry validation context"
+  },
+  "implementation_notes": [
+    "New backend/infrastructure/matchers/ package (per RIP-013 section 8 layout): __init__.py holds the adapter (LLMGateway + PrivacyGuard through gateway.complete(privacy_required=True), bounded payload, strict validation, bounded retry); no SQLAlchemy imports - persistence wiring lands with the assessment lifecycle (#109/#110)",
+    "The matcher consumes the domain SourceCatalog (issue #107) and returns dataclass inputs that map 1:1 onto the engine's MatchV1Input (DimensionInput/GapInput) - the wiring from MatchSemanticResult to evaluate() lands in the assessment worker (#110)",
+    "MatchedGap carries uncertain flag; the engine's default classifier (issue #107) resolves uncertain -> evidence_gap per RIP-013 6.4",
+    "Prompt boundary follows the plan_generation pattern (system prompt declares catalog as untrusted data; user prompt renders the bounded catalog JSON); dimension key list stated in the Rules section to avoid an over-long schema line",
+    "normalize_requirement_skill helper re-exports the policy alias normalization for downstream deterministic rules"
+  ],
+  "residual_risks": [
+    "Real-provider prompt-following quality is not verifiable without a live LLM config - the deterministic fake proves the contract, not model behavior; the acceptance suite for #111 will exercise the gateway-boundary spy",
+    "The engine/application wiring (assessment lifecycle, worker, API) is intentionally out of scope and lands in #109/#110"
+  ],
+  "reviews": {
+    "verdict": "accepted",
+    "mode": "local-reviewed",
+    "note": "Constrained semantic matcher implemented as a narrow LLM adapter with strict allow-list validation, masked bounded payloads through the gateway+PrivacyGuard, typed leak-free errors, bounded retry, and no persistence of prompts/completions/keys. 14 unit tests with deterministic fake gateway + gateway spy cover success, insufficient evidence, malicious, timeout, and invalid-output branches; full gates green (unit 418/2 pre-existing, integration 114, ruff/mypy 0 new, arch 0 new, no migration)"
+  },
+  "commits": [
+    "70f2b52 feat(rip013): add constrained semantic evidence matcher (#108)"
+  ]
+}
