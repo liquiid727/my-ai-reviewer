@@ -40,6 +40,6 @@
     "note": "acceptance suite exercised all five sources end-to-end to a published immutable version and exposed the RIP-011 worker review-draft gap (llm_extract ended in ready without a draft); closed it with a domain-pure draft projection and needs_review transition under the existing run guard, updated the state-machine test, and re-verified full gates (integration 114, unit baseline, ruff/mypy 0 new, arch 0 new, no migration)"
   },
   "commits": [
-    "TBD"
+    "18f71f1 feat(rip012): close JD source-expansion acceptance with needs_review pipeline (#106)"
   ]
 }
