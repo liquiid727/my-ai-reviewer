@@ -50,12 +50,10 @@ class ArchiveTargetRequest(BaseModel):
 
 
 def _target_payload(target: TargetResult) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "id": str(target.id),
         "job_description_id": str(target.job_description_id),
-        "default_jd_version_id": (
-            str(target.default_jd_version_id) if target.default_jd_version_id else None
-        ),
+        "default_jd_version_id": (str(target.default_jd_version_id) if target.default_jd_version_id else None),
         "default_resume_version_id": (
             str(target.default_resume_version_id) if target.default_resume_version_id else None
         ),
@@ -65,6 +63,31 @@ def _target_payload(target: TargetResult) -> dict[str, object]:
         "archived_at": target.archived_at.isoformat() if target.archived_at else None,
         "created": target.created,
     }
+    if target.job is not None:
+        payload["job"] = {
+            "id": str(target.job.id),
+            "title": target.job.title,
+            "company": target.job.company,
+        }
+    if target.current_jd_version is not None:
+        payload["current_jd_version"] = {
+            "id": str(target.current_jd_version.id),
+            "version_no": target.current_jd_version.version_no,
+            "published_at": (
+                target.current_jd_version.published_at.isoformat() if target.current_jd_version.published_at else None
+            ),
+        }
+    if target.default_resume_version is not None:
+        payload["default_resume_version"] = {
+            "id": str(target.default_resume_version.id),
+            "source_type": target.default_resume_version.source_type,
+            "published_at": (
+                target.default_resume_version.published_at.isoformat()
+                if target.default_resume_version.published_at
+                else None
+            ),
+        }
+    return payload
 
 
 def _error_response(exc: JobTargetUseCaseError) -> HTTPException:
@@ -105,9 +128,7 @@ async def list_job_targets(
     include_archived: bool = False,
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:
-    targets = await JobTargetUseCases().list_active(
-        session, include_archived=include_archived
-    )
+    targets = await JobTargetUseCases().list_active(session, include_archived=include_archived)
     return APIResponse(data={"targets": [_target_payload(t) for t in targets]})
 
 
@@ -176,9 +197,7 @@ async def list_target_match_assessments(
     return APIResponse(
         data={
             "assessments": items,
-            "next_before_created_at": (
-                rows[-1].created_at.isoformat() if rows and rows[-1].created_at else None
-            ),
+            "next_before_created_at": (rows[-1].created_at.isoformat() if rows and rows[-1].created_at else None),
             # a terminal page carries no cursor: the client must not page again
             "next_before_id": str(rows[-1].id) if rows and has_more else None,
         }

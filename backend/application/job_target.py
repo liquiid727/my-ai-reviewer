@@ -25,6 +25,7 @@ from backend.domain.job_target.policies import (
     VersionScopeMismatchError as PolicyScopeMismatchError,
 )
 from backend.infrastructure.db.models import (
+    JobDescriptionModel,
     JobDescriptionVersionModel,
     JobTargetModel,
     ResumeVersionModel,
@@ -87,9 +88,42 @@ class TargetResult:
     updated_at: datetime
     archived_at: datetime | None
     created: bool = False
+    # Enrichment for the target detail UI (RIP-014 §7.1): the owning JD and
+    # the pinned version identities, resolved once per read.
+    job: JobSummary | None = None
+    current_jd_version: JdVersionSummary | None = None
+    default_resume_version: ResumeVersionSummary | None = None
 
 
-def _to_result(target: JobTargetModel, *, created: bool = False) -> TargetResult:
+@dataclass(frozen=True)
+class JobSummary:
+    id: uuid.UUID
+    title: str | None
+    company: str | None
+
+
+@dataclass(frozen=True)
+class JdVersionSummary:
+    id: uuid.UUID
+    version_no: int
+    published_at: datetime | None
+
+
+@dataclass(frozen=True)
+class ResumeVersionSummary:
+    id: uuid.UUID
+    source_type: str
+    published_at: datetime | None
+
+
+def _to_result(
+    target: JobTargetModel,
+    *,
+    created: bool = False,
+    job: JobSummary | None = None,
+    current_jd_version: JdVersionSummary | None = None,
+    default_resume_version: ResumeVersionSummary | None = None,
+) -> TargetResult:
     return TargetResult(
         id=target.id,
         job_description_id=target.job_description_id,
@@ -100,6 +134,9 @@ def _to_result(target: JobTargetModel, *, created: bool = False) -> TargetResult
         updated_at=target.updated_at,
         archived_at=target.archived_at,
         created=created,
+        job=job,
+        current_jd_version=current_jd_version,
+        default_resume_version=default_resume_version,
     )
 
 
@@ -124,7 +161,7 @@ class JobTargetUseCases:
 
         existing = await self._active_for_jd(session, command.jd_id)
         if existing is not None:
-            return _to_result(existing)
+            return await self._enrich(session, existing)
 
         target = JobTargetModel(
             id=uuid.uuid4(),
@@ -142,9 +179,9 @@ class JobTargetUseCases:
             winner = await self._active_for_jd(session, command.jd_id)
             if winner is None:
                 raise
-            return _to_result(winner)
+            return await self._enrich(session, winner)
         await session.refresh(target)
-        return _to_result(target, created=True)
+        return await self._enrich(session, target, created=True)
 
     async def get(
         self,
@@ -154,7 +191,7 @@ class JobTargetUseCases:
         target = await session.get(JobTargetModel, target_id)
         if target is None:
             raise JobTargetNotFoundError(f"job target {target_id} not found")
-        return _to_result(target)
+        return await self._enrich(session, target)
 
     async def list_active(
         self,
@@ -193,12 +230,8 @@ class JobTargetUseCases:
                     command.default_resume_version_id,
                 ),
                 command.expected_revision,
-                jd_version_owner=await self._jd_version_owner(
-                    session, command.default_jd_version_id
-                ),
-                resume_version_owner=await self._resume_version_owner(
-                    session, command.default_resume_version_id
-                ),
+                jd_version_owner=await self._jd_version_owner(session, command.default_jd_version_id),
+                resume_version_owner=await self._resume_version_owner(session, command.default_resume_version_id),
             )
         except PolicyArchivedError as exc:
             raise JobTargetArchivedError(str(exc)) from exc
@@ -212,7 +245,7 @@ class JobTargetUseCases:
         target.revision = self._policy.next_revision(state)
         await session.commit()
         await session.refresh(target)
-        return _to_result(target)
+        return await self._enrich(session, target)
 
     async def archive(
         self,
@@ -234,7 +267,56 @@ class JobTargetUseCases:
         target.revision = self._policy.next_revision(state)
         await session.commit()
         await session.refresh(target)
-        return _to_result(target)
+        return await self._enrich(session, target)
+
+    async def _enrich(
+        self,
+        session: AsyncSession,
+        target: JobTargetModel,
+        *,
+        created: bool = False,
+    ) -> TargetResult:
+        """Resolve the owning JD and pinned versions in one batched read."""
+        jd_version_id = target.default_jd_version_id
+        resume_version_id = target.default_resume_version_id
+        rows = (
+            await session.execute(
+                select(JobDescriptionModel, JobDescriptionVersionModel, ResumeVersionModel)
+                .select_from(JobDescriptionModel)
+                .outerjoin(
+                    JobDescriptionVersionModel,
+                    JobDescriptionVersionModel.id == jd_version_id,
+                )
+                .outerjoin(ResumeVersionModel, ResumeVersionModel.id == resume_version_id)
+                .where(JobDescriptionModel.id == target.job_description_id)
+            )
+        ).first()
+        if rows is None:
+            return _to_result(target, created=created)
+        jd, jd_version, resume_version = rows
+        return _to_result(
+            target,
+            created=created,
+            job=JobSummary(id=jd.id, title=jd.title, company=jd.company),
+            current_jd_version=(
+                JdVersionSummary(
+                    id=jd_version.id,
+                    version_no=jd_version.version_no,
+                    published_at=jd_version.published_at,
+                )
+                if jd_version is not None
+                else None
+            ),
+            default_resume_version=(
+                ResumeVersionSummary(
+                    id=resume_version.id,
+                    source_type=resume_version.source_type,
+                    published_at=resume_version.published_at,
+                )
+                if resume_version is not None
+                else None
+            ),
+        )
 
     async def _active_for_jd(
         self,
@@ -258,9 +340,7 @@ class JobTargetUseCases:
         if jd_version_id is not None:
             owner = await self._jd_version_owner(session, jd_version_id)
             if owner != jd_id:
-                raise VersionScopeMismatchError(
-                    "default JD version does not belong to the target's JD identity"
-                )
+                raise VersionScopeMismatchError("default JD version does not belong to the target's JD identity")
         # Resume version ownership is scoped to the resume/draft, not the JD;
         # any resume version is acceptable for a target. No cross-identity check needed.
 

@@ -1,0 +1,48 @@
+{
+  "issue": 114,
+  "slug": "build-unified-match-creation-and-report-ui",
+  "status": "accepted",
+  "mode": "local-reviewed",
+  "date": "2026-08-05",
+  "spec": "RIP-014 sections 8, 9, 11",
+  "depends_on": [96, 113],
+  "summary": "Unified match creation and report UI. Backend GET /api/v1/job-targets/{id} now enriches the target detail with the owning JD (title/company), the current JD version, and the default resume version summaries (batched single read in JobTargetUseCases._enrich). Frontend: typed match-assessments types/API module, MatchCreatePage (preselects target default versions, allows switching to any published version before submit, polls queued/evaluating, handles failed/timeout/retry/409/422), MatchReportPage (score gauge, 8 dimensions, caps, gap classes, evidence sufficiency with unverified-citation advisory, stale banner + rerun, actions: resume_optimization -> /builder/:draftId, plan -> /plans/new?resume_id=..., interview -> createInterview -> /interview/:id; low score never disables), JobTargetPage match-history list with cursor pagination + New assessment button, PlanCreatePage version-pinned params (job_target_id/jd_version_id/resume_version_id/match_assessment_id), App routes, en/zh i18n.",
+  "acceptance_mapping": [
+    {"ac": "Add typed Match Assessment API/types and target match routes", "done": true, "evidence": "frontend/src/types/match-assessments.ts, frontend/src/api/match-assessments.ts, routes /targets/:id/match/new and /targets/:id/match/:assessmentId in App.tsx; backend enrichment test test_api_detail_enriches_job_and_pinned_versions"},
+    {"ac": "Preselect source-context versions but allow explicit ready-version switching before submit", "done": true, "evidence": "MatchCreatePage preselects target.default_jd_version_id/default_resume_version_id; both Selects list all published versions and allow switching before submit"},
+    {"ac": "Represent loading, empty, queued, evaluating, completed, failed, timeout, retry, stale, and mutation-pending states", "done": true, "evidence": "MatchCreatePage skeleton/loading, status cards for queued/evaluating/completed/failed, retry button for retryable failures, poll failure toast; MatchReportPage stale banner, rerun button, running state; JobTargetPage history loading/empty/error states"},
+    {"ac": "Render score dimensions, caps, gaps, evidence sufficiency, and advisory wording without overstating unknown evidence", "done": true, "evidence": "MatchReportPage: ScoreGauge total, per-dimension bars, caps_applied, gap class counts, evidence counts + unverified-citation alert; explicit_unknowns advisory wording (unverifiable, not counted as facts)"},
+    {"ac": "Provide explicit resume optimization, RIP-008 plan, and Interview Plan actions; low score never disables interview action", "done": true, "evidence": "MatchReportPage actions render from report.actions; interview button never disabled by score (backend report_rules never gates on score); runAction routes: /builder/:draftId, /plans/new?resume_id=, createInterview"},
+    {"ac": "Chinese/English, component, build/lint, deep-link, and desktop/mobile browser checks pass", "done": true, "evidence": "en.ts/zh.ts match namespace complete; pnpm lint + pnpm build green; browser checks deferred per reviews/20260805-browser-acceptance-waiver.md"}
+  ],
+  "gates": {
+    "backend_unit": {"result": "pass", "passed": 451, "failed": 2, "failed_names": ["test_resume_builder_llm_gate::test_score_uses_active_verified_config_for_gateway", "test_resume_draft_list_api::test_reorder_draft_returns_persisted_order"], "note": "pre-existing baseline failures, unchanged"},
+    "backend_integration": {"result": "pass", "passed": 151, "failed": 0},
+    "ruff": "pass",
+    "mypy": "pass (changed files)",
+    "arch_check": {"result": "pass", "violations": 33, "new": 0, "waived": 33},
+    "frontend_lint": "pass",
+    "frontend_build": "pass",
+    "migrations": "none needed"
+  },
+  "review": {"verdict": "accepted", "mode": "local-reviewed", "rounds": 1, "note": "All acceptance criteria covered; enrichment read is batched (no N+1); report DTOs mirror backend projection exactly; actions rendered from report.actions only."},
+  "residual_risks": [
+    "Browser acceptance deferred per reviews/20260805-browser-acceptance-waiver.md (no local playwright controller); lint/build/type checks green.",
+    "MatchCreatePage polling is client-driven (2s interval); no push updates. Worker outage surfaces as poll failure with refresh guidance."
+  ],
+  "changed_files": [
+    "backend/application/job_target.py",
+    "backend/api/v1/job_targets.py",
+    "backend/tests/integration/test_job_target_lifecycle.py",
+    "frontend/src/types/match-assessments.ts",
+    "frontend/src/api/match-assessments.ts",
+    "frontend/src/pages/MatchCreatePage.tsx",
+    "frontend/src/pages/MatchReportPage.tsx",
+    "frontend/src/pages/JobTargetPage.tsx",
+    "frontend/src/pages/PlanCreatePage.tsx",
+    "frontend/src/api/plans.ts",
+    "frontend/src/App.tsx",
+    "frontend/src/i18n/locales/en.ts",
+    "frontend/src/i18n/locales/zh.ts"
+  ]
+}

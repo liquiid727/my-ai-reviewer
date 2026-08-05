@@ -64,6 +64,10 @@ export function PlanCreatePage() {
   const [selectionError, setSelectionError] = useState<string | null>(null)
   const [jdId, setJDId] = useState('')
   const [resumeId, setResumeId] = useState('')
+  const [jobTargetId, setJobTargetId] = useState('')
+  const [jdVersionId, setJdVersionId] = useState('')
+  const [resumeVersionId, setResumeVersionId] = useState('')
+  const [matchAssessmentId, setMatchAssessmentId] = useState('')
   const [title, setTitle] = useState('')
   const [targetDate, setTargetDate] = useState('')
   const [weeklyHours, setWeeklyHours] = useState('')
@@ -84,6 +88,10 @@ export function PlanCreatePage() {
         setResumes(eligibleResumes)
         const requestedJD = params.get('jd_id')
         const requestedResume = params.get('resume_id')
+        setJobTargetId(params.get('job_target_id') ?? '')
+        setJdVersionId(params.get('jd_version_id') ?? '')
+        setResumeVersionId(params.get('resume_version_id') ?? '')
+        setMatchAssessmentId(params.get('match_assessment_id') ?? '')
         const invalid = (requestedJD && !readyJDs.some((item) => item.id === requestedJD)) || (requestedResume && !eligibleResumes.some((item) => item.id === requestedResume))
         setSelectionError(invalid ? t('plans.invalidPreselection') : null)
         if (requestedJD && readyJDs.some((item) => item.id === requestedJD)) setJDId(requestedJD)
@@ -120,6 +128,10 @@ export function PlanCreatePage() {
         target_date: targetDate || undefined,
         weekly_hours: weeklyHours ? Number(weeklyHours) : undefined,
         supplemental_background: background.trim() || undefined,
+        job_target_id: jobTargetId || undefined,
+        jd_version_id: jdVersionId || undefined,
+        resume_version_id: resumeVersionId || undefined,
+        match_assessment_id: matchAssessmentId || undefined,
       })
       if (response.code === 428) { setLlmGateOpen(true); return }
       if (response.code === 5004 && response.data?.id) {

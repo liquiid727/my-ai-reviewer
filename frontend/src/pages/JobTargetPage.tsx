@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router'
+import { Link, useParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { Archive, Loader2, RefreshCw } from 'lucide-react'
+import { Archive, ChevronRight, Loader2, Plus, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
+import { listTargetMatchAssessments } from '@/api/match-assessments'
 import {
   archiveJobTarget,
   getJobTarget,
@@ -27,6 +28,7 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { JobTargetDetail, JdVersionSummary, ResumeVersionSummary } from '@/types/job-targets'
+import type { MatchAssessment } from '@/types/match-assessments'
 
 function readableDate(value: string | null) {
   return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—'
@@ -39,6 +41,11 @@ export default function JobTargetPage() {
   const [target, setTarget] = useState<JobTargetDetail | null>(null)
   const [jdVersions, setJdVersions] = useState<JdVersionSummary[]>([])
   const [resumeVersions, setResumeVersions] = useState<ResumeVersionSummary[]>([])
+  const [assessments, setAssessments] = useState<MatchAssessment[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
+  const [nextBeforeCreatedAt, setNextBeforeCreatedAt] = useState<string | null>(null)
+  const [nextBeforeId, setNextBeforeId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -64,6 +71,31 @@ export default function JobTargetPage() {
       .catch(() => setError(t('common.loading')))
       .finally(() => setLoading(false))
   }, [id, t])
+
+  async function loadHistory(beforeCreatedAt: string | null, beforeId: string | null) {
+    if (!id) return
+    setHistoryLoading(true)
+    setHistoryError(null)
+    try {
+      const resp = await listTargetMatchAssessments(id, {
+        limit: 10,
+        before_created_at: beforeCreatedAt,
+        before_id: beforeId,
+      })
+      setAssessments((prev) => (beforeId ? [...prev, ...resp.data.assessments] : resp.data.assessments))
+      setNextBeforeCreatedAt(resp.data.next_before_created_at)
+      setNextBeforeId(resp.data.next_before_id)
+    } catch {
+      setHistoryError(t('match.historyLoadFailed'))
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadHistory(null, null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
 
   async function changeDefaultResume(versionId: string) {
     if (!target) return
@@ -137,10 +169,18 @@ export default function JobTargetPage() {
         {target.archived_at ? (
           <span className="text-sm text-muted-foreground">{t('jobTargets.archived')}</span>
         ) : (
-          <Button variant="neutral" size="sm" onClick={doArchive} disabled={saving}>
-            <Archive className="mr-1 h-4 w-4" />
-            {t('jobTargets.archive')}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="neutral" size="sm">
+              <Link to={`/targets/${target.id}/match/new`}>
+                <Plus className="mr-1 h-4 w-4" />
+                {t('match.newAssessment')}
+              </Link>
+            </Button>
+            <Button variant="neutral" size="sm" onClick={doArchive} disabled={saving}>
+              <Archive className="mr-1 h-4 w-4" />
+              {t('jobTargets.archive')}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -203,6 +243,48 @@ export default function JobTargetPage() {
               <span className="text-muted-foreground">{readableDate(v.published_at)}</span>
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{t('match.history')}</CardTitle>
+          <CardDescription>{t('match.historyDesc')}</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {historyError && <p className="text-sm text-destructive">{historyError}</p>}
+          {!historyError && assessments.length === 0 && !historyLoading && (
+            <p className="text-sm text-muted-foreground">{t('match.historyEmpty')}</p>
+          )}
+          {assessments.map((a) => (
+            <Link
+              key={a.id}
+              to={`/targets/${id}/match/${a.id}`}
+              className="flex items-center justify-between rounded-base border-2 border-border bg-secondary-background px-3 py-2 text-sm hover:bg-secondary"
+            >
+              <span className="flex items-center gap-2">
+                {a.status === 'completed' && <span className="size-2 rounded-full bg-green-500" />}
+                {a.status === 'failed' && <span className="size-2 rounded-full bg-red-500" />}
+                {(a.status === 'queued' || a.status === 'evaluating') && <Loader2 className="size-3 animate-spin" />}
+                <span>{t(`match.statusLabel.${a.status}`)}</span>
+              </span>
+              <span className="flex items-center gap-2 text-muted-foreground">
+                {readableDate(a.created_at)}
+                <ChevronRight className="h-4 w-4" />
+              </span>
+            </Link>
+          ))}
+          {nextBeforeId && (
+            <Button
+              variant="neutral"
+              size="sm"
+              onClick={() => void loadHistory(nextBeforeCreatedAt, nextBeforeId)}
+              disabled={historyLoading}
+            >
+              {historyLoading && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}
+              {t('common.loadMore')}
+            </Button>
+          )}
         </CardContent>
       </Card>
     </div>

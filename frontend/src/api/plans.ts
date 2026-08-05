@@ -49,6 +49,10 @@ export function createPlan(input: {
   target_date?: string
   weekly_hours?: number
   supplemental_background?: string
+  job_target_id?: string
+  jd_version_id?: string
+  resume_version_id?: string
+  match_assessment_id?: string
 }) {
   return apiRequest<PlanResponse<{ id: string; status: PlanStatus; revision: number; generation_error?: string | null }>>(
     '/plans',

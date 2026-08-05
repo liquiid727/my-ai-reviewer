@@ -239,6 +239,49 @@ async def test_api_ensure_get_archive_flow(db_session: AsyncSession) -> None:
     app.dependency_overrides.clear()
 
 
+async def test_api_detail_enriches_job_and_pinned_versions(db_session: AsyncSession) -> None:
+    from collections.abc import AsyncGenerator
+
+    from backend.infrastructure.db.database import get_db
+    from backend.main import app
+
+    jd = await _seed_jd(db_session)
+    jd.title = "Enriched JD"
+    jd.company = "Acme"
+    await db_session.commit()
+    jd_version = await _seed_jd_version(db_session, jd.id)
+    resume_version = await _seed_resume_version(db_session)
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/v1/job-targets",
+            json={
+                "jd_id": str(jd.id),
+                "default_jd_version_id": str(jd_version.id),
+                "default_resume_version_id": str(resume_version.id),
+            },
+        )
+    assert resp.status_code == 200
+    target_id = resp.json()["data"]["id"]
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get(f"/api/v1/job-targets/{target_id}")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["job"] == {"id": str(jd.id), "title": "Enriched JD", "company": "Acme"}
+    assert data["current_jd_version"]["id"] == str(jd_version.id)
+    assert data["current_jd_version"]["version_no"] == 1
+    assert data["default_resume_version"]["id"] == str(resume_version.id)
+    assert data["default_resume_version"]["source_type"] == "parsed_resume"
+    app.dependency_overrides.clear()
+
+
 async def test_api_ensure_rejects_cross_identity_version(db_session: AsyncSession) -> None:
     from collections.abc import AsyncGenerator
 
