@@ -7,60 +7,90 @@ import type {
   ResumeUploadData,
 } from '@/types/resume'
 
-export async function uploadResume(file: File): Promise<APIResponse<ResumeUploadData>> {
+// Upload/retry endpoints may wait for the bounded broker handoff (60s) before
+// returning a durable dispatch failure, so their client budget is explicit.
+export const RESUME_COMMAND_TIMEOUT_MS = 75_000
+
+export async function uploadResume(
+  file: File,
+  signal?: AbortSignal,
+): Promise<APIResponse<ResumeUploadData>> {
   const formData = new FormData()
   formData.append('file', file)
 
-  const res = await fetch('/api/v1/resume/upload', {
+  return apiRequest('/resume/upload', {
     method: 'POST',
     body: formData,
+    signal,
+    timeoutMs: RESUME_COMMAND_TIMEOUT_MS,
   })
-  if (!res.ok) {
-    let message = `Upload failed (${res.status})`
-    try {
-      const err = await res.json()
-      message = err.message || message
-    } catch {
-      // Response body is not JSON (e.g., HTML error from proxy)
-    }
-    throw new Error(message)
-  }
-  return res.json()
 }
 
-export async function getResumeStatus(resumeId: string): Promise<APIResponse<ResumeStatusData>> {
-  return apiRequest(`/resume/${resumeId}/status`)
+export async function getResumeStatus(
+  resumeId: string,
+  signal?: AbortSignal,
+): Promise<APIResponse<ResumeStatusData>> {
+  return apiRequest(`/resume/${resumeId}/status`, { signal })
 }
 
-export async function retryResume(resumeId: string): Promise<APIResponse<ResumeStatusData>> {
-  return apiRequest(`/resume/${resumeId}/retry`, { method: 'POST' })
+/** 已解析出 profile 的简历选项（供发起面试时选择目标简历）。 */
+export interface ResumeOption {
+  id: string
+  display_name: string
+  updated_at: string | null
+}
+
+export async function listResumeOptions(): Promise<
+  APIResponse<{ items: ResumeOption[]; page: number; page_size: number; total: number }>
+> {
+  return apiRequest('/resume?has_profile=true&page_size=100')
+}
+
+export async function retryResume(
+  resumeId: string,
+  signal?: AbortSignal,
+): Promise<APIResponse<ResumeStatusData>> {
+  return apiRequest(`/resume/${resumeId}/retry`, {
+    method: 'POST',
+    signal,
+    timeoutMs: RESUME_COMMAND_TIMEOUT_MS,
+  })
 }
 
 export async function getResumeDetail(resumeId: string): Promise<APIResponse<ResumeDetailData>> {
   return apiRequest(`/resume/${resumeId}`)
 }
 
-export async function getPrivacyReview(resumeId: string): Promise<APIResponse<PrivacyReviewData>> {
-  return apiRequest(`/resume/${resumeId}/privacy`)
+export async function getPrivacyReview(
+  resumeId: string,
+  signal?: AbortSignal,
+): Promise<APIResponse<PrivacyReviewData>> {
+  return apiRequest(`/resume/${resumeId}/privacy`, { signal })
 }
 
 export async function addPrivacyMasks(
   resumeId: string,
   baseRevision: number,
   spans: Array<{ start: number; end: number; entity_type: string }>,
+  signal?: AbortSignal,
 ): Promise<APIResponse<PrivacyReviewData>> {
   return apiRequest(`/resume/${resumeId}/privacy/masks`, {
     method: 'POST',
     body: JSON.stringify({ base_revision: baseRevision, spans }),
+    signal,
+    timeoutMs: RESUME_COMMAND_TIMEOUT_MS,
   })
 }
 
 export async function approvePrivacy(
   resumeId: string,
   baseRevision: number,
-): Promise<APIResponse<{ resume_id: string; status: string }>> {
+  signal?: AbortSignal,
+): Promise<APIResponse<{ resume_id: string; status: string; run_id?: string | null }>> {
   return apiRequest(`/resume/${resumeId}/privacy/approve`, {
     method: 'POST',
     body: JSON.stringify({ base_revision: baseRevision }),
+    signal,
+    timeoutMs: RESUME_COMMAND_TIMEOUT_MS,
   })
 }

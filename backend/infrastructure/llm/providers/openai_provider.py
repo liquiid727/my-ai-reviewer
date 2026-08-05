@@ -13,11 +13,18 @@ class OpenAIProvider(BaseLLMProvider):
     通过 base_url 参数支持 DeepSeek、自部署等 OpenAI API 兼容服务。
     """
 
-    def __init__(self, api_key: str, model: str, base_url: str | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        base_url: str | None = None,
+        timeout_seconds: float | None = None,
+    ) -> None:
         self._model = model
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
+            timeout=timeout_seconds,
         )
 
     async def complete(

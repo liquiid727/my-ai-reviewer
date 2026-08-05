@@ -106,3 +106,9 @@ def _validate(evaluation: dict[str, Any]) -> None:
     missing = REQUIRED_DIMENSIONS - found_names
     if missing:
         raise ValueError(f"Missing required dimensions: {missing}")
+
+    # 改进建议为新增字段：宽容处理，缺失时回退为空列表，非列表直接拒绝
+    improvements = evaluation.get("improvements", [])
+    if not isinstance(improvements, list):
+        raise ValueError("improvements must be a list")
+    evaluation["improvements"] = [i for i in improvements if isinstance(i, dict)]

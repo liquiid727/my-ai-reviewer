@@ -330,7 +330,7 @@ export function ResumePage() {
     if (!id) return
     setCreatingInterview(true)
     try {
-      const res = await createInterview(id, jdText || undefined, questionCount)
+      const res = await createInterview({ resumeId: id, jdText: jdText || undefined, questionCount })
       if (res.code !== 0) {
         toast.error(res.message || t('resume.createFailed'))
         return

@@ -21,6 +21,17 @@ class ResumeUploadData(BaseModel):
 
     resume_id: str
     status: str
+    run_id: str | None = None
+    error_code: str | None = None
+
+
+class ResumeFailureDiagnostic(BaseModel):
+    """Safe failure fields used to correlate a failed processing run."""
+
+    error_code: str
+    step: str | None = None
+    attempt: int | None = None
+    retryable: bool = False
 
 
 class ResumeStatusData(BaseModel):
@@ -30,6 +41,12 @@ class ResumeStatusData(BaseModel):
     current_step: str  # 正在执行的步骤
     completed_steps: list[str]  # 已完成的步骤列表
     error: str | None = None  # 失败时的错误信息
+    run_id: str | None = None
+    error_code: str | None = None
+    retryable: bool = False
+    last_progress_at: datetime | None = None
+    deadline_at: datetime | None = None
+    diagnostic: ResumeFailureDiagnostic | None = None
 
 
 class ResumeDetailData(BaseModel):

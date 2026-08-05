@@ -79,10 +79,41 @@ export interface ScoreDimension {
   evidence?: string
 }
 
+export interface ScoreStrength {
+  point: string
+  evidence?: string
+}
+
+export interface ScoreRisk {
+  point: string
+  evidence?: string
+  severity?: 'high' | 'medium' | 'low' | string
+}
+
+/** 面向候选人的可执行改进建议，支持一键采纳并由 AI 修改 */
+export interface ScoreImprovement {
+  point: string
+  detail?: string
+}
+
+export interface ScoreInterviewSuggestions {
+  worth_asking?: string[]
+  suspicious?: string[]
+  verify_direction?: string[]
+  skip?: string[]
+}
+
 export interface ScoreResult {
   overall_score: number
   dimension_scores: ScoreDimension[]
+  strengths?: ScoreStrength[]
+  risks?: ScoreRisk[]
+  improvements?: ScoreImprovement[]
+  interview_suggestions?: ScoreInterviewSuggestions
   summary?: string | null
+  /** 持久化评分的元信息（仅后端保存过的评分携带） */
+  scored_at?: string | null
+  scored_revision?: number | null
 }
 
 export interface TemplateOptions {
@@ -106,6 +137,8 @@ export interface DraftListItem {
   template_id: TemplateId
   status: string
   sort_order: number
+  overall_score?: number | null
+  scored_at?: string | null
   created_at: string
   updated_at: string
 }

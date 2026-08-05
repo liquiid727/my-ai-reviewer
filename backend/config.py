@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -40,13 +41,32 @@ class Settings(BaseSettings):
     PRIVACY_QUARANTINE_KEY: str = ""
     PRIVACY_QUARANTINE_TTL_SECONDS: int = 3600
     PRIVACY_REVIEW_REQUIRED: bool = False
+    RESUME_STALE_PROCESSING_SECONDS: int = Field(600, gt=0)
+    RESUME_DISPATCH_TIMEOUT_SECONDS: int = Field(60, gt=0)
 
     # ── LLM 大模型配置 ──────────────────────────
+    LLM_REQUEST_TIMEOUT_SECONDS: float = Field(90.0, gt=0)
+    RESUME_LLM_SOFT_TIME_LIMIT_SECONDS: int = Field(120, gt=0)
+    RESUME_LLM_TIME_LIMIT_SECONDS: int = Field(150, gt=0)
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     ANTHROPIC_API_KEY: str = ""
     DEFAULT_LLM_PROVIDER: str = "openai"
     DEFAULT_LLM_MODEL: str = "gpt-4o"
+
+    @model_validator(mode="after")
+    def validate_resume_time_limits(self) -> "Settings":
+        if not (
+            self.LLM_REQUEST_TIMEOUT_SECONDS
+            < self.RESUME_LLM_SOFT_TIME_LIMIT_SECONDS
+            < self.RESUME_LLM_TIME_LIMIT_SECONDS
+        ):
+            raise ValueError(
+                "LLM_REQUEST_TIMEOUT_SECONDS must be less than "
+                "RESUME_LLM_SOFT_TIME_LIMIT_SECONDS, which must be less than "
+                "RESUME_LLM_TIME_LIMIT_SECONDS"
+            )
+        return self
 
 
 @lru_cache

@@ -20,7 +20,7 @@ from backend.application.plan_queries import get_eligible_resume_options
 from backend.application.resume_service import privacy as privacy_uc
 from backend.application.resume_service import queries as resume_queries
 from backend.application.resume_service import upload_resume
-from backend.domain.resume.enums import ResumeStatus
+from backend.domain.resume.enums import ResumeStatus, resume_status_value
 from backend.infrastructure.db.database import get_db
 
 router = APIRouter(prefix="/resume", tags=["resume"])
@@ -64,7 +64,7 @@ async def upload_resume_endpoint(
         filename=file.filename or "unknown",
         file_data=file_data,
     )
-    return APIResponse(data=ResumeUploadData(**result))
+    return APIResponse(data=ResumeUploadData.model_validate(result))
 
 
 @router.get("", response_model=APIResponse)
@@ -215,7 +215,7 @@ async def retry_resume(
     resume_id: uuid.UUID,
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:
-    """重试失败的简历处理流水线。"""
+    """重试失败或已超时的简历处理流水线。"""
     # 重跑流水线同样依赖 LLM，与上传保持一致的硬门禁
     if not await has_verified_config(session):
         return APIResponse(code=LLM_NOT_READY_CODE, message=LLM_NOT_READY_MESSAGE)
@@ -224,23 +224,40 @@ async def retry_resume(
     if resume is None:
         return APIResponse(code=404, message="Resume not found")
 
-    if resume.status != ResumeStatus.FAILED.value:
-        return APIResponse(code=400, message="Resume is not in failed state")
-    if resume.file_id is None:
-        return APIResponse(code=410, message="Original resume quarantine is no longer available")
+    status = resume_status_value(resume.status)
+    stale_statuses = {
+        ResumeStatus.TEXT_MASKED.value,
+        ResumeStatus.LLM_PARSING.value,
+        ResumeStatus.EVALUATING.value,
+    }
+    # A run owns its deadline.  Keep the legacy timestamp fallback only for
+    # rows created before processing runs were introduced; otherwise an old
+    # ``updated_at`` value can incorrectly reject a retry even after the
+    # watchdog has marked the run as failed.
+    has_processing_run = getattr(resume, "processing_run_id", None) is not None
+    if status in stale_statuses and not has_processing_run and not privacy_uc.is_processing_stale(resume):
+        return APIResponse(code=409, message="Resume processing is still active")
+    if status not in {*stale_statuses, ResumeStatus.FAILED.value}:
+        return APIResponse(code=400, message="Resume is not retryable")
 
     try:
         await privacy_uc.retry_failed_resume(session, resume)
+    except ValueError as exc:
+        message = str(exc)
+        if "still active" in message:
+            code = 409
+        else:
+            code = 410 if "quarantine" in message else 400
+        return APIResponse(code=code, message=message)
     except Exception:
         return APIResponse(code=503, message="Pipeline dispatch failed, please retry later")
 
+    payload = await resume_queries.build_status_payload(session, resume_id)
+    if payload is None:
+        return APIResponse(code=404, message="Resume not found")
     return APIResponse(
         message="Pipeline restarted",
-        data=ResumeStatusData(
-            status=ResumeStatus.UPLOADED.value,
-            current_step="text_extract",
-            completed_steps=[],
-        ).model_dump(),
+        data=ResumeStatusData(**payload).model_dump(),
     )
 
 
@@ -251,7 +268,7 @@ async def reparse_resume_endpoint(
 ) -> APIResponse:
     """对任意已存简历重新解析（从 text_extract 起重跑），并保留上一版本快照。
 
-    与 /retry 不同：/retry 仅适用于 failed 状态；/reparse 适用于任意状态（如
+    与 /retry 不同：/retry 适用于 failed 或已超时的处理中状态；/reparse 适用于任意状态（如
     parser/extractor 版本升级后对历史简历重跑），并将当前结果快照入历史。
     """
     existing = await resume_queries.get_resume_for_mutation(session, resume_id)
@@ -266,13 +283,12 @@ async def reparse_resume_endpoint(
     except Exception:
         return APIResponse(code=503, message="Pipeline dispatch failed, please retry later")
 
+    payload = await resume_queries.build_status_payload(session, resume_id)
+    if payload is None:
+        return APIResponse(code=404, message="Resume not found")
     return APIResponse(
         message="Re-parse started",
-        data=ResumeStatusData(
-            status=ResumeStatus.UPLOADED.value,
-            current_step="text_extract",
-            completed_steps=[],
-        ).model_dump(),
+        data=ResumeStatusData(**payload).model_dump(),
     )
 
 

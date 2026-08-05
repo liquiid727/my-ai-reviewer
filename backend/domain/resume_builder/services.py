@@ -6,6 +6,7 @@ import base64
 import logging
 import uuid
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select, update
@@ -705,6 +706,32 @@ async def score_draft(gateway: LLMGateway, draft: ResumeDraft) -> dict[str, Any]
     evaluator = LLMResumeEvaluator(gateway)
     parsed_result = draft_to_parsed_result(draft)
     return await evaluator.evaluate(parsed_result)
+
+
+async def save_draft_score(
+    session: AsyncSession,
+    draft_id: uuid.UUID,
+    evaluation: dict[str, Any],
+) -> ResumeDraftModel:
+    """把最新评分结果持久化到草稿，记录评分时间与评分时的 revision。"""
+    model = await get_draft(session, draft_id)
+    model.latest_score = evaluation
+    model.scored_at = datetime.now(timezone.utc)
+    model.scored_revision = int(getattr(model, "revision", 1))
+    await session.commit()
+    await session.refresh(model)
+    return model
+
+
+def serialize_draft_score(model: ResumeDraftModel) -> dict[str, Any] | None:
+    """序列化草稿的持久化评分；未评分时返回 None。"""
+    if not model.latest_score:
+        return None
+    payload = dict(model.latest_score)
+    payload.pop("_meta", None)
+    payload["scored_at"] = model.scored_at.isoformat() if model.scored_at else None
+    payload["scored_revision"] = model.scored_revision
+    return payload
 
 
 def draft_photo_data_uri(draft: ResumeDraft) -> str | None:

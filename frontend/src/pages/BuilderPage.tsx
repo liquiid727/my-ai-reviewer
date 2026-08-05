@@ -37,6 +37,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Bot,
+  RefreshCw,
+  CircleCheck,
 } from 'lucide-react'
 
 import { BuilderSaveStatus } from '@/components/builder/BuilderSaveStatus'
@@ -50,6 +52,10 @@ import {
   updateDraft,
   polishSection,
   scoreDraft,
+  getDraftScore,
+  createAssistantTurn,
+  applyAssistantProposal,
+  AssistantApiError,
   exportDraftPdf,
   previewDraftPdf,
   previewUrl,
@@ -68,6 +74,7 @@ import type {
   TemplateId,
   PolishResult,
   ScoreResult,
+  ScoreImprovement,
   UpdateDraftPayload,
   PhotoBgColor,
   PhotoUploadResult,
@@ -77,6 +84,20 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion'
 import { LLMGateDialog } from '@/components/LLMGateDialog'
 import { ExportPreviewDialog } from '@/components/ExportPreviewDialog'
 import { ResumeAssistantPanel } from '@/components/ResumeAssistantPanel'
@@ -122,7 +143,10 @@ const SIDEBAR_ITEM_CLASS =
 const FIELD_LABEL_CLASS = 'mb-1 block text-xs font-heading text-gray-500'
 
 // 编辑面板可编辑目标：样式 / 证件照 / 简介 / 某个 section 下标
-type PanelKey = 'style' | 'photo' | 'summary' | 'assistant' | number
+type PanelKey = 'style' | 'photo' | 'summary' | number
+
+// 评分进度弹窗展示的阶段性文案（实际完成时机由 API 返回驱动）
+const SCORE_STEP_KEYS = ['scoreStep1', 'scoreStep2', 'scoreStep3'] as const
 
 interface PolishTarget {
   sectionIdx: number
@@ -148,14 +172,27 @@ export function BuilderPage() {
   const [scoring, setScoring] = useState(false)
   const [score, setScore] = useState<ScoreResult | null>(null)
   const [scoreOpen, setScoreOpen] = useState(false)
+  // 上次持久化评分（后端保存的最新结果），再次点击“AI 打分”时直接展示
+  const [savedScore, setSavedScore] = useState<ScoreResult | null>(null)
+  // 评分进度弹窗状态：running 显示分步进度，done 短暂显示完成后打开报告抽屉
+  const [scoreProgress, setScoreProgress] = useState<'closed' | 'running' | 'done'>('closed')
+  const [scoreStepIdx, setScoreStepIdx] = useState(0)
+  // “简历已更新，是否重新评分？”确认弹窗
+  const [rescoreDialogOpen, setRescoreDialogOpen] = useState(false)
+  // 正在采纳的改进建议索引；null 表示空闲
+  const [adoptingIdx, setAdoptingIdx] = useState<number | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportPreviewOpen, setExportPreviewOpen] = useState(false)
   const [exportReplacements, setExportReplacements] = useState<Record<string, string>>({})
   const [previewSrc, setPreviewSrc] = useState('')
   const [previewRequestKey, setPreviewRequestKey] = useState(0)
+  // 预览 iframe 加载态：src 变化（首次加载 / 保存后刷新）时显示占位，onLoad 后切换为真实内容
+  const [previewLoading, setPreviewLoading] = useState(true)
 
   // 当前打开的编辑面板； null 表示关闭（预览独占）
   const [activePanel, setActivePanel] = useState<PanelKey | null>(null)
+  // 编辑模式：填写模式（板块导航）/ AI 助手模式（左侧变为与 AI Agent 的对话）
+  const [editorMode, setEditorMode] = useState<'form' | 'assistant'>('form')
   // 左侧内容区（板块导航 + 编辑面板）可整体收起，给预览更多空间
   const [editorVisible, setEditorVisible] = useState(true)
 
@@ -754,25 +791,131 @@ export function BuilderPage() {
   }, [draft, runPolish, mutate, ensureLlmReady, t])
 
   // ─────────────────────────── AI 打分 ───────────────────────────
-  const doScore = useCallback(async () => {
+  // 挂载时拉取持久化的最新评分（存在时再次点击“AI 打分”直接展示上次结果）
+  useEffect(() => {
+    if (!draftId) return
+    let cancelled = false
+    getDraftScore(draftId)
+      .then((res) => {
+        if (!cancelled && res.code === 0 && res.data) setSavedScore(res.data)
+      })
+      .catch(() => {
+        // 拉取失败退回首次评分行为，不打扰用户
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [draftId])
+
+  // 评分进行中时按间隔推进进度步骤，传达持续处理感（真正完成由 API 返回驱动）
+  useEffect(() => {
+    if (scoreProgress !== 'running') return
+    setScoreStepIdx(0)
+    const timer = window.setInterval(() => {
+      setScoreStepIdx((idx) => Math.min(idx + 1, SCORE_STEP_KEYS.length - 1))
+    }, 3500)
+    return () => window.clearInterval(timer)
+  }, [scoreProgress])
+
+  const runScoring = useCallback(async () => {
     if (!draftId) return
     if (!ensureLlmReady()) return
     setScoring(true)
+    setScoreProgress('running')
     try {
       const res = await scoreDraft(draftId)
       if (res.code !== 0) {
+        setScoreProgress('closed')
         if (handleLlmNotReady(res.code)) return
         toast.error(res.message || t('builder.scoreFailed'))
         return
       }
-      setScore(res.data)
-      setScoreOpen(true)
+      setSavedScore(res.data)
+      setScoreProgress('done')
+      // 短暂展示完成态后再打开报告抽屉
+      window.setTimeout(() => {
+        setScoreProgress('closed')
+        setScore(res.data)
+        setScoreOpen(true)
+      }, 900)
     } catch (err) {
+      setScoreProgress('closed')
       toast.error((err as Error).message || t('builder.scoreFailed'))
     } finally {
       setScoring(false)
     }
   }, [draftId, ensureLlmReady, handleLlmNotReady, t])
+
+  // 点击“AI 打分”：无历史 → 直接评分；最新 → 展示上次结果；已过期 → 询问是否重新评分
+  const doScore = useCallback(() => {
+    if (!ensureLlmReady()) return
+    if (!savedScore) {
+      void runScoring()
+      return
+    }
+    const stale =
+      savedScore.scored_revision != null &&
+      draft != null &&
+      savedScore.scored_revision !== draft.revision
+    if (stale) {
+      setRescoreDialogOpen(true)
+      return
+    }
+    setScore(savedScore)
+    setScoreOpen(true)
+  }, [draft, savedScore, ensureLlmReady, runScoring])
+
+  // 采纳改进建议：复用 assistant proposal 流程（flush → 以建议为指令 → 应用全部变更）
+  const adoptSuggestion = useCallback(
+    async (item: ScoreImprovement, index: number) => {
+      if (!draftId || !draft) return
+      if (!ensureLlmReady()) return
+      setAdoptingIdx(index)
+      try {
+        const baseRevision = await flushDraft()
+        const instruction = item.detail
+          ? `请根据以下改进建议修改简历。\n建议：${item.point}\n具体要求：${item.detail}`
+          : `请根据以下改进建议修改简历：${item.point}`
+        const turnRes = await createAssistantTurn(draftId, {
+          message: instruction,
+          base_revision: baseRevision,
+          client_request_id: crypto.randomUUID(),
+        })
+        if (turnRes.code !== 0) {
+          toast.error(turnRes.message || t('builder.suggestionAdoptFailed'))
+          return
+        }
+        const proposal = [...turnRes.data.proposals]
+          .reverse()
+          .find((p) => p.status === 'proposed')
+        if (!proposal || proposal.operations.length === 0) {
+          toast.info(t('builder.suggestionNoChanges'))
+          return
+        }
+        const applyRes = await applyAssistantProposal(
+          draftId,
+          proposal.proposal_id,
+          baseRevision,
+          proposal.operations.map((op) => op.operation_id),
+        )
+        if (applyRes.code !== 0) {
+          toast.error(applyRes.message || t('builder.suggestionAdoptFailed'))
+          return
+        }
+        acceptServerDraft(applyRes.data)
+        toast.success(t('builder.suggestionAdopted'))
+      } catch (err) {
+        if (err instanceof AssistantApiError && err.status === 409) {
+          // revision 冲突时重新拉取最新草稿，用户确认内容后可再次尝试
+          await reloadDraft()
+        }
+        toast.error((err as Error).message || t('builder.suggestionAdoptFailed'))
+      } finally {
+        setAdoptingIdx(null)
+      }
+    },
+    [draftId, draft, ensureLlmReady, flushDraft, acceptServerDraft, reloadDraft, t],
+  )
 
   // ─────────────────────────── 导出 PDF ───────────────────────────
   const openExportPreview = useCallback(() => {
@@ -819,6 +962,10 @@ export function BuilderPage() {
   }, [previewSrc])
 
   const src = draftId ? `${previewUrl(draftId)}?v=${previewNonce}` : ''
+
+  useEffect(() => {
+    if (src) setPreviewLoading(true)
+  }, [src])
 
   // ─────────────────────────── 证件照 ───────────────────────────
   // 后端错误差异化文案：501 未安装图像组件 / 422 未检测到人脸 / 400 解码失败等
@@ -935,6 +1082,11 @@ export function BuilderPage() {
     if (!score) return []
     return score.dimension_scores.map((d) => ({ name: d.name, score: d.score }))
   }, [score])
+
+  // 当前展示的评分是否基于旧版本简历（评分后内容又发生了变化）
+  const isScoreStale = Boolean(
+    score?.scored_revision != null && draft && score.scored_revision !== draft.revision,
+  )
 
   const togglePreviewFullscreen = useCallback(async () => {
     const element = previewElementRef.current
@@ -1099,7 +1251,7 @@ export function BuilderPage() {
             ) : (
               <BarChart3 className="h-4 w-4" />
             )}
-            {t('builder.score')}
+            {savedScore ? t('builder.lastScore') : t('builder.score')}
             {llmBlocked && (
               <span className="text-xs font-base text-red-700">
                 {t('llmGate.notConfiguredShort')}
@@ -1136,8 +1288,65 @@ export function BuilderPage() {
       <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
         {editorVisible && (
           <>
-            {/* 左：板块导航，点击打开编辑抽屉 */}
-            <aside className="flex shrink-0 flex-col gap-2 p-1 lg:min-h-0 lg:w-56">
+            {/* 左：模式切换 + 板块导航（填写模式）/ AI 助手对话（助手模式） */}
+            <aside
+              className={`flex shrink-0 flex-col gap-2 p-1 lg:min-h-0 ${
+                editorMode === 'assistant' ? 'lg:w-[420px]' : 'lg:w-56'
+              }`}
+            >
+              {/* 填写模式 / AI 助手模式自由切换 */}
+              <div className="flex shrink-0 gap-1 rounded-base border-2 border-border bg-white p-1 shadow-shadow">
+                <button
+                  type="button"
+                  onClick={() => setEditorMode('form')}
+                  aria-pressed={editorMode === 'form'}
+                  className={`flex-1 rounded-sm px-2 py-1 text-xs font-heading transition-colors ${
+                    editorMode === 'form' ? 'bg-main' : 'hover:bg-main/40'
+                  }`}
+                >
+                  {t('builder.modeFill')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditorMode('assistant')}
+                  aria-pressed={editorMode === 'assistant'}
+                  className={`flex flex-1 items-center justify-center gap-1 rounded-sm px-2 py-1 text-xs font-heading transition-colors ${
+                    editorMode === 'assistant' ? 'bg-main' : 'hover:bg-main/40'
+                  }`}
+                >
+                  <Bot className="h-3.5 w-3.5 shrink-0" />
+                  {t('builder.modeAssistant')}
+                </button>
+              </div>
+              {editorMode === 'assistant' ? (
+                <section className="flex min-h-[60vh] flex-1 flex-col overflow-hidden rounded-base border-2 border-border bg-background shadow-shadow lg:min-h-0">
+                  <div className="flex shrink-0 items-center gap-2 border-b-2 border-border p-3">
+                    <h2 className="min-w-0 flex-1 truncate font-heading text-lg">
+                      {t('builder.assistant.title')}
+                    </h2>
+                    <span
+                      className={`h-2 w-2 shrink-0 rounded-full border border-black ${
+                        llmReady ? 'bg-green-500' : 'bg-red-400'
+                      }`}
+                      title={t(llmReady ? 'builder.assistant.ready' : 'builder.assistant.notReady')}
+                    />
+                  </div>
+                  <div className="flex min-h-0 flex-1 overflow-hidden">
+                    {draftId && (
+                      <ResumeAssistantPanel
+                        draftId={draftId}
+                        revision={draft.revision}
+                        llmReady={llmReady}
+                        modelLabel={activeLlmModel}
+                        ensureLlmReady={ensureLlmReady}
+                        flushDraft={flushDraft}
+                        onDraftChanged={acceptServerDraft}
+                        onConflict={reloadDraft}
+                      />
+                    )}
+                  </div>
+                </section>
+              ) : (
               <div className="flex min-h-0 flex-1 flex-row gap-2 overflow-x-auto lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:pr-1">
                 <p className="hidden shrink-0 text-xs font-heading text-gray-500 lg:block">
                   {t('builder.blocks')}
@@ -1189,41 +1398,13 @@ export function BuilderPage() {
                 </button>
               ))}
               </div>
-              <button
-                type="button"
-                onClick={() => togglePanel('assistant')}
-                aria-pressed={activePanel === 'assistant'}
-                className={`${SIDEBAR_ITEM_CLASS} w-full ${
-                  activePanel === 'assistant' ? 'bg-main' : 'bg-white'
-                }`}
-              >
-                <Bot className="h-4 w-4 shrink-0" />
-                <span className="min-w-0 flex-1 text-left">
-                  <span className="block truncate">{t('builder.assistant.dock')}</span>
-                  <span className={`block truncate text-[11px] font-base ${llmReady ? 'text-green-700' : 'text-red-700'}`}>
-                    {t(llmReady ? 'builder.assistant.ready' : 'builder.assistant.notReady')}
-                  </span>
-                </span>
-                <span className={`h-2 w-2 shrink-0 rounded-full border border-black ${llmReady ? 'bg-green-500' : 'bg-red-400'}`} />
-              </button>
+              )}
             </aside>
 
             {/* 中：内嵌编辑面板，与预览并排，编辑时预览实时可见 */}
-            {activePanel === 'assistant' && (
-              <button
-                type="button"
-                className="fixed inset-0 z-30 bg-black/30 2xl:hidden"
-                aria-label={t('common.close')}
-                onClick={() => setActivePanel(null)}
-              />
-            )}
             {activePanel !== null && (
               <section
-                className={`flex min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-base border-2 border-border bg-background shadow-shadow ${
-                  activePanel === 'assistant'
-                    ? 'fixed inset-x-3 bottom-3 z-40 h-[min(78vh,680px)] lg:left-auto lg:w-[400px] 2xl:static 2xl:h-auto'
-                    : 'lg:w-[400px]'
-                }`}
+                className="flex min-h-0 w-full shrink-0 flex-col overflow-hidden rounded-base border-2 border-border bg-background shadow-shadow lg:w-[400px]"
               >
             <div className="flex shrink-0 items-center gap-2 border-b-2 border-border p-3">
               <h2 className="min-w-0 flex-1 truncate font-heading text-lg">
@@ -1233,8 +1414,6 @@ export function BuilderPage() {
                     ? t('builder.photo.title')
                     : activePanel === 'summary'
                       ? t('builder.summary')
-                      : activePanel === 'assistant'
-                        ? t('builder.assistant.title')
                       : activeSection
                         ? sectionLabel(activeSection)
                         : ''}
@@ -1280,23 +1459,7 @@ export function BuilderPage() {
               </button>
             </div>
 
-            <div
-              className={`min-h-0 flex-1 ${
-                activePanel === 'assistant' ? 'flex overflow-hidden' : 'overflow-y-auto p-4'
-              }`}
-            >
-            {activePanel === 'assistant' && draftId && (
-              <ResumeAssistantPanel
-                draftId={draftId}
-                revision={draft.revision}
-                llmReady={llmReady}
-                modelLabel={activeLlmModel}
-                ensureLlmReady={ensureLlmReady}
-                flushDraft={flushDraft}
-                onDraftChanged={acceptServerDraft}
-                onConflict={reloadDraft}
-              />
-            )}
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
             {/* 样式美化面板：模板 / 密度 / 主题色 / 字体 / 页边距 / 自定义 CSS */}
             {activePanel === 'style' && (
               <div className="space-y-4">
@@ -1686,7 +1849,7 @@ export function BuilderPage() {
         >
           <div className="h-full overflow-auto" style={{ padding: PREVIEW_PADDING }}>
             <div
-              className="mx-auto"
+              className="relative mx-auto"
               style={{ width: A4_WIDTH * previewScale, height: previewViewH }}
             >
               {/* iframe 固定 A4 宽度，transform 等比缩放；页面内容在 iframe 内部滚动 */}
@@ -1702,7 +1865,34 @@ export function BuilderPage() {
                     transform: `scale(${previewScale})`,
                     transformOrigin: 'top left',
                   }}
+                  onLoad={() => setPreviewLoading(false)}
                 />
+              )}
+              {/* 预览加载占位：避免 src 切换期间出现空白白纸被误认为卡顿 */}
+              {!exportPreviewOpen && previewLoading && (
+                <div
+                  className="absolute inset-0 flex flex-col bg-white p-8 shadow-[4px_4px_0_0_rgba(0,0,0,0.35)]"
+                  aria-busy="true"
+                  aria-label={t('builder.previewLoading')}
+                >
+                  <Skeleton className="h-7 w-1/3" />
+                  <Skeleton className="mt-2 h-4 w-1/2" />
+                  <div className="mt-6 space-y-2.5">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-11/12" />
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-4/5" />
+                  </div>
+                  <div className="mt-6 space-y-2.5">
+                    <Skeleton className="h-4 w-2/3" />
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-10/12" />
+                  </div>
+                  <div className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    {t('builder.previewLoading')}
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -1813,21 +2003,50 @@ export function BuilderPage() {
         </div>
       )}
 
-      {/* AI 打分抽屉 */}
+      {/* AI 评分报告抽屉：总分 + 雷达图 + 可折叠的优劣势/建议/风险/面试官视角/维度详情 */}
       {scoreOpen && score && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/40" onClick={() => setScoreOpen(false)} />
           <div className="relative z-10 h-full w-full max-w-md overflow-auto border-l-2 border-border bg-background p-6 shadow-shadow">
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex items-center justify-between gap-2">
               <h2 className="font-heading text-xl">{t('builder.score')}</h2>
-              <button onClick={() => setScoreOpen(false)} aria-label={t('common.close')}>
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="neutral"
+                  disabled={scoring}
+                  onClick={() => {
+                    setScoreOpen(false)
+                    void runScoring()
+                  }}
+                >
+                  {scoring ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  {t('builder.rescore')}
+                </Button>
+                <button onClick={() => setScoreOpen(false)} aria-label={t('common.close')}>
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
-            <div className="mb-4 flex items-center gap-3">
+            <div className="mb-2 flex items-center gap-3">
               <span className="text-4xl font-black">{score.overall_score}</span>
               <span className="text-sm text-gray-500">{t('builder.scoreOverall')}</span>
             </div>
+            {score.scored_at && (
+              <p className="mb-2 text-xs text-gray-500">
+                {t('builder.scoredAt', { time: new Date(score.scored_at).toLocaleString() })}
+              </p>
+            )}
+            {isScoreStale && (
+              <Alert className="mb-3">
+                <CircleAlert />
+                <AlertDescription>{t('builder.staleScoreHint')}</AlertDescription>
+              </Alert>
+            )}
             <div className="h-72 w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="75%">
@@ -1847,18 +2066,266 @@ export function BuilderPage() {
                 </RadarChart>
               </ResponsiveContainer>
             </div>
-            <div className="mt-4 space-y-2">
-              {score.dimension_scores.map((d) => (
-                <div key={d.name} className="flex items-center justify-between text-sm">
-                  <span>{d.name}</span>
-                  <Badge variant="neutral">{d.score}</Badge>
-                </div>
-              ))}
-            </div>
-            {score.summary && <p className="mt-4 text-sm text-gray-600">{score.summary}</p>}
+            <Accordion type="multiple" defaultValue={['summary']} className="mt-4 space-y-2">
+              {score.summary && (
+                <AccordionItem value="summary">
+                  <AccordionTrigger>{t('builder.scoreSummaryTitle')}</AccordionTrigger>
+                  <AccordionContent>
+                    <p className="text-sm text-gray-700">{score.summary}</p>
+                  </AccordionContent>
+                </AccordionItem>
+              )}
+              <AccordionItem value="strengths">
+                <AccordionTrigger>{t('builder.scoreStrengths')}</AccordionTrigger>
+                <AccordionContent>
+                  {score.strengths && score.strengths.length > 0 ? (
+                    <ul className="space-y-2">
+                      {score.strengths.map((item, idx) => (
+                        <li key={idx} className="text-sm">
+                          <p className="font-bold">{item.point}</p>
+                          {item.evidence && (
+                            <p className="mt-0.5 text-xs text-gray-600">
+                              {t('builder.scoreEvidence')}：{item.evidence}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-gray-500">{t('builder.scoreNoStrengths')}</p>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+              <AccordionItem value="improvements">
+                <AccordionTrigger>{t('builder.scoreImprovements')}</AccordionTrigger>
+                <AccordionContent>
+                  {score.improvements && score.improvements.length > 0 ? (
+                    <div className="space-y-3">
+                      {score.improvements.map((item, idx) => (
+                        <div
+                          key={idx}
+                          className="rounded-base border-2 border-border bg-white p-3 shadow-shadow"
+                        >
+                          <p className="text-sm font-bold">{item.point}</p>
+                          {item.detail && (
+                            <p className="mt-1 text-xs text-gray-600">{item.detail}</p>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="neutral"
+                            className="mt-2"
+                            disabled={adoptingIdx !== null}
+                            onClick={() => void adoptSuggestion(item, idx)}
+                          >
+                            {adoptingIdx === idx ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Sparkles className="h-3 w-3" />
+                            )}
+                            {adoptingIdx === idx
+                              ? t('builder.adoptingSuggestion')
+                              : t('builder.adoptSuggestion')}
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">{t('builder.scoreNoImprovements')}</p>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+              <AccordionItem value="risks">
+                <AccordionTrigger>{t('builder.scoreRisks')}</AccordionTrigger>
+                <AccordionContent>
+                  {score.risks && score.risks.length > 0 ? (
+                    <ul className="space-y-2">
+                      {score.risks.map((item, idx) => (
+                        <li key={idx} className="text-sm">
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold">{item.point}</p>
+                            {item.severity && (
+                              <Badge
+                                variant="neutral"
+                                className={
+                                  item.severity === 'high'
+                                    ? 'bg-red-400 text-red-900 border-red-700'
+                                    : undefined
+                                }
+                              >
+                                {t(`builder.risk_${item.severity}`, {
+                                  defaultValue: item.severity,
+                                })}
+                              </Badge>
+                            )}
+                          </div>
+                          {item.evidence && (
+                            <p className="mt-0.5 text-xs text-gray-600">
+                              {t('builder.scoreEvidence')}：{item.evidence}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-gray-500">{t('builder.scoreNoRisks')}</p>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+              {score.interview_suggestions && (
+                <AccordionItem value="interview">
+                  <AccordionTrigger>{t('builder.scoreInterviewTips')}</AccordionTrigger>
+                  <AccordionContent>
+                    <div className="space-y-3 text-sm">
+                      {(score.interview_suggestions.worth_asking?.length ?? 0) > 0 && (
+                        <div>
+                          <p className="font-bold">{t('builder.scoreWorthAsking')}</p>
+                          <ul className="mt-1 list-disc pl-5 text-gray-700">
+                            {score.interview_suggestions.worth_asking?.map((item, idx) => (
+                              <li key={idx}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {(score.interview_suggestions.suspicious?.length ?? 0) > 0 && (
+                        <div>
+                          <p className="font-bold">{t('builder.scoreSuspicious')}</p>
+                          <ul className="mt-1 list-disc pl-5 text-gray-700">
+                            {score.interview_suggestions.suspicious?.map((item, idx) => (
+                              <li key={idx}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {(score.interview_suggestions.verify_direction?.length ?? 0) > 0 && (
+                        <div>
+                          <p className="font-bold">{t('builder.scoreVerifyDirection')}</p>
+                          <ul className="mt-1 list-disc pl-5 text-gray-700">
+                            {score.interview_suggestions.verify_direction?.map((item, idx) => (
+                              <li key={idx}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {(score.interview_suggestions.skip?.length ?? 0) > 0 && (
+                        <div>
+                          <p className="font-bold">{t('builder.scoreSkip')}</p>
+                          <ul className="mt-1 list-disc pl-5 text-gray-700">
+                            {score.interview_suggestions.skip?.map((item, idx) => (
+                              <li key={idx}>{item}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              )}
+              <AccordionItem value="dimensions">
+                <AccordionTrigger>{t('builder.scoreDimensionDetail')}</AccordionTrigger>
+                <AccordionContent>
+                  <div className="space-y-3">
+                    {score.dimension_scores.map((d) => (
+                      <div key={d.name} className="text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold">{d.name}</span>
+                          <Badge variant="neutral">{d.score}</Badge>
+                        </div>
+                        {d.reason && <p className="mt-1 text-xs text-gray-600">{d.reason}</p>}
+                        {d.evidence && (
+                          <p className="mt-0.5 text-xs text-gray-500">
+                            {t('builder.scoreEvidence')}：{d.evidence}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </div>
         </div>
       )}
+
+      {/* 评分进度弹窗：运行中不可关闭，完成后短暂展示再打开报告 */}
+      <Dialog
+        open={scoreProgress !== 'closed'}
+        onOpenChange={(next) => {
+          if (!next && scoreProgress === 'done') setScoreProgress('closed')
+        }}
+      >
+        <DialogContent
+          className="max-w-sm"
+          onInteractOutside={(e) => {
+            if (scoreProgress === 'running') e.preventDefault()
+          }}
+          onEscapeKeyDown={(e) => {
+            if (scoreProgress === 'running') e.preventDefault()
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{t('builder.scoreProgressTitle')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            {scoreProgress === 'done' ? (
+              <div className="flex items-center gap-2 text-sm font-bold text-green-700">
+                <CircleCheck className="h-4 w-4 shrink-0" />
+                {t('builder.scoreStepDone')}
+              </div>
+            ) : (
+              SCORE_STEP_KEYS.map((key, idx) => (
+                <div
+                  key={key}
+                  className={`flex items-center gap-2 text-sm ${
+                    idx <= scoreStepIdx ? '' : 'opacity-40'
+                  }`}
+                >
+                  {idx < scoreStepIdx ? (
+                    <CircleCheck className="h-4 w-4 shrink-0 text-green-700" />
+                  ) : idx === scoreStepIdx ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                  ) : (
+                    <span className="h-4 w-4 shrink-0 rounded-full border-2 border-border" />
+                  )}
+                  {t(`builder.${key}`)}
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 简历已更新时的重新评分确认 */}
+      <Dialog open={rescoreDialogOpen} onOpenChange={setRescoreDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('builder.rescoreConfirmTitle')}</DialogTitle>
+            <DialogDescription>{t('builder.rescoreConfirmDesc')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="neutral"
+              onClick={() => {
+                setRescoreDialogOpen(false)
+                if (savedScore) {
+                  setScore(savedScore)
+                  setScoreOpen(true)
+                }
+              }}
+            >
+              {t('builder.viewLastScore')}
+            </Button>
+            <Button
+              onClick={() => {
+                setRescoreDialogOpen(false)
+                void runScoring()
+              }}
+            >
+              <RefreshCw className="h-4 w-4" />
+              {t('builder.rescore')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* LLM 配置门禁弹窗：进入页面未就绪时自动弹出，AI 动作触发时也会拦截唤起 */}
       <LLMGateDialog

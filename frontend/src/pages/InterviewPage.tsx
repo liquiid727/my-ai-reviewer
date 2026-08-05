@@ -17,12 +17,20 @@ import {
   XCircle,
   MessageSquare,
   ArrowRight,
+  Timer,
 } from 'lucide-react'
 
 const DIFFICULTY_COLORS: Record<string, string> = {
   easy: 'bg-green-400 text-green-900 border-green-700',
   medium: 'bg-yellow-300 text-yellow-900 border-yellow-700',
   hard: 'bg-red-400 text-red-900 border-red-700',
+}
+
+// 计时器显示格式：mm:ss
+function formatElapsed(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
 function ScoreBadge({ score }: { score: number }) {
@@ -41,6 +49,9 @@ export function InterviewPage() {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(true)
   const [answerText, setAnswerText] = useState('')
+  // 面试房间计时：总时长 + 当前题目用时（新题/追问时重置本题计时）
+  const [totalSeconds, setTotalSeconds] = useState(0)
+  const [questionSeconds, setQuestionSeconds] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -68,6 +79,8 @@ export function InterviewPage() {
     if (!id) return
     reset()
     setLoading(true)
+    setTotalSeconds(0)
+    setQuestionSeconds(0)
 
     startInterview(id)
       .then((res) => {
@@ -97,6 +110,23 @@ export function InterviewPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
+
+  const currentQuestionId = currentQuestion?.question_id ?? null
+
+  // 总计时：从首题展示开始，面试结束后停止
+  useEffect(() => {
+    if (!currentQuestionId || isFinished) return
+    const timer = window.setInterval(() => setTotalSeconds((s) => s + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [currentQuestionId, isFinished])
+
+  // 本题计时：切换到新题/追问时归零
+  useEffect(() => {
+    setQuestionSeconds(0)
+    if (!currentQuestionId || isFinished) return
+    const timer = window.setInterval(() => setQuestionSeconds((s) => s + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [currentQuestionId, isFinished])
 
   const handleSubmit = async () => {
     if (!id || !currentQuestion || !answerText.trim() || isSubmitting) return
@@ -199,7 +229,21 @@ export function InterviewPage() {
             </span>
           )}
         </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1 font-heading">
+              <Timer className="size-3.5" />
+              {t('interview.timerTotal')} {formatElapsed(totalSeconds)}
+            </span>
+            {currentQuestion && !isFinished && (
+              <span className="font-heading">
+                {t('interview.timerQuestion')} {formatElapsed(questionSeconds)}
+              </span>
+            )}
+          </div>
+        </div>
         <Progress value={progress} className="h-3" />
+        <p className="text-xs text-muted-foreground">{t('interview.roomHint')}</p>
       </div>
 
       {/* Chat Messages */}

@@ -2,7 +2,7 @@
 
 **Status**: Active as-built baseline
 
-**Last Updated**: 2026-08-04
+**Last Updated**: 2026-08-05
 
 **Runtime**: Python 3.12 target, FastAPI, SQLAlchemy async, Celery, PostgreSQL, Redis, and MinIO.
 
@@ -86,7 +86,13 @@ Rules for new code:
 
 The upload path validates the file, encrypts it into the short-lived quarantine bucket, records the manifest, and dispatches processing. Local redaction creates placeholders and risk flags. When review is required, the browser can add revision-checked masks and approve only after a final `PrivacyGuard` scan. The masked pipeline then extracts text, calls the LLM for facts/profile data, classifies skills, and evaluates the resume.
 
-The important resume state values are `uploaded`, `privacy_scanning`, `privacy_review_required`, `text_masked`, `fact_extracted`, `classified`, `evaluated`, and `failed`. The exact transition logic is owned by the resume service and task pipeline; feature specs under `specs/RIP-001-*` and `specs/RIP-009-*` define acceptance behavior.
+The important resume state values are `uploaded`, `privacy_scanning`, `privacy_review_required`, `text_masked`, `llm_parsing`, `fact_extracted`, `classified`, `evaluating`, `evaluated`, and `failed`. `text_masked` is the approved masked handoff, while `llm_parsing` and `evaluating` make active LLM work observable. Each dispatch carries a `processing_run_id`; stale workers exit without writes. Worker events use the `resume.stage.*` and `resume.llm.*` envelopes with resource/run/task/step/attempt/error-code/duration fields and never include prompt or resume content. The exact transition logic is owned by the resume service and task pipeline; feature specs under `specs/RIP-001-*` and `specs/RIP-009-*` define acceptance behavior.
+
+#### Processing ownership and convergence
+
+`resume_processing_runs` is the durable execution ledger. Upload, privacy approval, retry, and reparse each create or activate a run with a unique active owner for that resume. A run records its current step, Celery task ID, attempt, last progress, deadline, terminal status, retryability, and safe error code. `resumes.processing_run_id` is only a fast current-owner pointer; all worker writes still verify the run row under a row lock.
+
+Every stage has a deadline. Provider calls have both SDK and gateway-level timeouts, and LLM tasks have bounded soft/hard limits with at most two transient retries. Broker handoff failures are persisted as failed runs. Celery Beat reconciles overdue queued/running runs every 30 seconds, and the status endpoint performs the same lazy reconciliation for a single resume. Expired work is never silently requeued: the user must explicitly retry, while an old worker becomes a no-op if a newer run owns the resume.
 
 ### 4.2 Interview workflow
 
@@ -175,8 +181,8 @@ The route files are the exhaustive contract source for paths and request models.
 
 - Transport validation is handled by FastAPI/Pydantic.
 - Known domain failures are translated to response codes/messages in the router or global handlers.
-- Pipeline failures persist a `failed` state and an error message suitable for retry or user display.
-- Celery jobs use resource IDs and run IDs so retries target an existing resource rather than creating an untracked duplicate.
+- Pipeline failures persist a `failed` state, a stable allow-listed `error_code`, and a safe message suitable for retry or user display; provider payloads and exception text are not persisted.
+- Celery jobs use resource IDs and run IDs so retries target an existing resource rather than creating an untracked duplicate. Each task has a hard/soft limit and stale ownership checks; overdue runs converge through Beat or a status read and require manual retry.
 - Plan and Builder mutations use revision checks and return conflict behavior when the browser edits stale state.
 - Privacy expiry removes the quarantine object and prevents later approval of an expired review.
 

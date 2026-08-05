@@ -9,17 +9,25 @@ import type {
   InterviewListItem,
 } from '@/types/interview'
 
+export interface CreateInterviewParams {
+  /** 已评估简历发起（与 draftId 二选一） */
+  resumeId?: string
+  /** 简历草稿发起：以草稿当前内容作为出题依据 */
+  draftId?: string
+  jdText?: string
+  questionCount?: number
+}
+
 export async function createInterview(
-  resumeId: string,
-  jdText?: string,
-  questionCount?: number,
+  params: CreateInterviewParams,
 ): Promise<APIResponse<InterviewCreatedData>> {
   return apiRequest('/interview/create', {
     method: 'POST',
     body: JSON.stringify({
-      resume_id: resumeId,
-      jd_text: jdText || null,
-      question_count: questionCount ?? 5,
+      resume_id: params.resumeId ?? null,
+      draft_id: params.draftId ?? null,
+      jd_text: params.jdText || null,
+      question_count: params.questionCount ?? 5,
     }),
   })
 }

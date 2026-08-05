@@ -1,13 +1,40 @@
+export type ResumeStatus =
+  | 'uploaded'
+  | 'privacy_scanning'
+  | 'privacy_review_required'
+  | 'text_masked'
+  | 'llm_parsing'
+  | 'fact_extracted'
+  | 'classified'
+  | 'evaluating'
+  | 'evaluated'
+  | 'failed'
+
 export interface ResumeStatusData {
-  status: string
+  status: ResumeStatus
   current_step: string
   completed_steps: string[]
   error: string | null
+  run_id: string | null
+  error_code?: string | null
+  retryable?: boolean
+  last_progress_at?: string | null
+  deadline_at?: string | null
+  diagnostic?: ResumeFailureDiagnostic | null
 }
 
 export interface ResumeUploadData {
   resume_id: string
-  status: string
+  status: ResumeStatus
+  run_id: string | null
+  error_code?: string | null
+}
+
+export interface ResumeFailureDiagnostic {
+  error_code: string
+  step: string | null
+  attempt: number | null
+  retryable: boolean
 }
 
 export interface PrivacyPlaceholder {

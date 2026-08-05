@@ -37,6 +37,7 @@ endef
 BACKEND_RUN = PYTHONPATH=. uv run --project backend uvicorn backend.main:app --host $(BACKEND_HOST) --port $(BACKEND_PORT)
 BACKEND_HOT = $(BACKEND_RUN) --reload
 WORKER_RUN = PYTHONPATH=. uv run --project backend celery -A backend.celery_app:celery worker --loglevel=info
+BEAT_RUN = PYTHONPATH=. uv run --project backend celery -A backend.celery_app:celery beat --loglevel=info
 FRONTEND_BUILD = cd frontend && pnpm build
 FRONTEND_RUN = cd frontend && pnpm preview --host $(FRONTEND_HOST) --port $(FRONTEND_PORT)
 FRONTEND_HOT = cd frontend && pnpm dev --host $(FRONTEND_HOST) --port $(FRONTEND_PORT)
@@ -47,7 +48,7 @@ DEV_SERVICES = python3 scripts/dev_services.py
        start hot dev \
        backend-up frontend-up \
        infra infra-down db-migrate \
-       start-backend hot-backend start-worker backend backend-worker \
+       start-backend hot-backend start-worker start-beat backend backend-worker beat \
        start-frontend hot-frontend frontend \
        stop dev-stop clean \
        lint type-check arch-check \
@@ -78,6 +79,7 @@ start: ## 🚀 一键启动全栈（生产模式：infra + 后端 + worker + 前
 		--ready-url "http://localhost:$(BACKEND_PORT)/api/health" \
 		--service "backend=$(BACKEND_RUN)" \
 		--service "worker=$(WORKER_RUN)" \
+		--service "beat=$(BEAT_RUN)" \
 		--service "frontend=$(FRONTEND_RUN)"
 
 hot: ## 🔥 一键启动全栈热重载（infra + 后端 reload + worker + 前端 HMR）
@@ -89,6 +91,7 @@ hot: ## 🔥 一键启动全栈热重载（infra + 后端 reload + worker + 前�
 		--ready-url "http://localhost:$(BACKEND_PORT)/api/health" \
 		--service "backend=$(BACKEND_HOT)" \
 		--service "worker=$(WORKER_RUN)" \
+		--service "beat=$(BEAT_RUN)" \
 		--service "frontend=$(FRONTEND_HOT)"
 
 dev: hot ## 🔥 全栈热重载快捷入口（等价 make hot）
@@ -96,14 +99,15 @@ dev: hot ## 🔥 全栈热重载快捷入口（等价 make hot）
 ##@ 🧩 前后端分离启动（后端一套 / 前端一套）
 
 backend-up: ## 🧠 启动后端整套（infra + 后端热重载 + Celery worker）
-	@printf "$(PURPLE)$(BRAIN) 启动后端整套服务$(RESET)\n"
+	@printf "$(PURPLE)$(BRAIN) 启动后端整套服务（含 watchdog Beat）$(RESET)\n"
 	docker compose up -d
 	@printf "$(CYAN)⏳ 等待基础设施就绪$(RESET)\n"; sleep 3
 	@printf "$(PURPLE)$(FIRE) 后端热重载 + $(GEAR) Worker (Ctrl+C 停止)$(RESET)\n"
 	@exec $(DEV_SERVICES) \
 		--ready-url "http://localhost:$(BACKEND_PORT)/api/health" \
 		--service "backend=$(BACKEND_HOT)" \
-		--service "worker=$(WORKER_RUN)"
+		--service "worker=$(WORKER_RUN)" \
+		--service "beat=$(BEAT_RUN)"
 
 frontend-up: ## 🎨 独立启动前端（Vite HMR，/api 代理到后端 8000）
 	@printf "$(BLUE)$(ART) 独立启动前端 HMR -> http://localhost:$(FRONTEND_PORT)$(RESET)\n"
@@ -141,9 +145,15 @@ start-worker: ## ⚙️ 启动 Celery worker（异步任务：简历解析等）
 	@printf "$(YELLOW)$(GEAR) 启动 Celery worker$(RESET)\n"
 	@exec $(DEV_SERVICES) --service "worker=$(WORKER_RUN)"
 
+start-beat: ## ⏱️ 启动 Celery Beat（每 30 秒收敛超时简历任务）
+	@printf "$(YELLOW)$(GEAR) 启动 Celery Beat watchdog$(RESET)\n"
+	@exec $(DEV_SERVICES) --service "beat=$(BEAT_RUN)"
+
 backend: hot-backend ## 🔥 后端热重载快捷入口
 
 backend-worker: start-worker ## ⚙️ Worker 快捷入口
+
+beat: start-beat ## ⏱️ Beat watchdog 快捷入口
 
 start-frontend: ## 🎨 构建并启动前端 preview（无热重载）
 	@printf "$(BLUE)$(ART) 构建并启动前端 preview -> http://localhost:$(FRONTEND_PORT)$(RESET)\n"

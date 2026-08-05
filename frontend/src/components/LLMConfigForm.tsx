@@ -470,10 +470,10 @@ export function LLMConfigForm({ editingConfig, onSaved, onCancelEdit }: LLMConfi
         )}
       </div>
 
-      {/* 内联反馈：紧贴操作按钮，复用统一 Alert 组件（成功=default，错误=destructive） */}
+      {/* 内联反馈：紧贴操作按钮，复用统一 Alert 组件（成功=success 绿色体系，错误=destructive） */}
       {feedback && (
         <Alert
-          variant={feedback.kind === 'error' ? 'destructive' : 'default'}
+          variant={feedback.kind === 'error' ? 'destructive' : 'success'}
           role={feedback.kind === 'error' ? 'alert' : 'status'}
         >
           {feedback.kind === 'success' ? (

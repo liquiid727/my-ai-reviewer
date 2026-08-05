@@ -79,6 +79,16 @@ class ResumeModel(Base):
     parsed_result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)  # LLM 解析结果（JSON）
     parser_version: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 解析器版本
     parse_error: Mapped[str | None] = mapped_column(Text, nullable=True)  # 失败时的错误信息
+    processing_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "resume_processing_runs.id",
+            name="fk_resumes_processing_run_id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
+    processing_error_details: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -121,6 +131,62 @@ class ResumeModel(Base):
         lazy="selectin",
         order_by="JDMatchResultModel.created_at",
     )
+    processing_runs: Mapped[list["ResumeProcessingRunModel"]] = relationship(
+        back_populates="resume",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        order_by="ResumeProcessingRunModel.created_at",
+        foreign_keys="ResumeProcessingRunModel.resume_id",
+    )
+
+
+class ResumeProcessingRunModel(Base):
+    """简历处理运行记录 —— 每次上传、重试或重解析都有独立的所有权。"""
+
+    __tablename__ = "resume_processing_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    resume_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "resumes.id",
+            name="fk_resume_processing_runs_resume_id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    run_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="queued")
+    current_step: Mapped[str] = mapped_column(String(40), nullable=False)
+    celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    last_progress_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retryable: Mapped[bool] = mapped_column(default=False, server_default=text("false"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    resume: Mapped["ResumeModel"] = relationship(
+        back_populates="processing_runs",
+        lazy="selectin",
+        foreign_keys=[resume_id],
+    )
+
+    __table_args__ = (
+        Index("ix_resume_processing_runs_resume_created", "resume_id", "created_at"),
+        Index("ix_resume_processing_runs_deadline", "status", "deadline_at"),
+        Index(
+            "uq_resume_processing_runs_active",
+            "resume_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running', 'waiting_review')"),
+        ),
+    )
 
 
 class ResumeEvaluationModel(Base):
@@ -148,7 +214,10 @@ class InterviewModel(Base):
     __tablename__ = "interviews"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    resume_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("resumes.id"), nullable=False)
+    # 可空：从简历草稿发起的面试不关联已解析简历，出题数据改用 resume_snapshot
+    resume_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("resumes.id"), nullable=True)
+    # 草稿面试的内容快照（已脱敏），供出题/评估节点使用
+    resume_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     jd_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
     question_count: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
@@ -161,7 +230,7 @@ class InterviewModel(Base):
         onupdate=func.now(),
     )
 
-    resume: Mapped["ResumeModel"] = relationship(lazy="selectin")
+    resume: Mapped["ResumeModel | None"] = relationship(lazy="selectin")
     questions: Mapped[list["InterviewQuestionModel"]] = relationship(
         back_populates="interview",
         lazy="selectin",
@@ -431,6 +500,11 @@ class ResumeDraftModel(Base):
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     # 列表级排序位置；越小越靠前，由草稿列表的上移/下移操作维护。
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # 最近一次 AI 评分的完整结果（维度分/优劣势/改进建议等）；未评分时为 None。
+    latest_score: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    scored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 评分时的草稿 revision；与当前 revision 不一致表示内容已更新、建议重新评分。
+    scored_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

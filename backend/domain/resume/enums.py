@@ -11,10 +11,22 @@ class ResumeStatus(str, Enum):
     PRIVACY_REVIEW_REQUIRED = "privacy_review_required"
     TEXT_MASKED = "text_masked"
     TEXT_PARSED = "text_masked"  # Backward-compatible symbolic alias
+    LLM_PARSING = "llm_parsing"  # LLM 正在从脱敏文本提取结构化信息
     FACT_EXTRACTED = "fact_extracted"  # LLM 结构化提取完成
     CLASSIFIED = "classified"  # 规则分类完成
+    EVALUATING = "evaluating"  # LLM 正在生成简历评估
     EVALUATED = "evaluated"  # LLM 评估完成
     FAILED = "failed"  # 处理失败
+
+
+def resume_status_value(status: str | ResumeStatus) -> str:
+    """Return the persisted/wire value for a resume status.
+
+    ``ResumeStatus`` inherits from ``str`` but ``str(member)`` produces
+    ``ResumeStatus.MEMBER`` on the supported Python versions.  Celery chain
+    arguments and API payloads must use the enum's value instead.
+    """
+    return status.value if isinstance(status, ResumeStatus) else status
 
 
 class ResumeSectionType(str, Enum):

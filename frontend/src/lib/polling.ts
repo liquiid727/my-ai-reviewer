@@ -1,5 +1,7 @@
 /** Shared polling ownership helpers for resume upload and plan generation. */
 
+import type { ResumeStatus } from '@/types/resume'
+
 export const RESUME_POLL_MAX_MS = 10 * 60 * 1000
 export const RESUME_POLL_FAST_MS = 2000
 export const RESUME_POLL_SLOW_MS = 5000
@@ -12,7 +14,7 @@ export const PLAN_POLL_SLOW_AFTER_MS = 60_000
 export const PLAN_POLL_MAX_MS = 15 * 60 * 1000
 
 /** Resume pipeline statuses that end the client poll loop. */
-export function isResumeTerminalStatus(status: string | null | undefined): boolean {
+export function isResumeTerminalStatus(status: ResumeStatus | null | undefined): boolean {
   return (
     status === 'evaluated' ||
     status === 'failed' ||

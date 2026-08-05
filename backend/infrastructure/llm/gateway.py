@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import time
 from typing import TYPE_CHECKING, Any
 
+from backend.config import get_settings
 from backend.domain.privacy import PrivacyGuard
 from backend.infrastructure.llm.providers.anthropic_provider import AnthropicProvider
 from backend.infrastructure.llm.providers.base import BaseLLMProvider, LLMResponse
 from backend.infrastructure.llm.providers.openai_provider import OpenAIProvider
+from backend.observability.events import emit_resume_event
 
 if TYPE_CHECKING:
     from backend.infrastructure.db.models import LLMConfigModel
@@ -16,8 +21,18 @@ if TYPE_CHECKING:
 class LLMGateway:
     """LLM 统一网关：封装不同提供商的调用细节，对外提供一致的接口。"""
 
-    def __init__(self, provider: BaseLLMProvider) -> None:
+    def __init__(
+        self,
+        provider: BaseLLMProvider,
+        *,
+        request_timeout_seconds: float | None = None,
+    ) -> None:
         self._provider = provider
+        self._request_timeout_seconds = (
+            request_timeout_seconds
+            if request_timeout_seconds is not None
+            else get_settings().LLM_REQUEST_TIMEOUT_SECONDS
+        )
 
     async def complete(
         self,
@@ -30,9 +45,38 @@ class LLMGateway:
         guard = PrivacyGuard()
         if privacy_required:
             guard.assert_masked(messages)
-        response = await self._provider.complete(messages, response_format=response_format)
+        started = time.monotonic()
+        try:
+            response = await asyncio.wait_for(
+                self._provider.complete(messages, response_format=response_format),
+                timeout=self._request_timeout_seconds,
+            )
+        except Exception as exc:
+            # The exception body may contain a provider payload or prompt
+            # fragment. Keep the event correlation-only and let the caller
+            # map the exception to a safe public diagnostic.
+            emit_resume_event(
+                "resume.llm.failed",
+                resource_id=None,
+                error_code=(
+                    "RESUME_LLM_REQUEST_TIMEOUT"
+                    if "timeout" in type(exc).__name__.lower()
+                    else "RESUME_PROCESSING_FAILED"
+                ),
+                retryable=True,
+                level=logging.WARNING,
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
+            raise
         if privacy_required:
             guard.assert_masked(response.content)
+        emit_resume_event(
+            "resume.llm.completed",
+            resource_id=None,
+            status="completed",
+            duration_ms=int((time.monotonic() - started) * 1000),
+            model=response.model,
+        )
         return response
 
     @classmethod
@@ -49,8 +93,9 @@ class LLMGateway:
             api_key=api_key,
             model=model,
             base_url=llm_config.base_url,
+            timeout_seconds=get_settings().LLM_REQUEST_TIMEOUT_SECONDS,
         )
-        return cls(provider=provider)
+        return cls(provider=provider, request_timeout_seconds=get_settings().LLM_REQUEST_TIMEOUT_SECONDS)
 
     @classmethod
     def from_settings(cls) -> LLMGateway:
@@ -73,8 +118,9 @@ class LLMGateway:
             api_key=api_key,
             model=model,
             base_url=base_url,
+            timeout_seconds=settings.LLM_REQUEST_TIMEOUT_SECONDS,
         )
-        return cls(provider=provider)
+        return cls(provider=provider, request_timeout_seconds=settings.LLM_REQUEST_TIMEOUT_SECONDS)
 
 
 def _build_provider(
@@ -82,10 +128,16 @@ def _build_provider(
     api_key: str,
     model: str,
     base_url: str | None = None,
+    timeout_seconds: float | None = None,
 ) -> BaseLLMProvider:
     """根据提供商名称构建对应的 LLM Provider 实例。"""
     if provider_name == "anthropic":
-        return AnthropicProvider(api_key=api_key, model=model)
+        return AnthropicProvider(api_key=api_key, model=model, timeout_seconds=timeout_seconds)
 
     # openai / deepseek / custom 都走 OpenAI 兼容接口
-    return OpenAIProvider(api_key=api_key, model=model, base_url=base_url)
+    return OpenAIProvider(
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        timeout_seconds=timeout_seconds,
+    )

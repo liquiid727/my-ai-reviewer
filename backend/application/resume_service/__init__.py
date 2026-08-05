@@ -9,6 +9,14 @@ from pathlib import PurePosixPath
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.application.resume_service.runs import (
+    ERROR_DISPATCH_FAILED,
+    RUN_TYPE_UPLOAD,
+    create_processing_run,
+    dispatch_with_timeout,
+    mark_dispatch_failed,
+    mark_run_dispatched,
+)
 from backend.config import get_settings
 from backend.domain.resume.exceptions import (
     FileTooLargeError,
@@ -83,7 +91,7 @@ async def upload_resume(
     filename: str,
     file_data: bytes,
     user_id: uuid.UUID | None = None,
-) -> dict[str, str]:
+) -> dict[str, str | None]:
     """上传简历的完整流程：校验 → 去重 → 存储 → 建记录 → 触发流水线。"""
     settings = get_settings()
     encryption_key = settings.PRIVACY_QUARANTINE_KEY or settings.ENCRYPTION_KEY
@@ -97,8 +105,9 @@ async def upload_resume(
         encryption_key=encryption_key,
     )
 
-    ensure_bucket(settings.MINIO_BUCKET_QUARANTINE)
-    upload_file(
+    await asyncio.to_thread(ensure_bucket, settings.MINIO_BUCKET_QUARANTINE)
+    await asyncio.to_thread(
+        upload_file,
         bucket=settings.MINIO_BUCKET_QUARANTINE,
         object_name=prepared.object_name,
         data=prepared.encrypted_data,
@@ -137,15 +146,44 @@ async def upload_resume(
         )
     )
     await session.flush()
+    run = await create_processing_run(
+        session,
+        resume_id=resume_id,
+        run_type=RUN_TYPE_UPLOAD,
+        start_step="text_extract",
+        resume_status="uploaded",
+    )
     await session.commit()
 
     # ── 异步触发简历处理流水线（Celery） ──
     from backend.tasks.resume_tasks import process_resume_pipeline
 
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, process_resume_pipeline, str(resume_record.id))
+    try:
+        task_id = await dispatch_with_timeout(
+            process_resume_pipeline,
+            str(resume_record.id),
+            str(run.id),
+        )
+        if not task_id:
+            raise RuntimeError("Pipeline dispatch returned no task id")
+        await mark_run_dispatched(
+            session,
+            resume_id=resume_record.id,
+            run_id=run.id,
+            task_id=task_id,
+        )
+    except Exception:
+        # The upload is already durable; retain a retryable terminal run so a
+        # broker outage cannot leave the UI polling ``uploaded`` forever.
+        await mark_dispatch_failed(
+            session,
+            resume_id=resume_record.id,
+            run_id=run.id,
+        )
 
     return {
         "resume_id": str(resume_record.id),
         "status": resume_record.status,
+        "run_id": str(run.id),
+        "error_code": ERROR_DISPATCH_FAILED if resume_record.status == "failed" else None,
     }

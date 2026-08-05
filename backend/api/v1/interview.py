@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 from langchain_core.runnables import RunnableConfig
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.v1.schemas import APIResponse
@@ -24,11 +24,18 @@ router = APIRouter(prefix="/interview", tags=["interview"])
 
 
 class CreateInterviewReq(BaseModel):
-    """创建面试请求。"""
+    """创建面试请求：基于已评估简历（resume_id）或简历草稿（draft_id）二选一。"""
 
-    resume_id: uuid.UUID
+    resume_id: uuid.UUID | None = None
+    draft_id: uuid.UUID | None = None
     jd_text: str | None = None
     question_count: int = Field(default=5, ge=3, le=10)
+
+    @model_validator(mode="after")
+    def _check_exactly_one_source(self) -> "CreateInterviewReq":
+        if (self.resume_id is None) == (self.draft_id is None):
+            raise ValueError("Exactly one of resume_id or draft_id must be provided")
+        return self
 
 
 class SubmitAnswerReq(BaseModel):
@@ -101,7 +108,8 @@ class InterviewListItem(BaseModel):
     """面试列表条目。"""
 
     interview_id: str
-    resume_id: str
+    resume_id: str | None = None
+    is_draft_interview: bool = False
     status: str
     question_count: int
     overall_score: float | None = None
@@ -168,6 +176,7 @@ async def create_interview(
             resume_id=req.resume_id,
             jd_text=req.jd_text,
             question_count=req.question_count,
+            draft_id=req.draft_id,
         )
     except ValueError as e:
         error_code = str(e)
@@ -175,6 +184,15 @@ async def create_interview(
             return APIResponse(code=1001, message="Resume not found")
         if error_code == "RESUME_NOT_READY":
             return APIResponse(code=1002, message="Resume not ready for interview")
+        if error_code == "DRAFT_NOT_FOUND":
+            return APIResponse(code=1012, message="Resume draft not found")
+        if error_code == "DRAFT_NOT_MASKED":
+            return APIResponse(
+                code=1013,
+                message="Draft contains unmasked sensitive data and cannot be used for interview",
+            )
+        if error_code == "INVALID_REQUEST":
+            return APIResponse(code=1014, message="Exactly one of resume_id or draft_id is required")
         raise
 
     return APIResponse(
@@ -210,8 +228,8 @@ async def start_interview(
 
     initial_state: InterviewState = {
         "interview_id": str(interview_id),
-        "resume_id": str(interview.resume_id),
-        "resume_data": {},  # 由 analyze_resume 节点从 DB 加载后覆盖
+        "resume_id": str(interview.resume_id) if interview.resume_id else "",
+        "resume_data": {},  # 由 analyze_resume 节点从快照/DB 加载后覆盖
         "jd_text": interview.jd_text or "",
         "question_count": interview.question_count,
         "questions": [],

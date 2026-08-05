@@ -22,6 +22,12 @@ from backend.domain.resume_builder.editing import DraftRevisionConflictError
 from backend.domain.resume_builder.enums import LayoutDensity, TemplateId
 from backend.domain.resume_builder.reference_templates import list_reference_templates
 from backend.domain.resume_builder.schemas import ExportOptions, LayoutPolicy
+from backend.infrastructure.cache.redis_cache import (
+    cache_get_bytes,
+    cache_get_json,
+    cache_set_bytes,
+    cache_set_json,
+)
 from backend.infrastructure.db.database import get_db
 from backend.infrastructure.imaging import (
     BG_COLORS,
@@ -45,6 +51,27 @@ PHOTO_ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png"}
 PHOTO_MAX_SIZE = 10 * 1024 * 1024
 LLM_NOT_READY_CODE = 428
 LLM_NOT_READY_MESSAGE = "LLM not configured or not verified"
+
+# GET preview 输出仅由 (draft, revision) 决定：内容/模板/设计令牌/分页策略任一变化
+# 都会使 revision +1，且缓存的预览 PDF 只含 masked 内容（不含真实 PII），
+# 因此可按 revision 复用已渲染 PDF，避免重复 Playwright 渲染。
+_PREVIEW_CACHE_TTL_SECONDS = 6 * 3600
+# 单飞锁：同一 revision 的并发预览请求只触发一次渲染
+_preview_render_locks: dict[str, asyncio.Lock] = {}
+
+
+def _preview_response(pdf_bytes: bytes, meta: dict[str, Any]) -> Response:
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": "inline; filename=resume-preview.pdf",
+            "X-Page-Count": str(meta["page_count"]),
+            "X-Target-Met": "true" if meta["target_met"] else "false",
+            "X-Layout-Density": meta["applied_density"],
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 # ─────────────────────────── 请求体模型 ───────────────────────────
@@ -172,6 +199,8 @@ async def list_drafts(session: AsyncSession = Depends(get_db)) -> APIResponse:
                 "template_id": m.template_id,
                 "status": m.status,
                 "sort_order": m.sort_order,
+                "overall_score": (m.latest_score or {}).get("overall_score"),
+                "scored_at": m.scored_at.isoformat() if m.scored_at else None,
                 "created_at": m.created_at.isoformat(),
                 "updated_at": m.updated_at.isoformat(),
             }
@@ -199,6 +228,8 @@ async def reorder_drafts(
                 "template_id": m.template_id,
                 "status": m.status,
                 "sort_order": m.sort_order,
+                "overall_score": (m.latest_score or {}).get("overall_score"),
+                "scored_at": m.scored_at.isoformat() if m.scored_at else None,
                 "created_at": m.created_at.isoformat(),
                 "updated_at": m.updated_at.isoformat(),
             }
@@ -414,14 +445,27 @@ async def score_draft(
     draft_id: uuid.UUID,
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:
-    """复用 9 维评估器对草稿打分。"""
+    """复用 9 维评估器对草稿打分，并把最新评分持久化到草稿。"""
     model = await services.get_draft(session, draft_id)
     gateway = await _get_builder_llm_gateway(session)
     if gateway is None:
         return APIResponse(code=LLM_NOT_READY_CODE, message=LLM_NOT_READY_MESSAGE)
     draft = services.draft_model_to_schema(model)
     evaluation = await services.score_draft(gateway, draft)
-    return APIResponse(data=evaluation)
+    # 元信息（模型/token 用量）不落库，仅用于服务端日志追溯
+    evaluation.pop("_meta", None)
+    model = await services.save_draft_score(session, draft_id, evaluation)
+    return APIResponse(data=services.serialize_draft_score(model))
+
+
+@router.get("/{draft_id}/score")
+async def get_draft_score(
+    draft_id: uuid.UUID,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    """返回草稿最近一次持久化的评分结果；未评分时 data 为 null。"""
+    model = await services.get_draft(session, draft_id)
+    return APIResponse(data=services.serialize_draft_score(model))
 
 
 @router.get("/{draft_id}/preview")
@@ -429,20 +473,34 @@ async def preview_draft(
     draft_id: uuid.UUID,
     session: AsyncSession = Depends(get_db),
 ) -> Response:
-    """返回与导出完全相同的分页 PDF（供 iframe 预览）。"""
+    """返回与导出完全相同的分页 PDF（供 iframe 预览）；同一 revision 复用渲染缓存。"""
     model = await services.get_draft(session, draft_id)
-    pdf_bytes, result = await services.export_draft_pdf(session, model, ExportOptions())
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": "inline; filename=resume-preview.pdf",
-            "X-Page-Count": str(result.page_count),
-            "X-Target-Met": "true" if result.target_met else "false",
-            "X-Layout-Density": result.applied_density.value,
-            "Cache-Control": "no-store",
-        },
-    )
+    revision = int(getattr(model, "revision", 0))
+    cache_prefix = f"builder:preview:{draft_id}:r{revision}"
+    pdf_key = f"{cache_prefix}:pdf"
+    meta_key = f"{cache_prefix}:meta"
+
+    cached_pdf = await cache_get_bytes(pdf_key)
+    cached_meta = await cache_get_json(meta_key)
+    if cached_pdf is not None and cached_meta is not None:
+        return _preview_response(cached_pdf, cached_meta)
+
+    lock = _preview_render_locks.setdefault(cache_prefix, asyncio.Lock())
+    async with lock:
+        # 双检：等待锁期间其他请求可能已完成渲染并写入缓存
+        cached_pdf = await cache_get_bytes(pdf_key)
+        cached_meta = await cache_get_json(meta_key)
+        if cached_pdf is not None and cached_meta is not None:
+            return _preview_response(cached_pdf, cached_meta)
+        pdf_bytes, result = await services.export_draft_pdf(session, model, ExportOptions())
+        meta = {
+            "page_count": result.page_count,
+            "target_met": result.target_met,
+            "applied_density": result.applied_density.value,
+        }
+        await cache_set_bytes(pdf_key, pdf_bytes, _PREVIEW_CACHE_TTL_SECONDS)
+        await cache_set_json(meta_key, meta, _PREVIEW_CACHE_TTL_SECONDS)
+        return _preview_response(pdf_bytes, meta)
 
 
 @router.post("/{draft_id}/preview")

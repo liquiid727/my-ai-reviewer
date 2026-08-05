@@ -9,8 +9,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from backend.application.resume_service.diagnostics import (
+    normalize_failure_details,
+    public_error_message,
+)
 from backend.application.resume_service.pipeline import get_privacy_manifest
-from backend.domain.resume.enums import ResumeStatus
+from backend.application.resume_service.runs import get_latest_run, reconcile_stale_resume
+from backend.domain.resume.enums import ResumeStatus, resume_status_value
 from backend.infrastructure.db.models import (
     CandidateProfileModel,
     ResumeEvaluationModel,
@@ -25,8 +30,10 @@ STATUS_TO_STEP_INDEX: dict[str, int] = {
     ResumeStatus.PRIVACY_SCANNING.value: 0,
     ResumeStatus.PRIVACY_REVIEW_REQUIRED.value: 1,
     ResumeStatus.TEXT_MASKED.value: 1,
+    ResumeStatus.LLM_PARSING.value: 1,
     ResumeStatus.FACT_EXTRACTED.value: 2,
     ResumeStatus.CLASSIFIED.value: 3,
+    ResumeStatus.EVALUATING.value: 3,
     ResumeStatus.EVALUATED.value: 4,
 }
 
@@ -77,10 +84,13 @@ def current_step(status: str) -> str:
 
 
 async def build_status_payload(session: AsyncSession, resume_id: uuid.UUID) -> dict[str, Any] | None:
+    if hasattr(session, "execute"):
+        await reconcile_stale_resume(session, resume_id)
     resume = await get_resume_with_evaluations(session, resume_id)
     if resume is None:
         return None
-    status = str(resume.status)
+    run = await get_latest_run(session, resume_id) if hasattr(session, "execute") else None
+    status = resume_status_value(resume.status)
     if status == ResumeStatus.FAILED.value:
         completed = completed_steps_from_data(
             masked_text=resume.masked_text,
@@ -89,11 +99,51 @@ async def build_status_payload(session: AsyncSession, resume_id: uuid.UUID) -> d
         )
     else:
         completed = completed_steps(status)
+    run_current_step = getattr(run, "current_step", None)
+    run_details = normalize_failure_details(
+        {
+            "error_code": getattr(run, "error_code", None),
+            "retryable": getattr(run, "retryable", False),
+            "step": run_current_step,
+            "attempt": getattr(run, "attempt", None),
+        }
+        if run is not None and getattr(run, "error_code", None)
+        else None,
+    )
+    details = (
+        normalize_failure_details(
+            getattr(resume, "processing_error_details", None),
+            getattr(resume, "parse_error", None),
+        )
+        or run_details
+    )
+    diagnostic = None
+    if status == ResumeStatus.FAILED.value and details is not None:
+        diagnostic = {
+            "error_code": details["error_code"],
+            "step": details.get("step"),
+            "attempt": details.get("attempt"),
+            "retryable": bool(details.get("retryable", False)),
+        }
     return {
         "status": status,
-        "current_step": current_step(status),
+        "current_step": ("failed" if status == ResumeStatus.FAILED.value else run_current_step or current_step(status)),
         "completed_steps": completed,
-        "error": resume.parse_error,
+        "error": (
+            details.get("public_message", public_error_message("RESUME_PROCESSING_FAILED"))
+            if status == ResumeStatus.FAILED.value and details is not None
+            else None
+        ),
+        "run_id": (
+            str(getattr(resume, "processing_run_id", None))
+            if getattr(resume, "processing_run_id", None) is not None
+            else (str(run.id) if run is not None else None)
+        ),
+        "error_code": details.get("error_code") if details is not None else None,
+        "retryable": bool(details.get("retryable", False)) if details is not None else False,
+        "last_progress_at": getattr(run, "last_progress_at", None),
+        "deadline_at": getattr(run, "deadline_at", None),
+        "diagnostic": diagnostic,
     }
 
 

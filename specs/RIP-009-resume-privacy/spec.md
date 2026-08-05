@@ -24,7 +24,7 @@ Resume processing becomes:
 ```text
 uploaded -> privacy_scanning -> privacy_review_required -> text_masked
                               -> text_masked (automatic approval)
-text_masked -> fact_extracted -> classified -> evaluated
+text_masked -> llm_parsing -> fact_extracted -> classified -> evaluating -> evaluated
 any pre-approval failure/expiry -> failed + quarantine deletion
 ```
 
@@ -47,7 +47,17 @@ any pre-approval failure/expiry -> failed + quarantine deletion
 - `GET /api/v1/resume/{id}/privacy` returns only the masked candidate preview, safe manifest, revision, risks, and expiry.
 - `POST /api/v1/resume/{id}/privacy/masks` accepts revision-checked `{start,end,entity_type}` spans.
 - `POST /api/v1/resume/{id}/privacy/approve` performs the final scan, deletes quarantine, and starts the LLM pipeline.
+- `POST /api/v1/resume/{id}/retry` may requeue a failed resume or a stale approved masked pipeline without restoring quarantine data.
+- Status responses include the current `run_id` and an allow-listed failure diagnostic (`error_code`, stage, attempt, retryability); worker logs correlate the same run across all stages without persisting resume text or raw provider exceptions.
 - `GET /api/v1/resume/{id}` returns `masked_text` and a privacy summary instead of `raw_text`.
+
+### Processing Failure And Timeout Contract
+
+- Each upload, privacy approval, retry, and reparse has a durable processing run with a current step, deadline, progress timestamp, and ownership pointer.
+- Parser, broker handoff, provider, and worker failures converge to `failed` plus a stable safe `error_code`; the API never exposes raw exception or provider response text.
+- A watchdog and status reads mark overdue queued/running runs as retryable failures. They do not silently requeue work; the user must explicitly retry, and stale workers must not overwrite a newer run.
+- LLM providers and the gateway enforce request timeouts, while Celery tasks have bounded soft/hard limits and only transient provider failures use a bounded retry budget.
+
 - `POST /api/v1/builder/{id}/preview` and `/export` accept multipart `payload` JSON plus an optional photo. The payload contains layout options and an exact token-to-value replacement map.
 - Preview/export responses include `Cache-Control: no-store`; replacements for unknown tokens are rejected without echoing submitted values.
 
@@ -79,4 +89,3 @@ any pre-approval failure/expiry -> failed + quarantine deletion
 - Anonymous single-user operation remains unchanged; authentication/RBAC is out of scope.
 - The policy applies to resume-derived data. Independently entered target JD data is outside RIP-009.
 - Local NER assets are mandatory deployment artifacts and privacy processing fails closed without them.
-

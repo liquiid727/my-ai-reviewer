@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { CircleAlert, FilePlus2, Loader2, Search } from 'lucide-react'
+import { CircleAlert, FilePlus2, Loader2, MessageSquare, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   cancelJDDuplicate,
@@ -10,6 +10,7 @@ import {
 } from '@/api/jd'
 import { JDImportDialog } from '@/components/jd/JDImportDialog'
 import { JDStatusBadge } from '@/components/jd/JDStatusBadge'
+import { StartInterviewDialog } from '@/components/interview/StartInterviewDialog'
 import { LLMGateDialog } from '@/components/LLMGateDialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -33,10 +34,11 @@ function readableDate(value: string | null) {
   return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—'
 }
 
-function JDRow({ item, onConfirmDuplicate, onCancelDuplicate }: {
+function JDRow({ item, onConfirmDuplicate, onCancelDuplicate, onStartInterview }: {
   item: JDListItem
   onConfirmDuplicate: (item: JDListItem) => void
   onCancelDuplicate: (item: JDListItem) => void
+  onStartInterview: (item: JDListItem) => void
 }) {
   const { t } = useTranslation()
   return (
@@ -67,9 +69,17 @@ function JDRow({ item, onConfirmDuplicate, onCancelDuplicate }: {
             <Button size="sm" variant="neutral" onClick={() => onCancelDuplicate(item)}>{t('jd.cancelDuplicate')}</Button>
           </div>
         ) : (
-          <Button asChild size="sm" variant="neutral" className="shrink-0">
-            <Link to={`/jobs/${item.id}`}>{t('jd.open')}</Link>
-          </Button>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {item.status === 'ready' && (
+              <Button size="sm" onClick={() => onStartInterview(item)}>
+                <MessageSquare className="size-4" />
+                {t('jd.startInterview')}
+              </Button>
+            )}
+            <Button asChild size="sm" variant="neutral">
+              <Link to={`/jobs/${item.id}`}>{t('jd.open')}</Link>
+            </Button>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -101,6 +111,8 @@ export function JDListPage() {
   const [status, setStatus] = useState<JDStatus | 'all'>('all')
   const [importOpen, setImportOpen] = useState(false)
   const [llmGateOpen, setLlmGateOpen] = useState(false)
+  // 发起面试选中的 JD（null 表示对话框关闭）
+  const [interviewJdId, setInterviewJdId] = useState<string | null>(null)
   const pollingStartedAt = useRef<number | null>(null)
 
   const load = useCallback(async (showLoading = true) => {
@@ -238,7 +250,7 @@ export function JDListPage() {
 
       {loading ? <ListSkeleton /> : data?.items.length ? (
         <div className="space-y-4">
-          {data.items.map((item) => <JDRow key={item.id} item={item} onConfirmDuplicate={confirmDuplicate} onCancelDuplicate={cancelDuplicate} />)}
+          {data.items.map((item) => <JDRow key={item.id} item={item} onConfirmDuplicate={confirmDuplicate} onCancelDuplicate={cancelDuplicate} onStartInterview={(entry) => setInterviewJdId(entry.id)} />)}
         </div>
       ) : !error && (
         <Card>
@@ -262,6 +274,11 @@ export function JDListPage() {
       )}
 
       <JDImportDialog open={importOpen} onOpenChange={setImportOpen} onCreated={created} onLLMGate={() => setLlmGateOpen(true)} />
+      <StartInterviewDialog
+        open={interviewJdId !== null}
+        onOpenChange={(open) => !open && setInterviewJdId(null)}
+        jdId={interviewJdId ?? undefined}
+      />
       <LLMGateDialog open={llmGateOpen} onOpenChange={setLlmGateOpen} description={t('jd.llmGateDescription')} successMessage={t('jd.llmReady')} />
     </div>
   )

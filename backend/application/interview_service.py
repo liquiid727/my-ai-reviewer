@@ -8,11 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.domain.interview.enums import InterviewStatus
+from backend.domain.privacy import PrivacyGuard, PrivacyViolationError
 from backend.infrastructure.db.models import (
     InterviewModel,
     InterviewQuestionModel,
     InterviewReportModel,
     QuestionAnswerModel,
+    ResumeDraftModel,
     ResumeModel,
 )
 
@@ -27,11 +29,19 @@ class InterviewService:
 
     async def create_interview(
         self,
-        resume_id: uuid.UUID,
+        resume_id: uuid.UUID | None = None,
         jd_text: str | None = None,
         question_count: int = 5,
+        draft_id: uuid.UUID | None = None,
     ) -> InterviewModel:
-        """创建面试会话，校验简历已评估。"""
+        """创建面试会话：基于已评估简历，或基于简历草稿内容快照。"""
+        if draft_id is not None:
+            if resume_id is not None:
+                raise ValueError("INVALID_REQUEST")
+            return await self._create_interview_from_draft(draft_id, jd_text, question_count)
+        if resume_id is None:
+            raise ValueError("INVALID_REQUEST")
+
         result = await self._session.execute(select(ResumeModel).where(ResumeModel.id == resume_id))
         resume = result.scalar_one_or_none()
         if not resume:
@@ -53,6 +63,52 @@ class InterviewService:
         await self._session.refresh(interview)
 
         logger.info("Created interview %s for resume %s", interview.id, resume_id)
+        return interview
+
+    async def _create_interview_from_draft(
+        self,
+        draft_id: uuid.UUID,
+        jd_text: str | None,
+        question_count: int,
+    ) -> InterviewModel:
+        """从简历草稿创建面试：以草稿当前内容（已脱敏）作为出题快照。
+
+        草稿在保存时已经过本地脱敏；此处再用 PrivacyGuard 做 fail-closed
+        拦截，任何直接标识符泄露风险都会阻止创建而不是降级发送原文。
+        """
+        result = await self._session.execute(
+            select(ResumeDraftModel).where(ResumeDraftModel.id == draft_id)
+        )
+        draft = result.scalar_one_or_none()
+        if not draft:
+            raise ValueError("DRAFT_NOT_FOUND")
+
+        content = draft.content or {}
+        snapshot: dict[str, Any] = {
+            "source": "builder_draft",
+            "draft_title": draft.title,
+            "identity": content.get("identity", {}),
+            "summary": content.get("summary", ""),
+            "sections": content.get("sections", []),
+        }
+        try:
+            PrivacyGuard().assert_masked(snapshot)
+        except PrivacyViolationError:
+            raise ValueError("DRAFT_NOT_MASKED") from None
+
+        interview = InterviewModel(
+            resume_id=draft.resume_id,
+            resume_snapshot=snapshot,
+            jd_text=jd_text,
+            question_count=question_count,
+            status=InterviewStatus.PENDING.value,
+            graph_thread_id=str(uuid.uuid4()),
+        )
+        self._session.add(interview)
+        await self._session.commit()
+        await self._session.refresh(interview)
+
+        logger.info("Created interview %s from draft %s", interview.id, draft_id)
         return interview
 
     async def get_interview(self, interview_id: uuid.UUID) -> InterviewModel | None:
@@ -156,7 +212,8 @@ class InterviewService:
             items.append(
                 {
                     "interview_id": str(iv.id),
-                    "resume_id": str(iv.resume_id),
+                    "resume_id": str(iv.resume_id) if iv.resume_id else None,
+                    "is_draft_interview": iv.resume_snapshot is not None,
                     "status": iv.status,
                     "question_count": iv.question_count,
                     "overall_score": report.overall_score if report else None,

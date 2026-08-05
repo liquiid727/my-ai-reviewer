@@ -3,6 +3,7 @@ import uuid
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.domain.interview.enums import InterviewStatus
@@ -11,6 +12,7 @@ from backend.infrastructure.db.models import (
     InterviewQuestionModel,
     InterviewReportModel,
     QuestionAnswerModel,
+    ResumeDraftModel,
     ResumeModel,
 )
 from backend.tests.conftest import requires_db
@@ -177,6 +179,83 @@ class TestCreateInterview:
             "/api/v1/interview/create",
             json={"resume_id": str(sample_resume.id), "question_count": 20},
         )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_create_from_draft_success(self, async_client: AsyncClient, db_session: AsyncSession) -> None:
+        # 独立草稿（无关联简历）：以已脱敏内容快照创建面试
+        draft = ResumeDraftModel(
+            id=uuid.uuid4(),
+            resume_id=None,
+            title="合成草稿",
+            content={
+                "identity": {"name": "[[PERSON_01]]"},
+                "summary": "具备后端开发经验的候选人",
+                "sections": [],
+            },
+        )
+        db_session.add(draft)
+        await db_session.commit()
+
+        resp = await async_client.post(
+            "/api/v1/interview/create",
+            json={"draft_id": str(draft.id), "question_count": 5},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["code"] == 0
+        assert data["data"]["status"] == "pending"
+
+        iv_result = await db_session.execute(
+            select(InterviewModel).where(InterviewModel.id == uuid.UUID(data["data"]["interview_id"]))
+        )
+        interview = iv_result.scalar_one()
+        assert interview.resume_id is None
+        assert interview.resume_snapshot is not None
+        assert interview.resume_snapshot["source"] == "builder_draft"
+
+    @pytest.mark.asyncio
+    async def test_create_from_draft_not_found(self, async_client: AsyncClient) -> None:
+        resp = await async_client.post(
+            "/api/v1/interview/create",
+            json={"draft_id": str(uuid.uuid4()), "question_count": 5},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 1012
+
+    @pytest.mark.asyncio
+    async def test_create_from_draft_not_masked(
+        self, async_client: AsyncClient, db_session: AsyncSession
+    ) -> None:
+        # 草稿内容含未脱敏邮箱：PrivacyGuard fail-closed 拦截创建
+        draft = ResumeDraftModel(
+            id=uuid.uuid4(),
+            resume_id=None,
+            title="未脱敏草稿",
+            content={"identity": {"email": "candidate@example.com"}, "summary": "", "sections": []},
+        )
+        db_session.add(draft)
+        await db_session.commit()
+
+        resp = await async_client.post(
+            "/api/v1/interview/create",
+            json={"draft_id": str(draft.id), "question_count": 5},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["code"] == 1013
+
+    @pytest.mark.asyncio
+    async def test_create_requires_exactly_one_source(self, async_client: AsyncClient) -> None:
+        # 两个来源都传 / 都不传：请求校验直接 422
+        both = {
+            "resume_id": str(uuid.uuid4()),
+            "draft_id": str(uuid.uuid4()),
+            "question_count": 5,
+        }
+        resp = await async_client.post("/api/v1/interview/create", json=both)
+        assert resp.status_code == 422
+
+        resp = await async_client.post("/api/v1/interview/create", json={"question_count": 5})
         assert resp.status_code == 422
 
 

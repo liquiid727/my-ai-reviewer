@@ -41,6 +41,12 @@ Given structured resume data, produce a multi-dimensional evaluation as a JSON o
     "verify_direction": ["<area to probe for depth vs. breadth>"],
     "skip": ["<topic not worth spending interview time on>"]
   },
+  "improvements": [
+    {
+      "point": "<short actionable improvement title>",
+      "detail": "<concrete guidance on how to improve this aspect of the resume>"
+    }
+  ],
   "summary": "<2-3 sentence overall assessment>"
 }
 
@@ -65,8 +71,9 @@ Evaluate each of the following dimensions. Every dimension must appear in dimens
 3. Provide 3-5 strengths. Each must cite specific evidence from the resume.
 4. Risks should flag gaps, inconsistencies, vague claims, or red flags. Assign severity honestly.
 5. interview_suggestions must have exactly 4 lists: worth_asking, suspicious, verify_direction, skip. Each list should contain 2-5 items.
-6. summary should be direct and actionable — would you recommend an interview or not?
-7. Return ONLY the JSON object. No markdown fences, no commentary.
+6. improvements must contain 3-6 concrete, candidate-facing suggestions that would genuinely make this resume stronger (e.g. quantify results, sharpen weak bullets, fill missing information). Each point must be short; each detail must tell the candidate exactly what to change and how. Never suggest inventing facts.
+7. summary should be direct and actionable — would you recommend an interview or not?
+8. Return ONLY the JSON object. No markdown fences, no commentary.
 """
 
 RESUME_EVALUATION_USER_PROMPT = "Evaluate the following structured resume data:\n\n{resume_data}"

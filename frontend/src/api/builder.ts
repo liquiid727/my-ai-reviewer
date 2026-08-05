@@ -158,6 +158,11 @@ export async function scoreDraft(draftId: string): Promise<APIResponse<ScoreResu
   return apiRequest(`/builder/${draftId}/score`, { method: 'POST' })
 }
 
+/** 获取草稿最近一次持久化的评分结果；未评分时 data 为 null。 */
+export async function getDraftScore(draftId: string): Promise<APIResponse<ScoreResult | null>> {
+  return apiRequest(`/builder/${draftId}/score`)
+}
+
 /** 生成临时预览 PDF；替换值只存在于本次请求和浏览器 Blob URL。 */
 export async function previewDraftPdf(
   draftId: string,

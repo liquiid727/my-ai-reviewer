@@ -23,6 +23,7 @@
 | `jd_match_results` | JD 匹配结果（skill_match / missing_skills / risk / gap / score） |
 | `job_search_plans` | 面向一份已就绪 JD 与简历的生成式求职准备计划 |
 | `job_search_plan_tasks` | 计划中的 AI 或人工任务，带证据、排序和完成状态 |
+| `resume_processing_runs` | 简历上传、隐私审批、重试和重解析的处理运行及安全失败诊断 |
 
 ---
 
@@ -56,6 +57,8 @@ files → resumes / answers (polymorphic)
 ### interviews
 - `status`: pending / in_progress / completed / cancelled
 - `stage`: introduction / resume / basic / project / system_design / behavior / summary
+- `resume_id`: 可空；从简历草稿发起的面试不关联已解析简历
+- `resume_snapshot`: JSONB，草稿面试出题用的脱敏内容快照（创建时经 PrivacyGuard fail-closed 校验）；存在时出题/评估优先使用快照而非简历解析结果
 
 ### interview_sessions
 - `graph_state`: JSON，存储 LangGraph InterviewState 快照
@@ -125,3 +128,9 @@ job_search_plan_tasks → job_search_plans (plan_id)
 - `job_search_plans` 仅引用 ready JD 和有 Candidate Profile 的简历；未完成的同一 JD+简历组合由部分唯一索引限制为一条。
 - 计划以 `generation_run_id` 拒绝过期 worker 写回，以 `revision` 实施全部计划/任务 mutation 的乐观并发控制。
 - `job_search_plan_tasks` 的 `basis` 保存已解析的 Source Catalog 证据；manual 任务与已完成任务在再生成中保留。
+
+### resumes / resume_processing_runs（错误可观测性切片）
+- `resumes.processing_run_id`: 当前有效 worker run 的 UUID；worker 写入前必须匹配该值。
+- `resumes.processing_error_details`: 仅保存 `error_code/step/attempt/retryable/public_message` 等 allow-list 字段，不保存异常正文、prompt 或简历内容。
+- `resume_processing_runs`: 每次上传、隐私审批、重试或重解析的运行历史；被新 run 取代的旧 run 以安全错误码结束，过期 run 收敛为可手动重试的失败。
+- API 只返回 `run_id` 和安全诊断，Celery `task_id` 仅用于内部日志/运行记录。

@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import Response
@@ -111,3 +112,60 @@ async def test_approve_privacy_deletes_quarantine_and_dispatches_masked_pipeline
     assert manifest.quarantine_path is None
     assert deleted == [("quarantine", f"{resume_id}/source.enc")]
     assert dispatched == [str(resume_id)]
+
+
+@pytest.mark.asyncio
+async def test_retry_resume_requeues_stale_approved_masked_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resume_id = uuid.uuid4()
+    resume = SimpleNamespace(status="text_masked")
+    monkeypatch.setattr(api, "has_verified_config", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        api.resume_queries,
+        "get_resume_for_mutation",
+        AsyncMock(return_value=resume),
+    )
+    monkeypatch.setattr(api.privacy_uc, "is_processing_stale", lambda _resume: True)
+    retry = AsyncMock()
+    monkeypatch.setattr(api.privacy_uc, "retry_failed_resume", retry)
+    monkeypatch.setattr(
+        api.resume_queries,
+        "build_status_payload",
+        AsyncMock(
+            return_value={
+                "status": "text_masked",
+                "current_step": "llm_parse",
+                "completed_steps": ["text_extract", "privacy_scan"],
+                "error": None,
+            }
+        ),
+    )
+
+    result = await api.retry_resume(resume_id, cast(AsyncSession, object()))
+
+    assert result.code == 0
+    assert result.data["status"] == "text_masked"
+    retry.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_retry_resume_does_not_duplicate_fresh_active_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resume_id = uuid.uuid4()
+    resume = SimpleNamespace(status="llm_parsing")
+    monkeypatch.setattr(api, "has_verified_config", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        api.resume_queries,
+        "get_resume_for_mutation",
+        AsyncMock(return_value=resume),
+    )
+    monkeypatch.setattr(api.privacy_uc, "is_processing_stale", lambda _resume: False)
+    retry = AsyncMock()
+    monkeypatch.setattr(api.privacy_uc, "retry_failed_resume", retry)
+
+    result = await api.retry_resume(resume_id, cast(AsyncSession, object()))
+
+    assert result.code == 409
+    retry.assert_not_awaited()

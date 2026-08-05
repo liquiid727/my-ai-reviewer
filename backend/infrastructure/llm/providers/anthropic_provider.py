@@ -14,9 +14,9 @@ class AnthropicProvider(BaseLLMProvider):
     这里做了格式转换以保持网关层接口一致。
     """
 
-    def __init__(self, api_key: str, model: str) -> None:
+    def __init__(self, api_key: str, model: str, timeout_seconds: float | None = None) -> None:
         self._model = model
-        self._client = AsyncAnthropic(api_key=api_key)
+        self._client = AsyncAnthropic(api_key=api_key, timeout=timeout_seconds)
 
     async def complete(
         self,

@@ -17,6 +17,7 @@ celery = Celery(
         "backend.tasks.interview_tasks",
         "backend.tasks.jd_tasks",
         "backend.tasks.plan_tasks",
+        "backend.tasks.resume_watchdog",
     ],
 )
 
@@ -27,4 +28,11 @@ celery.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    beat_schedule={
+        "resume-processing-watchdog": {
+            "task": "tasks.resume_watchdog",
+            "schedule": 30.0,
+            "args": (100,),
+        },
+    },
 )

@@ -15,6 +15,7 @@ import {
 } from '@/api/builder'
 import type { DraftListItem, ReferenceTemplateItem } from '@/types/builder'
 import { useResumeHistoryStore, MAX_HISTORY, type ResumeHistoryEntry } from '@/stores/resumeHistoryStore'
+import { StartInterviewDialog } from '@/components/interview/StartInterviewDialog'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -41,6 +42,7 @@ import {
   FileText,
   LayoutTemplate,
   Loader2,
+  MessageSquare,
   Palette,
   Sparkles,
   Trash2,
@@ -50,9 +52,13 @@ import {
 // 简历处理状态 → 徽标配色（Neobrutalism 高对比配色，与面试列表一致）
 const STATUS_COLORS: Record<string, string> = {
   uploaded: 'bg-gray-300 text-gray-800 border-gray-500',
+  privacy_review_required: 'bg-orange-300 text-orange-900 border-orange-600',
+  text_masked: 'bg-blue-300 text-blue-900 border-blue-600',
+  llm_parsing: 'bg-blue-300 text-blue-900 border-blue-600',
   text_parsed: 'bg-blue-300 text-blue-900 border-blue-600',
   fact_extracted: 'bg-blue-300 text-blue-900 border-blue-600',
   classified: 'bg-yellow-300 text-yellow-900 border-yellow-600',
+  evaluating: 'bg-yellow-300 text-yellow-900 border-yellow-600',
   evaluated: 'bg-green-400 text-green-900 border-green-700',
   failed: 'bg-red-400 text-red-900 border-red-700',
 }
@@ -67,9 +73,12 @@ function UploadedResumeCard({
   const navigate = useNavigate()
   const { t } = useTranslation()
   const [buildingDraft, setBuildingDraft] = useState(false)
+  const [interviewOpen, setInterviewOpen] = useState(false)
 
   const statusColor = STATUS_COLORS[entry.status] || 'bg-gray-300'
   const canBuild = entry.status === 'evaluated' || entry.status === 'classified'
+  // 解析/上传失败的简历：除删除外禁用所有查看与操作入口
+  const isFailed = entry.status === 'failed'
 
   // 编辑润色 = 基于该简历创建可编辑草稿并进入 Builder（编辑 / AI 润色 / 打分 / 导出）
   const handleEditPolish = async () => {
@@ -116,13 +125,22 @@ function UploadedResumeCard({
             {formatDateTime(entry.uploaded_at)}
           </span>
           <div className="flex gap-2">
-            <Button asChild size="sm" variant="neutral">
-              <Link to={`/resume/${entry.resume_id}`}>
-                <Eye className="size-4" />
-                {t('myResumes.view')}
-              </Link>
+            <Button
+              size="sm"
+              variant="neutral"
+              disabled={isFailed}
+              title={isFailed ? t('myResumes.failedHint') : undefined}
+              onClick={() => navigate(`/resume/${entry.resume_id}`)}
+            >
+              <Eye className="size-4" />
+              {t('myResumes.view')}
             </Button>
-            <Button size="sm" onClick={handleEditPolish} disabled={!canBuild || buildingDraft}>
+            <Button
+              size="sm"
+              onClick={handleEditPolish}
+              disabled={!canBuild || buildingDraft}
+              title={!canBuild ? (isFailed ? t('myResumes.failedHint') : t('myResumes.notReadyHint')) : undefined}
+            >
               {buildingDraft ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
@@ -138,9 +156,23 @@ function UploadedResumeCard({
                 </Link>
               </Button>
             )}
+            {canBuild && (
+              <Button size="sm" onClick={() => setInterviewOpen(true)}>
+                <MessageSquare className="size-4" />
+                {t('myResumes.startInterview')}
+              </Button>
+            )}
           </div>
         </div>
+        {isFailed && (
+          <p className="mt-2 text-xs text-red-700">{t('myResumes.failedHint')}</p>
+        )}
       </CardContent>
+      <StartInterviewDialog
+        open={interviewOpen}
+        onOpenChange={setInterviewOpen}
+        resumeId={entry.resume_id}
+      />
     </Card>
   )
 }
@@ -161,6 +193,8 @@ export function MyResumesPage() {
   const [previewState, setPreviewState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null)
   const [movingDraftId, setMovingDraftId] = useState<string | null>(null)
+  // 草稿卡片发起面试：记录选中草稿 id，以草稿当前内容作为出题依据（null 表示对话框关闭）
+  const [draftInterviewDraftId, setDraftInterviewDraftId] = useState<string | null>(null)
 
   // 进入页面时逐条拉后端最新状态刷新本地缓存；单条失败回退本地缓存，不阻塞整页
   useEffect(() => {
@@ -383,6 +417,12 @@ export function MyResumesPage() {
                           <Badge variant="neutral" className="shrink-0">
                             {t(`builder.template_${d.template_id}`, { defaultValue: d.template_id })}
                           </Badge>
+                          {d.overall_score != null && (
+                            <Badge className="shrink-0 bg-green-400 text-green-900 border-green-700">
+                              <Sparkles className="size-3" />
+                              {t('myResumes.scoreBadge', { score: d.overall_score })}
+                            </Badge>
+                          )}
                         </CardTitle>
                         <div className="flex shrink-0 items-center gap-1">
                           <Button
@@ -429,6 +469,15 @@ export function MyResumesPage() {
                           <span className="truncate">{t('myResumes.updatedAt', { time: formatDateTime(d.updated_at) })}</span>
                         </span>
                         <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+                          {/* 以草稿当前内容发起面试；独立草稿与关联简历的草稿均支持 */}
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => setDraftInterviewDraftId(d.draft_id)}
+                          >
+                            <MessageSquare className="size-4" />
+                            {t('myResumes.startInterview')}
+                          </Button>
                           <Button
                             type="button"
                             size="sm"
@@ -553,6 +602,12 @@ export function MyResumesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <StartInterviewDialog
+        open={draftInterviewDraftId !== null}
+        onOpenChange={(open) => !open && setDraftInterviewDraftId(null)}
+        draftId={draftInterviewDraftId ?? undefined}
+      />
 
       <Dialog open={draftDeleteTarget !== null} onOpenChange={(open) => !open && deletingDraftId === null && setDraftDeleteTarget(null)}>
         <DialogContent>

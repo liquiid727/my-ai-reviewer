@@ -64,7 +64,9 @@ export interface InterviewReportData {
 
 export interface InterviewListItem {
   interview_id: string
-  resume_id: string
+  /** 从简历草稿发起的面试没有关联简历，为 null */
+  resume_id: string | null
+  is_draft_interview: boolean
   status: string
   question_count: number
   overall_score: number | null

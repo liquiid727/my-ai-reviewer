@@ -3,6 +3,8 @@
 @theme inline {
   --color-main: #88aaee;
   --color-main-foreground: #000;
+  --color-success: #88eeaa;
+  --color-success-foreground: #000;
   --color-secondary-background: #e0e0e0;
   --color-background: #fff;
   --color-foreground: #000;

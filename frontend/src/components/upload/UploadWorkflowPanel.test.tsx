@@ -39,7 +39,7 @@ describe('UploadWorkflowPanel states', () => {
     renderWithProviders(
       <UploadWorkflowPanel
         resumeId={SYNTHETIC_RESUME_ID}
-        status="text_masked"
+        status="llm_parsing"
         currentStep="llm_parse"
         completedSteps={['text_extract', 'privacy_scan']}
         error={null}
@@ -47,10 +47,19 @@ describe('UploadWorkflowPanel states', () => {
       />,
     )
     expect(screen.getByTestId('upload-processing')).toBeInTheDocument()
-    expect(screen.getByTestId('upload-status-badge')).toHaveTextContent('text_masked')
-    expect(screen.getByTestId('upload-current-step')).toHaveTextContent('Parsing with AI')
-    expect(screen.getByText('text_extract')).toBeInTheDocument()
-    expect(screen.getByText('privacy_scan')).toBeInTheDocument()
+    // 状态徽章展示本地化阶段文案，而不是后端原始状态值
+    expect(screen.getByTestId('upload-status-badge')).toHaveTextContent('AI parsing')
+    // 当前阶段提示为具体进展描述，并带加载动画
+    expect(screen.getByTestId('upload-current-step')).toHaveTextContent(
+      'AI is structuring your resume content',
+    )
+    expect(screen.getByTestId('upload-current-step-spinner')).toBeInTheDocument()
+    // 整体进度按 5 个流水线阶段折算（2/5 = 40%）
+    expect(screen.getByText('40%')).toBeInTheDocument()
+    // 分阶段清单：已完成步骤展示翻译后的名称，进行中步骤标记 aria-current
+    expect(screen.getByTestId('upload-step-text_extract')).toHaveTextContent('Extract text')
+    expect(screen.getByTestId('upload-step-privacy_scan')).toHaveTextContent('Privacy scan')
+    expect(screen.getByTestId('upload-step-llm_parse')).toHaveAttribute('aria-current', 'step')
   })
 
   it('renders privacy review with synthetic masked placeholders only', () => {
@@ -70,6 +79,33 @@ describe('UploadWorkflowPanel states', () => {
       'Candidate [[PERSON_01]] worked at [[ORG_01]].',
     )
     expect(screen.queryByText(/@|1\d{10}/)).not.toBeInTheDocument()
+  })
+
+  it('replaces the spinner with recovery actions after polling times out', async () => {
+    const user = userEvent.setup()
+    const onRecheck = vi.fn()
+    const onRetry = vi.fn()
+
+    renderWithProviders(
+      <UploadWorkflowPanel
+        resumeId={SYNTHETIC_RESUME_ID}
+        status="llm_parsing"
+        currentStep="llm_parse"
+        completedSteps={['text_extract', 'privacy_scan']}
+        error={null}
+        privacyReview={null}
+        pollTimedOut
+        onRecheck={onRecheck}
+        onRetry={onRetry}
+      />,
+    )
+
+    expect(screen.getByTestId('upload-timeout')).toBeInTheDocument()
+    expect(screen.queryByTestId('upload-current-step-spinner')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Check again' }))
+    await user.click(screen.getByRole('button', { name: 'Retry task' }))
+    expect(onRecheck).toHaveBeenCalledOnce()
+    expect(onRetry).toHaveBeenCalledOnce()
   })
 
   it('renders failure state with retry and reset actions', async () => {
@@ -95,6 +131,35 @@ describe('UploadWorkflowPanel states', () => {
     await user.click(screen.getByRole('button', { name: 'Upload Another' }))
     expect(onRetry).toHaveBeenCalledTimes(1)
     expect(onReset).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders the safe failure code, stage, and processing run id', () => {
+    renderWithProviders(
+      <UploadWorkflowPanel
+        resumeId={SYNTHETIC_RESUME_ID}
+        status="failed"
+        currentStep="failed"
+        completedSteps={['text_extract', 'privacy_scan']}
+        error="SoftTimeLimitExceeded"
+        runId="run-00000000-0000-4000-8000-000000000002"
+        diagnostic={{
+          error_code: 'RESUME_PROCESSING_TIMEOUT',
+          step: 'llm_parse',
+          attempt: 3,
+          retryable: true,
+        }}
+        privacyReview={null}
+      />,
+    )
+
+    expect(screen.getByTestId('upload-failed')).toHaveTextContent(
+      'Processing timed out after its retries. Please retry.',
+    )
+    expect(screen.getByTestId('upload-failed')).toHaveTextContent('Failed at: AI parsing')
+    expect(screen.getByTestId('upload-run-id')).toHaveTextContent(
+      'run-00000000-0000-4000-8000-000000000002',
+    )
+    expect(screen.getByRole('button', { name: 'Copy ID' })).toBeInTheDocument()
   })
 
   it('hides the panel after successful evaluation', () => {

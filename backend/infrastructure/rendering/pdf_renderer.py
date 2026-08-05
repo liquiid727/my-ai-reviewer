@@ -54,6 +54,17 @@ def select_layout_candidate(
     return selected, policy.target_page_count is None
 
 
+def should_stop_rendering(policy: LayoutPolicy, page_count: int) -> bool:
+    """密度候选从松到紧渲染时的提前终止条件，与 select_layout_candidate 语义等价：
+
+    - 指定页数模式：首个命中目标页数的候选即最终选择，后续更紧的档位无需渲染；
+    - 自动分页模式：已压缩到 1 页时不可能更优，无需继续渲染更紧档位。
+    """
+    if policy.target_page_count is not None:
+        return page_count == policy.target_page_count
+    return page_count <= 1
+
+
 class PdfRenderer:
     """基于 Playwright 的确定性 A4 分页渲染器。"""
 
@@ -96,6 +107,8 @@ class PdfRenderer:
                             page_count=count_pdf_pages(pdf_bytes),
                         )
                     )
+                    if should_stop_rendering(policy, candidates[-1].page_count):
+                        break
 
                 selected, target_met = select_layout_candidate(candidates, policy)
                 return (

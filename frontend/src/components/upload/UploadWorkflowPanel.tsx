@@ -1,18 +1,35 @@
 import type { RefObject } from 'react'
-import { ShieldCheck } from 'lucide-react'
+import { CircleCheck, Copy, Loader2, ShieldCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import type { PrivacyReviewData } from '@/types/resume'
+import type { PrivacyReviewData, ResumeFailureDiagnostic, ResumeStatus } from '@/types/resume'
+
+/** 与后端 PIPELINE_STEPS 保持一致的处理阶段顺序（backend/application/resume_service/queries.py） */
+const PIPELINE_STEPS = ['text_extract', 'privacy_scan', 'llm_parse', 'classify', 'evaluate'] as const
+
+type StepState = 'completed' | 'active' | 'pending'
+
+function getStepState(
+  step: string,
+  currentStep: string | null,
+  completedSteps: string[],
+): StepState {
+  if (completedSteps.includes(step)) return 'completed'
+  if (currentStep === step) return 'active'
+  return 'pending'
+}
 
 export type UploadWorkflowPanelProps = {
   resumeId: string | null
-  status: string | null
+  status: ResumeStatus | null
   currentStep: string | null
   completedSteps: string[]
   error: string | null
+  runId?: string | null
+  diagnostic?: ResumeFailureDiagnostic | null
   privacyReview: PrivacyReviewData | null
   privacyBusy?: boolean
   privacyEntityType?: string
@@ -21,6 +38,9 @@ export type UploadWorkflowPanelProps = {
   onMaskSelection?: () => void
   onApprovePrivacy?: () => void
   onRetry?: () => void
+  pollTimedOut?: boolean
+  pollError?: string | null
+  onRecheck?: () => void
   onReset?: () => void
 }
 
@@ -34,6 +54,8 @@ export function UploadWorkflowPanel({
   currentStep,
   completedSteps,
   error,
+  runId = null,
+  diagnostic = null,
   privacyReview,
   privacyBusy = false,
   privacyEntityType = 'person',
@@ -42,6 +64,9 @@ export function UploadWorkflowPanel({
   onMaskSelection,
   onApprovePrivacy,
   onRetry,
+  pollTimedOut = false,
+  pollError = null,
+  onRecheck,
   onReset,
 }: UploadWorkflowPanelProps) {
   const { t } = useTranslation()
@@ -98,37 +123,100 @@ export function UploadWorkflowPanel({
 
   if (status === 'evaluated') return null
 
-  const progress = completedSteps.length * 25
+  const progress = Math.min(
+    100,
+    Math.round((completedSteps.length / PIPELINE_STEPS.length) * 100),
+  )
+  const activeStep =
+    currentStep && PIPELINE_STEPS.includes(currentStep as (typeof PIPELINE_STEPS)[number])
+      ? currentStep
+      : null
 
   return (
     <div
       data-testid="upload-processing"
       className="rounded-lg border-4 border-black bg-white p-6 shadow-[4px_4px_0_0_#000]"
     >
-      <div className="mb-4 flex items-center gap-3">
+      <div className="mb-1 flex items-center gap-3">
         <h2 className="text-xl font-black">{t('upload.processing')}</h2>
         <Badge
           variant={status === 'failed' ? 'neutral' : 'default'}
           className={status === 'failed' ? 'bg-red-500 text-white' : ''}
           data-testid="upload-status-badge"
         >
-          {status}
+          {t(`upload.status.${status}`, status)}
         </Badge>
       </div>
+      <p className="mb-4 text-sm text-gray-600">{t('upload.processingHint')}</p>
 
-      {status !== 'failed' && (
+      {status !== 'failed' && !pollTimedOut && !pollError && (
         <>
-          <Progress value={progress} className="mb-3" data-testid="upload-progress" />
-          <p className="text-sm font-medium" data-testid="upload-current-step">
-            {t(`upload.step.${currentStep || 'starting'}`)}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-1">
-            {completedSteps.map((step) => (
-              <Badge key={step} variant="default">
-                {step}
-              </Badge>
-            ))}
+          {/* 整体进度：进度条 + 百分比，按后端流水线阶段数折算 */}
+          <div className="mb-4">
+            <div className="mb-1 flex items-center justify-between text-sm">
+              <span className="font-bold">{t('upload.overallProgress')}</span>
+              <span className="font-bold">{progress}%</span>
+            </div>
+            <Progress value={progress} data-testid="upload-progress" />
           </div>
+
+          {/* 当前阶段：旋转动画 + 具体进展描述 */}
+          <div className="mb-4 flex items-center gap-3 rounded-base border-2 border-border bg-secondary-background p-3">
+            <Loader2
+              className="size-5 shrink-0 animate-spin"
+              data-testid="upload-current-step-spinner"
+            />
+            <p className="text-sm font-bold" data-testid="upload-current-step">
+              {t(`upload.stepDesc.${activeStep ?? 'starting'}`)}
+            </p>
+          </div>
+
+          {/* 分阶段清单：已完成（绿色对勾）/ 进行中（旋转圈）/ 待处理（序号） */}
+          <ol className="space-y-2">
+            {PIPELINE_STEPS.map((step, index) => {
+              const state = getStepState(step, currentStep, completedSteps)
+              return (
+                <li
+                  key={step}
+                  data-testid={`upload-step-${step}`}
+                  aria-current={state === 'active' ? 'step' : undefined}
+                  className="flex items-start gap-3"
+                >
+                  {state === 'completed' && (
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full border-2 border-border bg-success">
+                      <CircleCheck className="size-4" />
+                    </span>
+                  )}
+                  {state === 'active' && (
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full border-2 border-border bg-main">
+                      <Loader2 className="size-4 animate-spin" />
+                    </span>
+                  )}
+                  {state === 'pending' && (
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full border-2 border-border bg-secondary-background text-xs font-bold text-foreground/50">
+                      {index + 1}
+                    </span>
+                  )}
+                  <div className="min-w-0">
+                    <p
+                      className={`text-sm ${
+                        state === 'active'
+                          ? 'font-black'
+                          : state === 'completed'
+                            ? 'font-medium'
+                            : 'font-medium text-foreground/50'
+                      }`}
+                    >
+                      {t(`upload.step.${step}`)}
+                    </p>
+                    {state === 'active' && (
+                      <p className="text-xs text-gray-600">{t(`upload.stepDesc.${step}`)}</p>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ol>
         </>
       )}
 
@@ -136,7 +224,25 @@ export function UploadWorkflowPanel({
         <div className="space-y-3" data-testid="upload-failed">
           <Alert variant="destructive">
             <AlertTitle>{t('upload.processingFailed')}</AlertTitle>
-            <AlertDescription>{error || t('common.loading')}</AlertDescription>
+            <AlertDescription>
+              <p>
+                {diagnostic
+                  ? t(`upload.failure.${diagnostic.error_code}`, {
+                      defaultValue: error || t('upload.failure.RESUME_PROCESSING_FAILED'),
+                    })
+                  : error?.toLowerCase().includes('softtimelimitexceeded')
+                    ? t('upload.failure.RESUME_PROCESSING_TIMEOUT')
+                    : error || t('upload.failure.RESUME_PROCESSING_FAILED')}
+              </p>
+              {diagnostic?.step && (
+                <p className="mt-1 text-xs font-bold">
+                  {t('upload.failureStage', {
+                    step: t(`upload.step.${diagnostic.step}`, { defaultValue: diagnostic.step }),
+                  })}
+                </p>
+              )}
+              {runId && <RunIdBlock runId={runId} />}
+            </AlertDescription>
           </Alert>
           <div className="flex gap-2">
             <Button onClick={() => onRetry?.()}>{t('upload.retry')}</Button>
@@ -146,6 +252,64 @@ export function UploadWorkflowPanel({
           </div>
         </div>
       )}
+
+      {pollTimedOut && status !== 'failed' && (
+        <div className="space-y-3" data-testid="upload-timeout">
+          <Alert variant="destructive">
+            <AlertTitle>{t('upload.processingTimedOut')}</AlertTitle>
+            <AlertDescription>{t('upload.processingTimedOutDescription')}</AlertDescription>
+          </Alert>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="neutral" onClick={() => onRecheck?.()}>
+              {t('upload.recheck')}
+            </Button>
+            <Button onClick={() => onRetry?.()}>{t('upload.retryTask')}</Button>
+          </div>
+        </div>
+      )}
+
+      {pollError && status !== 'failed' && !pollTimedOut && (
+        <div className="space-y-3" data-testid="upload-poll-error">
+          <Alert variant="destructive">
+            <AlertTitle>{t('upload.statusQueryFailed')}</AlertTitle>
+            <AlertDescription>{pollError}</AlertDescription>
+          </Alert>
+          <Button variant="neutral" onClick={() => onRecheck?.()}>
+            {t('upload.recheck')}
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RunIdBlock({ runId }: { runId: string }) {
+  const { t } = useTranslation()
+
+  const copyRunId = async () => {
+    try {
+      await navigator.clipboard?.writeText(runId)
+    } catch {
+      // Copy is a convenience; the identifier remains selectable in the UI.
+    }
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-base border-2 border-border bg-secondary-background p-2">
+      <span className="text-xs font-bold">{t('upload.runId')}</span>
+      <code className="break-all text-xs" data-testid="upload-run-id">
+        {runId}
+      </code>
+      <Button
+        type="button"
+        variant="neutral"
+        size="sm"
+        aria-label={t('upload.copyRunId')}
+        onClick={() => void copyRunId()}
+      >
+        <Copy className="size-3.5" />
+        {t('upload.copyRunId')}
+      </Button>
     </div>
   )
 }
