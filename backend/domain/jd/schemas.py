@@ -183,6 +183,13 @@ class JDReviewPatchRequest(BaseModel):
     draft: ReviewDraft
 
 
+class JDPublishRequest(BaseModel):
+    """Publish the current review draft idempotently."""
+
+    expected_review_revision: int = Field(ge=0)
+    publication_reason: str = Field(default="user_confirmed", max_length=100)
+
+
 class JDTextImportRequest(BaseModel):
     raw_text: str = Field(min_length=1, max_length=100_000)
     title: str | None = Field(default=None, max_length=200)

@@ -14,6 +14,7 @@ from backend.application.jd_service import commands as jd_commands
 from backend.application.jd_service import queries as jd_queries
 from backend.application.llm_config_service import has_verified_config
 from backend.domain.jd.schemas import (
+    JDPublishRequest,
     JDReextractRequest,
     JDReviewPatchRequest,
     JDStructuredPatch,
@@ -302,6 +303,71 @@ async def patch_jd_review(
     except JDReviewNotInReviewError as exc:
         return APIResponse(code=409, message=str(exc))
     return APIResponse(data=result)
+
+
+@router.post("/{jd_id}/publish", response_model=APIResponse)
+async def publish_jd_version(
+    jd_id: uuid.UUID,
+    payload: JDPublishRequest,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    from backend.application.jd_publish import (
+        JDPublishConflictError,
+        JDPublishInvalidError,
+        JDPublishUseCases,
+        PublishJDCommand,
+    )
+
+    try:
+        version = await JDPublishUseCases().publish(
+            session,
+            PublishJDCommand(
+                jd_id=jd_id,
+                expected_review_revision=payload.expected_review_revision,
+                publication_reason=payload.publication_reason,
+            ),
+        )
+    except JDPublishConflictError as exc:
+        return APIResponse(code=409, message=str(exc))
+    except JDPublishInvalidError as exc:
+        return APIResponse(code=422, message=str(exc))
+    return APIResponse(
+        data={
+            "id": str(version.id),
+            "version_no": version.version_no,
+            "content_hash": version.content_hash,
+            "schema_version": version.schema_version,
+            "publication_reason": version.publication_reason,
+            "published_at": version.published_at.isoformat() if version.published_at else None,
+        }
+    )
+
+
+@router.get("/{jd_id}/versions", response_model=APIResponse)
+async def list_jd_versions(
+    jd_id: uuid.UUID,
+    limit: int = Query(default=50, ge=1, le=200),
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    from backend.application.jd_publish import JDPublishUseCases
+
+    versions = await JDPublishUseCases().list_for_jd(session, jd_id, limit=limit)
+    return APIResponse(
+        data={
+            "versions": [
+                {
+                    "id": str(v.id),
+                    "version_no": v.version_no,
+                    "content_hash": v.content_hash,
+                    "schema_version": v.schema_version,
+                    "parser_version": v.parser_version,
+                    "publication_reason": v.publication_reason,
+                    "published_at": v.published_at.isoformat() if v.published_at else None,
+                }
+                for v in versions
+            ]
+        }
+    )
 
 
 @router.delete("/{jd_id}", response_model=APIResponse)
