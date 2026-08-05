@@ -1,0 +1,68 @@
+{
+  "issue": 111,
+  "slug": "close-match-engine-privacy-and-replay-acceptance",
+  "title": "Close match-engine privacy and replay acceptance",
+  "spec": "RIP-013",
+  "sections": ["10", "11", "12"],
+  "ts": "2026-08-05T00:00:00Z",
+  "branch": "main",
+  "head": "0cb7524",
+  "type": "backend / test",
+  "status": "accepted",
+  "mode": "local-reviewed",
+  "gates": {
+    "ruff": "pass (both new files clean)",
+    "mypy": "pass (2 new files, 0 new errors)",
+    "arch_check": "pass (33 waived pre-existing, 0 new)",
+    "unit": "432 passed / 2 failed (pre-existing baselines: test_resume_builder_llm_gate.py::test_score_uses_active_verified_config_for_gateway, test_resume_draft_list_api.py::test_reorder_draft_returns_persisted_order)",
+    "integration": "133 passed (+4 new in test_match_assessment_acceptance.py)",
+    "alembic": "head unchanged t4e5f6a7b8c9 (no migration in this issue)"
+  },
+  "acceptance": [
+    {
+      "ac": "Maintained synthetic fixtures cover all dimensions, caps, four gap classes, unknown evidence, and score bands",
+      "status": "met",
+      "evidence": "Pre-existing: test_match_assessment_policy.py (weights sum 100, exact 8-key set, cap ordering, recommendation bands), test_match_assessment_engine.py (core-skill 75 / severe-years 70 / lowest-cap caps, all four gap categories with action types), test_match_assessment_catalog.py (unknown/missing values skipped), test_match_semantic_matcher.py (unknown evidence id retry/exhaust). New: test_fixture_dimension_keys_match_weights pins the dimension/weight key set."
+    },
+    {
+      "ac": "Same versions/policy/fake semantic output replay to the same score, caps, gaps, and explanations",
+      "status": "met",
+      "evidence": "New unit tests: test_replay_same_inputs_same_result (identical MatchV1Result incl. total/before-caps/caps/gap dumps, deterministic=true) and test_replay_catalog_through_engine_is_stable (catalog -> fake semantic -> engine tuple replay stable)."
+    },
+    {
+      "ac": "Gateway spies and database/log/API checks contain no unmasked/direct-identifier canaries",
+      "status": "met",
+      "evidence": "Gateway spy: test_match_semantic_matcher.py::test_classify_gateway_spy_proves_masked_allowlist_payload (payload bounded, privacy_required, Acme/email/phone absent). New integration test_completed_row_and_api_never_expose_canaries: a completed row's persisted JSON columns and the detail API response contain none of Acme/alice@example.com/13800138000 even though the seed resume profile evidence embeds them."
+    },
+    {
+      "ac": "Broker failure, timeout, malformed output, retry, concurrent force, and stale-worker cases converge safely",
+      "status": "met",
+      "evidence": "test_match_assessment_api.py covers broker failure (ASSESSMENT_DEPENDENCY_TIMEOUT retryable), retry (new run, cleared diagnostic), stale worker (no rewrite of immutable result), active duplicate 409. New: test_malformed_semantic_output_persists_invalid_evidence (terminal ASSESSMENT_EVIDENCE_INVALID, no result persisted) and test_concurrent_force_create_converges_to_single_active_row (two racing force creates on one tuple -> exactly one active row via the partial unique index). Timeout path is unit-covered via MatchSemanticError(retryable=True) mapping in the worker."
+    },
+    {
+      "ac": "Representative list/reuse queries use expected indexes and bounded query counts",
+      "status": "met",
+      "evidence": "New integration test_reuse_lookup_and_target_cursor_use_indexes: EXPLAIN (FORMAT JSON) proves ix_match_assessments_tuple_created serves the completed-reuse lookup and ix_match_assessments_target_created serves the target cursor list; both queries bounded by LIMIT."
+    },
+    {
+      "ac": "Migration, unit, integration, lint, type, privacy, and diff gates are recorded",
+      "status": "met",
+      "evidence": "Gates recorded above: alembic head unchanged (migration t4e5f6a7b8c9 from #109 covers the schema); unit/integration/lint/type/arch all pass at baseline; privacy assertions are part of the unit and integration suites. Diff is additive tests only (2 new test files)."
+    }
+  ],
+  "files": [
+    "backend/tests/unit/test_match_assessment_acceptance.py",
+    "backend/tests/integration/test_match_assessment_acceptance.py"
+  ],
+  "reviews": [
+    {
+      "verdict": "accepted",
+      "mode": "local-reviewed",
+      "note": "All 6 acceptance criteria verified. Privacy: provider-payload masking proven by the gateway spy; DB + API canary checks added. Replay: deterministic equality proven at both the engine and catalog-through-engine levels. Convergence: malformed output -> ASSESSMENT_EVIDENCE_INVALID; concurrent force -> single active row. Index usage: EXPLAIN-based assertions on both representative queries. No production code changed; this issue is the acceptance gate only."
+    }
+  ],
+  "residual_risks": [
+    "Real LLM provider path is still not exercised in integration (matcher unit tests cover the gateway adapter with fakes).",
+    "Query-bounds assertion is per-statement LIMIT; EXPLAIN proves index choice, not row-count amplification on large datasets."
+  ]
+}
