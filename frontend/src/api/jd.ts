@@ -1,5 +1,15 @@
 import { apiRequest } from './client'
-import type { JDDetail, JDListData, JDPatchInput, JDResponse, JDSourceType, JDStatus } from '@/types/jd'
+import type {
+  JDDetail,
+  JDListData,
+  JDPatchInput,
+  JDResponse,
+  JDReviewDraft,
+  JDSourceType,
+  JDStatus,
+  JDVersionDetail,
+  JDVersionsData,
+} from '@/types/jd'
 
 function query(params: Record<string, string | number | boolean | undefined>) {
   const values = new URLSearchParams()
@@ -80,6 +90,46 @@ export function cancelJDDuplicate(id: string): Promise<JDResponse<unknown>> {
 
 export function deleteJobDescription(id: string): Promise<JDResponse<unknown>> {
   return apiRequest(`/jd/${id}`, { method: 'DELETE' })
+}
+
+export function saveJDReviewDraft(
+  id: string,
+  input: { expected_review_revision: number; draft: JDReviewDraft },
+): Promise<JDResponse<JDDetail>> {
+  return apiRequest(`/jd/${id}/review`, { method: 'PATCH', body: JSON.stringify(input) })
+}
+
+export function publishJDVersion(
+  id: string,
+  input: { expected_review_revision: number; publication_reason?: string },
+): Promise<JDResponse<{ id: string; version_no: number; content_hash: string; schema_version: string; publication_reason: string; published_at: string | null }>> {
+  return apiRequest(`/jd/${id}/publish`, { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function reparseJobDescription(
+  id: string,
+  overwriteManual = false,
+): Promise<JDResponse<{ run_id: string; status: string }>> {
+  return apiRequest(`/jd/${id}/reparse`, {
+    method: 'POST',
+    body: JSON.stringify({ overwrite_manual: overwriteManual }),
+  })
+}
+
+export function abandonJDDraft(id: string): Promise<JDResponse<unknown>> {
+  return apiRequest(`/jd/${id}/draft/abandon`, { method: 'POST' })
+}
+
+export function archiveJobDescription(id: string): Promise<JDResponse<unknown>> {
+  return apiRequest(`/jd/${id}/archive`, { method: 'POST' })
+}
+
+export function listJDVersions(id: string, limit = 50): Promise<JDResponse<JDVersionsData>> {
+  return apiRequest(`/jd/${id}/versions${query({ limit })}`)
+}
+
+export function getJDVersion(id: string, versionId: string): Promise<JDResponse<JDVersionDetail>> {
+  return apiRequest(`/jd/${id}/versions/${versionId}`)
 }
 
 export function matchJobDescription(id: string, resumeId: string): Promise<JDResponse<{ id: string }>> {

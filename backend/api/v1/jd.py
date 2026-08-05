@@ -173,7 +173,7 @@ async def list_job_descriptions(
     page_size: int = Query(20, ge=1, le=100),
     q: str | None = Query(None, max_length=100),
     source_type: Literal["text", "file", "url"] | None = None,
-    status: Literal["processing", "duplicate_pending", "ready", "failed"] | None = None,
+    status: Literal["processing", "duplicate_pending", "needs_review", "ready", "failed", "archived"] | None = None,
     direction: Literal["asc", "desc"] = "desc",
     session: AsyncSession = Depends(get_db),
 ) -> APIResponse:

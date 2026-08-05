@@ -44,6 +44,10 @@ def serialize_jd(jd: JobDescriptionModel, *, include_raw_text: bool = True) -> d
         "duplicate_of_id": str(jd.duplicate_of_id) if jd.duplicate_of_id else None,
         "field_sources": jd.field_sources,
         "parser_version": jd.parser_version,
+        "review_revision": jd.review_revision,
+        "review_draft": jd.review_draft,
+        "review_error": jd.review_error,
+        "current_version_id": str(jd.current_version_id) if jd.current_version_id else None,
         "updated_at": jd.updated_at,
         "created_at": jd.created_at,
     }
@@ -87,7 +91,7 @@ async def list_job_descriptions(
     page_size: int,
     q: str | None,
     source_type: Literal["text", "file", "url"] | None,
-    status: Literal["processing", "duplicate_pending", "ready", "failed"] | None,
+    status: Literal["processing", "duplicate_pending", "needs_review", "ready", "failed", "archived"] | None,
     direction: Literal["asc", "desc"],
 ) -> dict[str, Any]:
     conditions: list[Any] = []
