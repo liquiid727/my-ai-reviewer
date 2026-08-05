@@ -1,0 +1,40 @@
+{
+  "issue": "105",
+  "title": "Build five-mode JD import UI",
+  "spec": "RIP-012 sections 8, 9, 11",
+  "verdict": "accepted",
+  "date": "2026-08-05",
+  "gates": {
+    "pnpm_lint": "PASS (oxlint clean)",
+    "pnpm_build": "PASS (tsc + vite; chunk size warning only)",
+    "backend_gates": "PASS (no backend change in this issue; baseline verified on #104: ruff 2 pre-existing, mypy 22 pre-existing, unit 346 passed/2 pre-existing failures, integration 108 passed, arch-check 33 violations/0 new)",
+    "alembic_heads": "s3d4e5f6a7b8 (head) unchanged — no migration needed",
+    "browser_check": "DEFERRED — component and desktop/mobile browser checks recorded in reviews/20260805-browser-acceptance-waiver.md (no local browser controller)"
+  },
+  "acceptance": {
+    "segmented_source_mode_control": "PASS — JDImportDialog now renders five mutually exclusive tabs (text/file/image/url/manual) through the existing Radix Tabs segmented control; each mode owns type-appropriate inputs",
+    "validate_current_mode_and_isolate_inactive_data": "PASS — `valid` gating is mode-scoped (text length, URL protocol, manual title+skill bounds, file/image size ≤10MB); the submit branch builds the request only from the active mode's state, so inactive-mode data never enters the payload",
+    "show_file_metadata_and_actionable_validation": "PASS — file and image tabs display name · MIME type · human-readable size (formatFileSize); URL mode validates http(s) protocol with a helpful hint; manual mode validates required title (≤200) and per-skill length (≤500) inline",
+    "processing_review_duplicate_failure_retry_states_and_polling": "PASS — JDListPage already renders processing spinner, needs_review/duplicate_pending/ready/failed badges and duplicate keep/cancel actions; polling stops when no item is processing and on document visibility loss (2s → 5s backoff after 60s, shipped in #104 and retained)",
+    "en_zh_synchronized_and_errors_localized": "PASS — importMode.image, jd.image, jd.imageHelp, jd.unknownType added to both en.ts and zh.ts; errors flow through existing localized toast/alert paths",
+    "component_and_browser_checks": "DEFERRED — no local browser controller; grid-cols-5 tab layout and dialog width (sm:max-w-xl) verified structurally, not visually (waiver)"
+  },
+  "implementation_notes": [
+    "Backend POST /jd/import/image already shipped in #103 (multipart file + allow_duplicate query, 503 when no OCR engine is registered); this issue only adds the client function importJDImage mirroring importJDFile",
+    "Image mode reuses the same 10MB size gate and allow_duplicate checkbox as file mode; accept attribute restricts the picker to .png/.jpg/.jpeg/.webp",
+    "Previous dialog render showed only the file name; both file and image tabs now show name · type · size, with 'Unknown type' fallback for browsers that do not report a MIME type",
+    "The shared validity check accepts either file or image so switching tabs never leaves the import button disabled with stale state"
+  ],
+  "residual_risks": [
+    "Browser-level layout verification (tab overlap at small widths) remains deferred per the browser-acceptance waiver",
+    "OCR availability is environment-dependent: image import returns 503 when no OCR engine is registered, surfaced as a localized toast"
+  ],
+  "reviews": {
+    "verdict": "accepted",
+    "mode": "local-reviewed",
+    "note": "five modes are now mutually exclusive tabs with mode-scoped validation and isolation of inactive-mode data; file/image metadata (name/type/size) is shown with localized fallbacks; en/zh keys synchronized; state/polling behavior was already covered by #104 and retained; browser checks deferred per waiver"
+  },
+  "commits": [
+    "2bb958f feat(rip012): add five-mode JD import UI with image mode (#105)"
+  ]
+}
