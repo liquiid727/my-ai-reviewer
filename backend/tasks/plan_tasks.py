@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from typing import Any
 
@@ -11,6 +10,7 @@ from backend.application.plan_service import PlanService
 from backend.celery_app import celery
 from backend.domain.job_search_plan.policies import PlanDomainError
 from backend.infrastructure.db.database import async_session_factory
+from backend.tasks.async_runtime import run_async
 
 
 async def _perform_initial(plan_id: uuid.UUID, run_id: uuid.UUID) -> str:
@@ -55,19 +55,19 @@ def plan_generation_task(self: Any, plan_id_str: str, run_id_str: str) -> str:
     plan_id = uuid.UUID(plan_id_str)
     run_id = uuid.UUID(run_id_str)
     try:
-        return asyncio.run(_perform_initial(plan_id, run_id))
+        return run_async(_perform_initial(plan_id, run_id))
     except PlanDomainError as exc:
         if exc.code == 428:
-            asyncio.run(_mark_initial_failed(plan_id, run_id, exc))
+            run_async(_mark_initial_failed(plan_id, run_id, exc))
             return "failed"
         if self.request.retries >= (self.max_retries or 0):
-            asyncio.run(_mark_initial_failed(plan_id, run_id, exc))
+            run_async(_mark_initial_failed(plan_id, run_id, exc))
             return "failed"
         raise self.retry(exc=exc)
     except Exception:
         safe_error = PlanDomainError("Plan generation failed", 5001)
         if self.request.retries >= (self.max_retries or 0):
-            asyncio.run(_mark_initial_failed(plan_id, run_id, safe_error))
+            run_async(_mark_initial_failed(plan_id, run_id, safe_error))
             return "failed"
         raise self.retry(exc=safe_error)
 
@@ -87,19 +87,19 @@ def plan_regeneration_task(self: Any, plan_id_str: str, run_id_str: str) -> str:
     plan_id = uuid.UUID(plan_id_str)
     run_id = uuid.UUID(run_id_str)
     try:
-        return asyncio.run(_perform_regeneration(plan_id, run_id))
+        return run_async(_perform_regeneration(plan_id, run_id))
     except PlanDomainError as exc:
         if exc.code == 428:
-            asyncio.run(_mark_regeneration_failed(plan_id, run_id, exc))
+            run_async(_mark_regeneration_failed(plan_id, run_id, exc))
             return "failed"
         if self.request.retries >= (self.max_retries or 0):
-            asyncio.run(_mark_regeneration_failed(plan_id, run_id, exc))
+            run_async(_mark_regeneration_failed(plan_id, run_id, exc))
             return "failed"
         raise self.retry(exc=exc)
     except Exception:
         safe_error = PlanDomainError("Plan regeneration failed", 5001)
         if self.request.retries >= (self.max_retries or 0):
-            asyncio.run(_mark_regeneration_failed(plan_id, run_id, safe_error))
+            run_async(_mark_regeneration_failed(plan_id, run_id, safe_error))
             return "failed"
         raise self.retry(exc=safe_error)
 

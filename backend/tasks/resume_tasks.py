@@ -6,13 +6,11 @@ run exits with ``stale`` and cannot overwrite a newer retry or reparse.
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import threading
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Coroutine
-from typing import Any, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from celery import chain
 from celery.exceptions import SoftTimeLimitExceeded
@@ -38,25 +36,13 @@ from backend.infrastructure.db.database import async_session_factory
 from backend.infrastructure.db.models import ResumeModel, ResumeProcessingRunModel
 from backend.observability.context import bind_resume_context
 from backend.observability.events import emit_resume_event
+from backend.tasks.async_runtime import run_async
 
 logger = logging.getLogger(__name__)
 
-_T = TypeVar("_T")
-_loop_local = threading.local()
 _settings = get_settings()
 _LLM_MAX_RETRIES = 2
 _RETRY_DELAY_SECONDS = 30
-
-
-def _run_async(coro: Coroutine[Any, Any, _T]) -> _T:
-    """Reuse one event loop per worker thread for async SQLAlchemy work."""
-
-    loop = getattr(_loop_local, "loop", None)
-    if loop is None or loop.is_closed():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        _loop_local.loop = loop
-    return loop.run_until_complete(coro)
 
 
 def privacy_allows_llm(status: str | ResumeStatus) -> bool:
@@ -215,8 +201,8 @@ def _execute_step(
     run_id: uuid.UUID | None,
 ) -> str:
     if run_id is None:
-        return _run_async(_run_step(step_fn, resume_id))
-    return _run_async(_run_step(step_fn, resume_id, run_id))
+        return run_async(_run_step(step_fn, resume_id))
+    return run_async(_run_step(step_fn, resume_id, run_id))
 
 
 def _emit_started(resource_id: str, run_id: str | None, task_id: str | None, step: str, attempt: int) -> float:
@@ -280,9 +266,9 @@ def _retry_or_fail(
     def fail_now(*, can_retry_manually: bool) -> None:
         if run_id is None:
             # Preserve the small two-argument seam used by legacy task tests.
-            _run_async(_mark_failed(resume_id, error))
+            run_async(_mark_failed(resume_id, error))
         else:
-            _run_async(
+            run_async(
                 _mark_failed(
                     resume_id,
                     error,
@@ -385,7 +371,7 @@ def text_extract_task(self: Any, resume_id_str: str, run_id_str: str | None = No
                 )
                 return result
             if result == ResumeStatus.FAILED.value:
-                failed_written = _run_async(
+                failed_written = run_async(
                     _mark_failed(
                         resume_id,
                         RuntimeError("Resume text extraction failed"),
@@ -398,7 +384,7 @@ def text_extract_task(self: Any, resume_id_str: str, run_id_str: str | None = No
                 if failed_written is False:
                     return "stale"
             else:
-                progress_written = _run_async(
+                progress_written = run_async(
                     _mark_run_progress(
                         resume_id,
                         run_id,
@@ -425,7 +411,7 @@ def text_extract_task(self: Any, resume_id_str: str, run_id_str: str | None = No
                 level=logging.ERROR,
                 duration_ms=int((time.monotonic() - started) * 1000),
             )
-            _run_async(
+            run_async(
                 _mark_failed(
                     resume_id,
                     exc,
@@ -470,9 +456,9 @@ def llm_parse_task(
         started = _emit_started(resume_id_str, run_id_str, task_id, "llm_parse", attempt)
         try:
             if run_id is None:
-                processing_marked = _run_async(_mark_processing(resume_id, ResumeStatus.LLM_PARSING))
+                processing_marked = run_async(_mark_processing(resume_id, ResumeStatus.LLM_PARSING))
             else:
-                processing_marked = _run_async(
+                processing_marked = run_async(
                     _mark_processing(
                         resume_id,
                         ResumeStatus.LLM_PARSING,
@@ -487,7 +473,7 @@ def llm_parse_task(
             result = _execute_step(resume_pipeline.extract_facts, resume_id, run_id)
             if result == "stale":
                 return result
-            progress_written = _run_async(
+            progress_written = run_async(
                 _mark_run_progress(
                     resume_id,
                     run_id,
@@ -566,7 +552,7 @@ def classify_task(
             result = _execute_step(resume_pipeline.classify_resume, resume_id, run_id)
             if result == "stale":
                 return result
-            progress_written = _run_async(
+            progress_written = run_async(
                 _mark_run_progress(
                     resume_id,
                     run_id,
@@ -581,7 +567,7 @@ def classify_task(
             _emit_completed(resume_id_str, run_id_str, task_id, "classify", attempt, result, started)
             return result
         except Exception as exc:
-            _run_async(
+            run_async(
                 _mark_failed(
                     resume_id,
                     exc,
@@ -638,9 +624,9 @@ def evaluate_task(
         started = _emit_started(resume_id_str, run_id_str, task_id, "evaluate", attempt)
         try:
             if run_id is None:
-                processing_marked = _run_async(_mark_processing(resume_id, ResumeStatus.EVALUATING))
+                processing_marked = run_async(_mark_processing(resume_id, ResumeStatus.EVALUATING))
             else:
-                processing_marked = _run_async(
+                processing_marked = run_async(
                     _mark_processing(
                         resume_id,
                         ResumeStatus.EVALUATING,
@@ -655,7 +641,7 @@ def evaluate_task(
             result = _execute_step(resume_pipeline.evaluate_resume, resume_id, run_id)
             if result == "stale":
                 return result
-            progress_written = _run_async(
+            progress_written = run_async(
                 _mark_run_progress(
                     resume_id,
                     run_id,

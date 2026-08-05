@@ -1,11 +1,11 @@
 """面试异步任务 —— Celery 报告生成任务。"""
 
-import asyncio
 import logging
 import uuid
 from typing import Any
 
 from backend.celery_app import celery
+from backend.tasks.async_runtime import run_async
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 @celery.task(name="generate_interview_report")  # type: ignore[untyped-decorator]
 def generate_report_task(interview_id: str) -> dict[str, Any]:
     """异步生成面试报告（Celery task 入口，内部调用 async 实现）。"""
-    return asyncio.run(_generate_report(interview_id))
+    return run_async(_generate_report(interview_id))
 
 
 async def _generate_report(interview_id: str) -> dict[str, Any]:
