@@ -6,6 +6,7 @@ from backend.api.v1.input_versions import router as input_versions_router
 from backend.api.v1.interview import router as interview_router
 from backend.api.v1.interview_scenarios import router as interview_scenarios_router
 from backend.api.v1.jd import router as jd_router
+from backend.api.v1.job_targets import router as job_targets_router
 from backend.api.v1.plans import router as plans_router
 from backend.api.v1.resume import router as resume_router
 from backend.api.v1.resume_builder import router as resume_builder_router
@@ -18,5 +19,6 @@ api_router.include_router(interview_router)  # 面试相关接口
 api_router.include_router(interview_scenarios_router)  # 面试场景注册表相关接口
 api_router.include_router(input_versions_router)  # 输入版本发布与查询相关接口
 api_router.include_router(jd_router)  # JD 匹配相关接口
+api_router.include_router(job_targets_router)  # Job Target 工作区相关接口
 api_router.include_router(plans_router)  # 求职计划相关接口
 api_router.include_router(resume_builder_router)  # 简历制作相关接口
