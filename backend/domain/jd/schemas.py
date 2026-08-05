@@ -97,6 +97,85 @@ class JDExtraction(BaseModel):
         return [s.name for s in self.required_skills if s.critical]
 
 
+class DraftItem(BaseModel):
+    """A structured draft list item with stable key, evidence, and provenance."""
+
+    key: str = Field(min_length=1, max_length=200)
+    value: str = Field(min_length=1, max_length=500)
+    evidence: str | None = Field(default=None, max_length=500)
+    evidence_status: Literal["available", "unavailable"] = "unavailable"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    provenance: Literal["source", "llm", "manual"] = "llm"
+
+
+class HardConditionItem(BaseModel):
+    """A hard requirement (years/education/language/certificate/location)."""
+
+    key: str = Field(min_length=1, max_length=200)
+    category: Literal["years", "education", "language", "certificate", "location", "other"]
+    value: str = Field(min_length=1, max_length=500)
+    evidence: str | None = Field(default=None, max_length=500)
+    evidence_status: Literal["available", "unavailable"] = "unavailable"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    provenance: Literal["source", "llm", "manual"] = "llm"
+
+
+class CompensationRange(BaseModel):
+    min_amount: int | None = Field(default=None, ge=0)
+    max_amount: int | None = Field(default=None, ge=0)
+    currency: str | None = Field(default=None, max_length=10)
+    period: Literal["yearly", "monthly", "hourly"] | None = None
+
+
+class ReviewDraft(BaseModel):
+    """Complete structured JD review draft (RIP-011 §6.1).
+
+    Scalar uncertainty is null; list uncertainty is []. Every list item and
+    hard requirement carries a stable key, optional evidence, confidence, and
+    provenance. Missing evidence is `unavailable`, never a fabricated quote.
+    """
+
+    title: str | None = Field(default=None, max_length=200)
+    company: str | None = Field(default=None, max_length=200)
+    department: str | None = Field(default=None, max_length=200)
+    location: str | None = Field(default=None, max_length=200)
+    employment_type: Literal["full_time", "part_time", "contract", "internship"] | None = None
+    seniority: Literal["junior", "mid", "senior", "expert"] | None = None
+    compensation: CompensationRange | None = None
+
+    minimum_years: int | None = Field(default=None, ge=0, le=50)
+    preferred_years: int | None = Field(default=None, ge=0, le=50)
+    education: str | None = Field(default=None, max_length=200)
+    languages: list[str] = Field(default_factory=list, max_length=20)
+    certificates: list[str] = Field(default_factory=list, max_length=50)
+    location_constraint: str | None = Field(default=None, max_length=200)
+
+    responsibilities: list[DraftItem] = Field(default_factory=list, max_length=50)
+    required_skills: list[DraftItem] = Field(default_factory=list, max_length=100)
+    preferred_skills: list[DraftItem] = Field(default_factory=list, max_length=100)
+    hard_conditions: list[HardConditionItem] = Field(default_factory=list, max_length=100)
+    domain_context: str | None = Field(default=None, max_length=500)
+    industry_context: str | None = Field(default=None, max_length=500)
+    interview_clues: list[str] = Field(default_factory=list, max_length=50)
+    notes: str | None = Field(default=None, max_length=1000)
+
+    parser_version: str | None = Field(default=None, max_length=50)
+    model_name: str | None = Field(default=None, max_length=200)
+    prompt_version: str | None = Field(default=None, max_length=50)
+    schema_version: str = Field(default="jd-review-v1", max_length=50)
+    overall_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class JDExtractionResult(BaseModel):
+    """Extractor output envelope: parsed draft plus metadata, never raw provider text."""
+
+    draft: ReviewDraft
+    parser_version: str
+    model_name: str | None = None
+    prompt_version: str | None = None
+    schema_version: str = "jd-review-v1"
+
+
 class JDTextImportRequest(BaseModel):
     raw_text: str = Field(min_length=1, max_length=100_000)
     title: str | None = Field(default=None, max_length=200)
