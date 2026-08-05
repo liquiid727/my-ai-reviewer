@@ -1,0 +1,43 @@
+{
+  "issue": "104",
+  "title": "Add manual JD source creation",
+  "spec": "RIP-012 sections 6.2/6.3, 7.1, 9",
+  "verdict": "accepted",
+  "date": "2026-08-05",
+  "gates": {
+    "ruff": "PASS (only 2 pre-existing baseline errors: test_quality_scripts.py F841, test_reparse.py I001)",
+    "mypy": "PASS (22 pre-existing baseline errors, 0 new)",
+    "arch_check": "PASS (violations=33, new=0)",
+    "unit": "346 passed (2 known pre-existing failures: test_resume_builder_llm_gate.py::test_score_uses_active_verified_config_for_gateway, test_resume_draft_list_api.py::test_reorder_draft_returns_persisted_order)",
+    "integration": "108 passed",
+    "pnpm_lint": "PASS",
+    "pnpm_build": "PASS (tsc + vite, chunk size warning only)",
+    "alembic_heads": "s3d4e5f6a7b8 (head) unchanged — no migration needed for this issue"
+  },
+  "acceptance": {
+    "manual_source_policy_and_request_schema": "PASS — JDSourceType.manual (shipped in #103), JDManualImportRequest with title required (1-200 chars), optional fields bounded to RIP-011 limits (company/location/department ≤200, responsibilities ≤50 × ≤500, skills ≤100 × ≤500, notes ≤1000)",
+    "validate_optional_fields": "PASS — Pydantic bounds + employment_type literal; unit tests cover each bound",
+    "manual_provenance_without_quotes_or_llm": "PASS — every DraftItem has provenance=manual, confidence=1.0, evidence=None, evidence_status=unavailable; no LLM call (no _require_llm gate, no worker dispatch, processing_run_id=None); integration test verifies manual import succeeds with no verified LLM config",
+    "enter_needs_review_never_autopublish_no_job_target": "PASS — synchronous create enters needs_review with review_revision=1; publish requires explicit user command; JobDescriptionModel has no Job Target creation path (unit test asserts jd_import_service has no JobTarget reference)",
+    "canonical_duplicate_detection": "PASS — create_manual computes content_hash(_manual_text(payload)) and runs inline user-scoped duplicate lookup (mirrors worker pipeline semantics in jd_service/processing.py duplicate_check); duplicate entry enters duplicate_pending with duplicate_of_id; allow_duplicate bypasses; both covered in unit + integration tests",
+    "archive_and_reference_rules": "PASS — manual rows reuse the existing job_descriptions lifecycle (archive/delete/reference checks were shipped in #100/#099 and require no source-specific changes; confirmed via lifecycle test suite)",
+    "tests_cover_sparse_complete_invalid_duplicate": "PASS — 15 unit + 6 integration tests cover sparse (nulls/empty lists), complete (provenance/confidence/evidence), invalid (blank title, bounds, bad employment_type), duplicate (hash equality + duplicate_pending + allow_duplicate)"
+  },
+  "implementation_notes": [
+    "DraftItem.critical added to the RIP-011 review schema: Pydantic silently dropped unknown JSONB keys, which would have lost manual critical flags through save_review_draft/publish round trips; the roundtrip unit test caught this before shipping",
+    "RequiredSkill.name now bounded max_length=500 matching ExtractedSkill; matching code paths construct names from already-bounded extraction output so no behavior change",
+    "Duplicate detection for manual entries runs inline in create_manual (not the worker pipeline, which manual rows never enter); duplicate_pending rows can still be confirmed/cancelled through the existing /duplicate/confirm and /duplicate/cancel endpoints (confirm dispatches the LLM extraction pipeline like text entries)",
+    "API response for POST /jd/import/manual uses the JobDescriptionData projection (review_draft omitted); the detail endpoint returns the full draft for the review editor"
+  ],
+  "residual_risks": [
+    "Frontend manual mode was implemented in #104 (import dialog tab, types, i18n); #105 will finish the remaining image-mode UI and five-mode acceptance with browser checks deferred per reviews/20260805-browser-acceptance-waiver.md"
+  ],
+  "reviews": {
+    "verdict": "accepted",
+    "mode": "local-reviewed",
+    "note": "manual creation is synchronous and evidence-honest: provenance=manual, confidence=1.0, no fabricated quotes, no LLM call; inline user-scoped duplicate detection mirrors worker semantics; DraftItem.critical added so manual skill weight survives the review/publish round trip (roundtrip test caught silent Pydantic key-drop)"
+  },
+  "commits": [
+    "0ca827f feat(rip012): add manual JD source creation with honest provenance (#104)"
+  ]
+}
