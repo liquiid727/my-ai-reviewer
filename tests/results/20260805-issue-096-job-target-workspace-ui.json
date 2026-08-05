@@ -1,0 +1,33 @@
+{
+  "issue": 96,
+  "slug": "job-target-workspace-page",
+  "spec": "RIP-010",
+  "date": "2026-08-05",
+  "status": "accepted",
+  "branch": "feat/issue-096-job-target-workspace-page",
+  "commit": "9019377",
+  "delivery_mode": "local-reviewed",
+  "gates": {
+    "frontend_lint": "PASS (oxlint)",
+    "frontend_build": "PASS (tsc + vite)",
+    "backend_tests": "unit 322 passed (2 known pre-existing), integration PASS",
+    "ruff": "PASS",
+    "arch_check": "PASS (33 waived pre-existing, 0 new)"
+  },
+  "review_verdict": "APPROVE",
+  "qa_decision": "GREEN",
+  "review_rounds": 1,
+  "residual_risks": [
+    "browser desktop/mobile AC deferred per reviews/20260805-browser-acceptance-waiver.md (no local playwright browsers); lint/build/type gates green"
+  ],
+  "changed_files": [
+    "frontend/src/App.tsx",
+    "frontend/src/pages/JobTargetPage.tsx",
+    "frontend/src/components/job-target/JobTargetWorkspace.tsx",
+    "frontend/src/components/job-target/VersionSelectors.tsx",
+    "frontend/src/api/jobTarget.ts",
+    "frontend/src/types/jobTarget.ts",
+    "frontend/src/i18n/locales/en.ts",
+    "frontend/src/i18n/locales/zh.ts"
+  ]
+}
