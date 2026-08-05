@@ -13,6 +13,7 @@ import { ResumeStyleTemplatesPage } from '@/pages/ResumeStyleTemplatesPage'
 import { BuilderPage } from '@/pages/BuilderPage'
 import { JDListPage } from '@/pages/JDListPage'
 import { JDDetailPage } from '@/pages/JDDetailPage'
+import JobTargetPage from '@/pages/JobTargetPage'
 import { PlanListPage } from '@/pages/PlanListPage'
 import { PlanCreatePage } from '@/pages/PlanCreatePage'
 import { PlanDetailPage } from '@/pages/PlanDetailPage'
@@ -37,6 +38,7 @@ export default function App() {
           <Route path="/builder/:draftId" element={<BuilderPage />} />
           <Route path="/jobs" element={<JDListPage />} />
           <Route path="/jobs/:id" element={<JDDetailPage />} />
+          <Route path="/targets/:id" element={<JobTargetPage />} />
           <Route path="/plans" element={<PlanListPage />} />
           <Route path="/plans/new" element={<PlanCreatePage />} />
           <Route path="/plans/:id" element={<PlanDetailPage />} />

@@ -816,6 +816,22 @@ export const en = {
     behavioralStage: 'introduction / ownership / collaboration / conflict / learning / candidate questions',
     managerRoundStage: 'introduction / prioritization / leadership / cross-functional / growth / candidate questions',
   },
+  jobTargets: {
+    untitled: 'Untitled Job Target',
+    notFound: 'Job target not found',
+    revision: 'Revision',
+    archive: 'Archive',
+    archived: 'Archived',
+    currentVersion: 'Current JD Version',
+    noVersion: 'No published version yet',
+    defaultResume: 'Default Resume Version',
+    selectResume: 'Select a resume version…',
+    jdHistory: 'JD Version History',
+    noVersions: 'No versions published',
+    defaultUpdated: 'Default resume updated',
+    revisionConflict: 'This target changed elsewhere. Reloaded latest state — please retry.',
+    archiveConfirm: 'Archive this target?',
+  },
 }
 
 export type TranslationSchema = typeof en
