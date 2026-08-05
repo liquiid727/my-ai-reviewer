@@ -121,3 +121,24 @@ Source: `reviews/project-architecture-quality-2026-08-04.md`
 | AIP-012 | Error And Observability Foundation | AIP-009, AIP-010 | Proposed |
 
 Delivery order is baseline-first: establish governance, restore and automate gates, then migrate architecture and error/logging paths in independently testable slices. Branch protection, commit, PR, merge, and issue closure remain separately authorized ship actions.
+
+---
+
+## Job Target Interview Training Program
+
+Sources: `spec-draft/job-target-interview-program-2026-08-05.md` and `design/job-target-interview-architecture.md`.
+
+| Feature ID | Name | Depends On | Status |
+| --- | --- | --- | --- |
+| RIP-010 | Job Target And Input Version Foundation | RIP-002, RIP-007, RIP-009 | Proposed |
+| RIP-011 | JD Review And Version Publishing | RIP-007, RIP-010 | Proposed |
+| RIP-012 | JD Source Expansion | RIP-001, RIP-011 | Proposed |
+| RIP-013 | Match Assessment Engine | RIP-003, RIP-010, RIP-012 | Proposed |
+| RIP-014 | Match Report And Plan Bridge | RIP-008, RIP-013 | Proposed |
+| AIP-013 | Interview Scenario Registry | AIP-001 | Proposed |
+| AIP-014 | Interview Plan Approval | AIP-013, RIP-013, RIP-014 | Proposed |
+| AIP-015 | Interview Session State And Events | AIP-001, AIP-014, RIP-009 | Proposed |
+| AIP-016 | Coverage-Driven Interview Runtime | AIP-013, AIP-015, RIP-009 | Proposed |
+| AIP-017 | Interview Report, History And Actions | AIP-016, RIP-008, RIP-014 | Proposed |
+
+The RIP chain establishes immutable inputs before matching and downstream handoff. The code-backed scenario registry may be implemented independently after the program release gates, but plan generation waits for RIP-013. Runtime and report slices remain text-only and do not activate RAG, Qdrant, Sandbox, voice, or multimodal packages.

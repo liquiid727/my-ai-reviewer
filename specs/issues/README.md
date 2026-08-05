@@ -11,10 +11,20 @@ Each local issue should stay small enough for a single `/goal` run to finish end
 | RIP-003 | specs/RIP-003-jd-matching | shipped | RIP-002 |
 | RIP-005 | specs/RIP-005-resume-auto-pagination | in-progress | RIP-004 |
 | RIP-009 | specs/RIP-009-resume-privacy | open | RIP-001, RIP-002, RIP-004, RIP-006 |
+| RIP-010 | specs/RIP-010-job-target-input-versions | proposed | RIP-002, RIP-007, RIP-009 |
+| RIP-011 | specs/RIP-011-jd-review-version-publishing | proposed | RIP-007, RIP-010 |
+| RIP-012 | specs/RIP-012-jd-source-expansion | proposed | RIP-001, RIP-011 |
+| RIP-013 | specs/RIP-013-match-assessment-engine | proposed | RIP-003, RIP-010, RIP-012 |
+| RIP-014 | specs/RIP-014-match-report-plan-bridge | proposed | RIP-008, RIP-013 |
 | AIP-009 | specs/AIP-009-quality-governance-foundation | proposed | — |
 | AIP-010 | specs/AIP-010-ci-test-quality-gates | proposed | AIP-009 |
 | AIP-011 | specs/AIP-011-architecture-modularization | proposed | AIP-009, AIP-010 |
 | AIP-012 | specs/AIP-012-error-observability | proposed | AIP-009, AIP-010 |
+| AIP-013 | specs/AIP-013-interview-scenario-registry | proposed | AIP-001 |
+| AIP-014 | specs/AIP-014-interview-plan-approval | proposed | AIP-013, RIP-013, RIP-014 |
+| AIP-015 | specs/AIP-015-interview-session-state-events | proposed | AIP-001, AIP-014, RIP-009 |
+| AIP-016 | specs/AIP-016-coverage-interview-runtime | proposed | AIP-013, AIP-015, RIP-009 |
+| AIP-017 | specs/AIP-017-interview-report-history-actions | proposed | AIP-016, RIP-008, RIP-014 |
 
 Current incremental issue: `#038` (TXT/Markdown encoding fallback) is implemented locally and waiting for review / release.
 
@@ -58,3 +68,59 @@ These are local proposed issues. They are not GitHub issues and do not change th
 | #089 | AIP-012 | proposed | #085 |
 | #090 | AIP-012 | proposed | #089 |
 | #091 | AIP-012 | proposed | #086, #087, #088, #089, #090 |
+
+## Job Target Interview Program Issue Drafts
+
+These are local proposed issues from the Job Target Interview Training Program. They are not GitHub issues and do not change active delivery state.
+
+| Issue | Spec ID | Status | Depends on |
+| --- | --- | --- | --- |
+| #92 | RIP-010 | proposed | issue #038 delivery gate |
+| #93 | RIP-010 | proposed | #092 |
+| #94 | RIP-010 | proposed | #092 |
+| #95 | RIP-010 | proposed | #093, #094 |
+| #96 | RIP-010 | proposed | #095 |
+| #97 | RIP-011 | proposed | #094 |
+| #98 | RIP-011 | proposed | #097 |
+| #99 | RIP-011 | proposed | #092, #098 |
+| #100 | RIP-011 | proposed | #099 |
+| #101 | RIP-011 | proposed | #098, #099, #100 |
+| #102 | RIP-011 | proposed | #101 |
+| #103 | RIP-012 | proposed | issue #030, #102 |
+| #104 | RIP-012 | proposed | #102 |
+| #105 | RIP-012 | proposed | #103, #104 |
+| #106 | RIP-012 | proposed | #105 |
+| #107 | RIP-013 | proposed | #106 |
+| #108 | RIP-013 | proposed | #107 |
+| #109 | RIP-013 | proposed | #092, #093, #107 |
+| #110 | RIP-013 | proposed | #108, #109 |
+| #111 | RIP-013 | proposed | #110 |
+| #112 | RIP-014 | proposed | issue #057, #111 |
+| #113 | RIP-014 | proposed | #110, #112 |
+| #114 | RIP-014 | proposed | #096, #113 |
+| #115 | RIP-014 | proposed | #111, #114 |
+| #116 | AIP-013 | proposed | issue #038 delivery gate |
+| #117 | AIP-014 | proposed | #111, #116 |
+| #118 | AIP-014 | proposed | #107, #117 |
+| #119 | AIP-014 | proposed | #118 |
+| #120 | AIP-014 | proposed | #114, #116, #119 |
+| #121 | AIP-014 | proposed | #120 |
+| #122 | AIP-015 | proposed | #121 |
+| #123 | AIP-015 | proposed | #122 |
+| #124 | AIP-015 | proposed | #119, #122, #123 |
+| #125 | AIP-015 | proposed | #116, #124 |
+| #126 | AIP-015 | proposed | #123, #125 |
+| #127 | AIP-015 | proposed | #124, #126 |
+| #128 | AIP-015 | proposed | #125, #127 |
+| #129 | AIP-016 | proposed | #116, #123 |
+| #130 | AIP-016 | proposed | #118, #124, #129 |
+| #131 | AIP-016 | proposed | #122, #130 |
+| #132 | AIP-016 | proposed | #125, #131 |
+| #133 | AIP-016 | proposed | #127, #132 |
+| #134 | AIP-016 | proposed | #128, #133 |
+| #135 | AIP-017 | proposed | #132, #134 |
+| #136 | AIP-017 | proposed | #135 |
+| #137 | AIP-017 | proposed | #112, #136 |
+| #138 | AIP-017 | proposed | #123, #136, #137 |
+| #139 | AIP-017 | proposed | #138 |
+| #140 | AIP-017 | proposed | #137, #139 |
