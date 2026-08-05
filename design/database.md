@@ -24,6 +24,8 @@
 | `job_search_plans` | 面向一份已就绪 JD 与简历的生成式求职准备计划 |
 | `job_search_plan_tasks` | 计划中的 AI 或人工任务，带证据、排序和完成状态 |
 | `resume_processing_runs` | 简历上传、隐私审批、重试和重解析的处理运行及安全失败诊断 |
+| `job_description_versions` | 不可变 JD 发布快照（版本号/内容哈希/结构化/证据/来源元数据），RIP-010 |
+| `resume_versions` | 不可变脱敏简历快照（parsed_resume / builder_draft），RIP-010 |
 
 ---
 
@@ -134,3 +136,26 @@ job_search_plan_tasks → job_search_plans (plan_id)
 - `resumes.processing_error_details`: 仅保存 `error_code/step/attempt/retryable/public_message` 等 allow-list 字段，不保存异常正文、prompt 或简历内容。
 - `resume_processing_runs`: 每次上传、隐私审批、重试或重解析的运行历史；被新 run 取代的旧 run 以安全错误码结束，过期 run 收敛为可手动重试的失败。
 - API 只返回 `run_id` 和安全诊断，Celery `task_id` 仅用于内部日志/运行记录。
+
+## 不可变输入版本（RIP-010）
+
+### job_description_versions
+- `job_description_id`: FK → job_descriptions（ON DELETE RESTRICT），索引。
+- `version_no`: 单调递增正整数；唯一 `(job_description_id, version_no)`。
+- `normalized_text`: 规范化 JD 文本快照；`structured` / `evidence` / `source_metadata`: JSONB。
+- `content_hash`: 64 字符 SHA-256；唯一 `(job_description_id, content_hash, schema_version)`。
+- `parser_version` / `schema_version` / `model_name` / `publication_reason` / `published_at`。
+- **无应用级 update/delete 命令路径**；所有下游外键 `ON DELETE RESTRICT`。
+- 已有 ready JD 在迁移 `p0a1b2c3d4e5` 中回填为 version 1（`publication_reason='legacy_backfill'`，缺失元数据记为 `legacy`/`unavailable`），并回填 `job_descriptions.current_version_id`。
+
+### resume_versions
+- `source_type`: `parsed_resume` | `builder_draft`；Check 约束要求恰好一个来源字段非空。
+- `resume_id`（parsed_resume）或 `draft_id`（builder_draft）：FK ON DELETE RESTRICT，均索引。
+- `source_revision` / `content_hash` / `masked_snapshot` / `profile_snapshot` / `evidence_catalog`。
+- `parser_version` / `schema_version` / `privacy_policy_version` / `published_at`。
+- 部分唯一索引：每个 parsed resume 一个内容快照；每个 builder revision/content hash 一个快照。
+- **只存脱敏快照**；不存原始文件、真实替换映射、文件名派生身份或 provider 响应。
+
+### 兼容性与回滚
+- 迁移 `p0a1b2c3d4e5` 位于 `o5c6d7e8f9a0` 之后；downgrade 删除 `current_version_id` 外键/列与两张版本表。
+- `alembic check` 当前存在历史表 `created_at`/`updated_at` NOT NULL 的基线差异（与 RIP-010 无关），新表无差异。

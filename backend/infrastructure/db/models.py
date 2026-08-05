@@ -675,6 +675,11 @@ class JobDescriptionModel(Base):
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     field_sources: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False, default=dict)
     parser_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    current_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("job_description_versions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -693,6 +698,93 @@ class JobDescriptionModel(Base):
         Index("ix_jd_user_status", "user_id", "status"),
         Index("ix_jd_user_source", "user_id", "source_type"),
         Index("ix_jd_user_content_hash", "user_id", "content_hash"),
+    )
+
+
+class JobDescriptionVersionModel(Base):
+    """Immutable published JD snapshot. No application update/delete command path."""
+
+    __tablename__ = "job_description_versions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_description_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("job_descriptions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
+    structured: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    evidence: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    source_metadata: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    parser_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    model_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    schema_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    publication_reason: Mapped[str] = mapped_column(String(100), nullable=False)
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("job_description_id", "version_no"),
+        UniqueConstraint("job_description_id", "content_hash", "schema_version"),
+        Index("ix_jd_versions_jd", "job_description_id"),
+    )
+
+
+class ResumeVersionModel(Base):
+    """Immutable masked resume snapshot. Never stores real identifiers or raw text."""
+
+    __tablename__ = "resume_versions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    resume_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("resumes.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    draft_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("resume_drafts.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    source_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    masked_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    profile_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    evidence_catalog: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    parser_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    privacy_policy_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('parsed_resume', 'builder_draft')",
+            name="ck_resume_versions_source_type",
+        ),
+        CheckConstraint(
+            "(source_type = 'parsed_resume' AND resume_id IS NOT NULL AND draft_id IS NULL) OR "
+            "(source_type = 'builder_draft' AND draft_id IS NOT NULL)",
+            name="ck_resume_versions_single_source",
+        ),
+        Index("ix_resume_versions_resume", "resume_id"),
+        Index("ix_resume_versions_draft", "draft_id"),
+        Index(
+            "uq_resume_versions_parsed_content",
+            "resume_id",
+            "content_hash",
+            unique=True,
+            postgresql_where=text("resume_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_resume_versions_draft_content",
+            "draft_id",
+            "source_revision",
+            "content_hash",
+            unique=True,
+            postgresql_where=text("draft_id IS NOT NULL"),
+        ),
     )
 
 
