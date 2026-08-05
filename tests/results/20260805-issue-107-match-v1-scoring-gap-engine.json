@@ -1,0 +1,48 @@
+{
+  "issue": "107",
+  "title": "Implement match-v1 scoring and deterministic gap engine",
+  "spec": "RIP-013 sections 6.2-6.5, 11",
+  "verdict": "accepted",
+  "date": "2026-08-05",
+  "gates": {
+    "unit": "PASS - 404 passed / 2 pre-existing failures (baseline 346 + 58 new match-assessment tests)",
+    "integration": "PASS - 114 passed (unchanged, no DB surface touched)",
+    "ruff": "PASS - 2 pre-existing errors (test_quality_scripts.py F841, test_reparse.py I001); 0 new",
+    "mypy": "PASS - 22 pre-existing errors (baseline); 0 new",
+    "arch_check": "PASS - 33 violations / 0 new (waived registry unchanged)",
+    "alembic_heads": "s3d4e5f6a7b8 (head) unchanged - no migration needed",
+    "browser_check": "N/A - backend-only issue"
+  },
+  "acceptance": {
+    "eight_stable_dimensions_exact_weights": "PASS - DIMENSION_WEIGHTS {required_skills:25, experience_depth:15, project_evidence:20, responsibility_alignment:15, technical_stack:10, industry_context:5, basic_conditions:5, preferred_qualifications:5}; test_exact_weights + test_weights_sum_to_100 + import-time _validate_fixture raises MatchPolicyError on any drift (key set mismatch, sum != 100, non-positive weight)",
+    "typed_source_catalog_ids": "PASS - backend/domain/match_assessment/source_catalog.py builds jd:<version>:requirement:<key> / jd:<version>:responsibility:<key> / resume:<version>:fact:<key> / resume:<version>:project:<key> / resume:<version>:profile:<key> items from JD version structured dicts + resume snapshot profile/facts; each item carries kind, normalized claim (skills normalized via policy aliases), masked excerpt (JD evidence / fact source_text / project background+responsibility), provenance='source', confidence; never emits unmasked identifiers; skips empty/malformed rows",
+    "weighted_totals_two_decimal_rounding": "PASS - weighted_points = raw * weight/100 rounded to 2; total = sum rounded to 2 (test_weighted_totals_exact 85.0, test_weighted_totals_two_decimal_rounding 8.33)",
+    "core_skill_75_cap": "PASS - any missing core skill caps total at 75.0, score_before_caps preserved, caps_applied=['core_skills'] (test_core_skill_cap_75)",
+    "severe_years_70_cap": "PASS - severe years (max evidenced < 60% of explicit minimum >= 3y, policy.is_severe_years) caps total at 70.0 (test_severe_years_cap_70)",
+    "lowest_cap_wins": "PASS - both caps applied -> 70.0, both persisted in caps_applied (test_lowest_cap_wins); caps never raise a score (test_caps_never_raise_the_score)",
+    "unknown_years_evidence_gap_no_cap": "PASS - evidenced_years=None is never severe (test_severe_years_unknown_evidence_is_not_severe); engine emits evidence_gap with no caps_applied (test_unknown_years_no_cap_and_evidence_gap)",
+    "one_primary_gap_per_requirement": "PASS - duplicate GapInputs for one requirement collapse to one primary gap; uncertain semantic classification resolves to evidence_gap (engine default classifier, RIP-013 6.4); action types derived per category (capability/hard_constraint -> screen, expression -> review, evidence -> probe); all four categories executable (test_all_gap_categories_executable)",
+    "fixtures_validate_at_startup_and_boundary_tests": "PASS - _validate_fixture runs at module import (weights sum 100, key set match, core>severe cap ordering, ratio in (0,1), min years >= 1, bands exactly 0/40/60/80, weights positive); unit tests cover weight boundaries, band edges (80/79.99/60/59.99/40/39.99/0), alias normalization + fixed points, severe-years boundary parametrization (3y@1.7/1.79/1.8, 5y@2.9/3.0, 4y@2.39/2.4, minimum<3 never severe), missing dimension raises MatchPolicyError"
+  },
+  "implementation_notes": [
+    "New pure domain package backend/domain/match_assessment/ (schemas.py, policy.py, source_catalog.py, engine.py, __init__.py): no SQLAlchemy/Celery/LLM/HTTP imports; the engine takes validated semantic raw scores (DimensionInput) + deterministic rule facts (CapInput/GapInput) and returns an immutable MatchV1Result",
+    "Engine signature supports both MatchV1Input container and keyword form for the constrained semantic adapter (issue #108) to call",
+    "Recommendation bands are advisory labels from the policy fixture (recommendation_for) - never authorization guards; low scores do not block Interview Plan eligibility (RIP-013 6.5)",
+    "Gap classification: the engine records the semantic adapter's primary category; when the adapter marks uncertain=True the engine applies the spec rule that evidence_gap wins; deterministic rule facts pass uncertain=False and their category is recorded as-is",
+    "One fixture bug found and fixed while gating: policy _validate_fixture used an inverted cap-ordering comparison (>= instead of <=) which raised on the correct 75>70 fixture at import; corrected so the invariant now actually validates",
+    "Skill alias table extended with react.js -> react fixed-point entries so normalize_skill is a stable normalization (alias values are themselves fixed points, asserted in tests)"
+  ],
+  "residual_risks": [
+    "Source Catalog builder takes version structured dicts/snapshots as inputs; the application-layer wiring that loads them from persisted versions lands with the assessment lifecycle (issue #109)",
+    "Constrained semantic classification (LLM adapter, evidence validation, malicious-input handling) lands in issue #108; the engine's classify hook is ready for it",
+    "Persistence (match_assessments table), worker, and API land in issues #109/#110; none of that is claimed here"
+  ],
+  "reviews": {
+    "verdict": "accepted",
+    "mode": "local-reviewed",
+    "note": "Domain-pure match-v1 core implemented and gated: exact weights, import-time fixture validation, typed citeable Source Catalog, two-decimal weighted totals, 75/70 caps with lowest-wins, evidence_gap for unknown years, one primary gap per requirement with evidence_gap-wins-on-uncertainty, action-type derivation. 58 unit tests cover all boundary combinations; full gates green (unit 404/2 pre-existing, integration 114, ruff/mypy 0 new, arch 0 new, no migration)"
+  },
+  "commits": [
+    "b2be816 feat(rip013): add match-v1 scoring policy, source catalog, and pure gap engine (#107)"
+  ]
+}
