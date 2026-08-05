@@ -14,7 +14,7 @@ from backend.application.plan_regeneration_service import PlanRegenerationServic
 from backend.application.plan_service import PlanService
 from backend.application.plan_task_service import PlanTaskService
 from backend.domain.job_search_plan.enums import PlanStatus
-from backend.domain.job_search_plan.policies import PlanDomainError
+from backend.domain.job_search_plan.policies import PlanDomainError, PlanVersionTupleError
 from backend.domain.job_search_plan.schemas import (
     PlanCreateRequest,
     PlanPatchRequest,
@@ -33,6 +33,12 @@ def _error(exc: PlanDomainError) -> APIResponse:
     return APIResponse(code=exc.code, message=str(exc), data=exc.data or None)
 
 
+def _versioned_error(exc: PlanVersionTupleError) -> APIResponse:
+    if exc.kind == "assessment":
+        return APIResponse(code=1006, message=str(exc))
+    return APIResponse(code=1001, message=str(exc))
+
+
 @router.post("", response_model=APIResponse)
 async def create_plan(
     payload: PlanCreateRequest,
@@ -42,6 +48,8 @@ async def create_plan(
     try:
         plan = await service.create(session, payload)
         dispatched = await service.dispatch_initial(session, plan)
+    except PlanVersionTupleError as exc:
+        return _versioned_error(exc)
     except PlanDomainError as exc:
         return _error(exc)
     data = {

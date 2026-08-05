@@ -28,6 +28,11 @@ class PlanCreateRequest(PlanContract):
     target_date: date | None = None
     weekly_hours: int | None = Field(default=None, ge=1, le=80)
     supplemental_background: str | None = Field(default=None, max_length=10_000)
+    # Version-pinned variant (RIP-014 §9): all four references or none.
+    job_target_id: uuid.UUID | None = None
+    jd_version_id: uuid.UUID | None = None
+    resume_version_id: uuid.UUID | None = None
+    match_assessment_id: uuid.UUID | None = None
 
 
 class PlanPatchRequest(PlanContract):

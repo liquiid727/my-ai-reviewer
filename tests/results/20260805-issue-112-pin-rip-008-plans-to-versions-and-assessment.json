@@ -1,0 +1,44 @@
+{
+  "issue": 112,
+  "slug": "pin-rip-008-plans-to-versions-and-assessment",
+  "spec": "RIP-014",
+  "date": "2026-08-05",
+  "status": "accepted",
+  "branch": "feat/issue-112-pin-plans-to-versions",
+  "commit": "PENDING",
+  "delivery_mode": "local-reviewed",
+  "gates": {
+    "unit_tests": "446 passed (7 version-tuple + full unit); 2 pre-existing baseline failures (test_resume_builder_llm_gate, test_resume_draft_list_api)",
+    "integration_tests": "143 passed (10 version-pinning incl. versioned prepare->persist path)",
+    "ruff": "PASS on changed files (3 pre-existing errors elsewhere untouched)",
+    "mypy": "PASS on changed files (8 files, 0 errors)",
+    "arch_check": "PASS (33 waived pre-existing, 0 new)",
+    "alembic": "upgrade head + downgrade -1 + upgrade head OK; check: only pre-existing drift on unrelated tables (created_at nullability, match_assessments index shape), no job_search_plans drift"
+  },
+  "review_verdict": "APPROVE",
+  "qa_decision": "GREEN",
+  "review_rounds": 1,
+  "acceptance_mapping": {
+    "RIP-014_6.2_plan_version_bridge": "PlanCreateRequest gains 4 nullable refs; coherent-tuple validation via validate_versioned_tuple (target identity, exact versions, completed assessment)",
+    "RIP-014_7.2_uniqueness": "uq_versioned_plan_tuple partial unique index (generating/regenerating/active/failed) while legacy uq_active_plan_jd_resume preserved; IntegrityError maps to 1006",
+    "RIP-014_7.3_errors": "MATCH_ASSESSMENT_NOT_COMPLETE -> 1006 (409-equivalent), PLAN_INPUT_SCOPE_MISMATCH -> 1001 (422-equivalent), PLAN_ALREADY_EXISTS -> 1006, PLAN_REVISION_CONFLICT -> 1007 (legacy)",
+    "RIP-014_9_snapshot_catalog": "prepare_generation branches: versioned path builds catalog from immutable jd_version.structured + resume_version.profile_snapshot/evidence_catalog via match-engine build_catalog; deterministic + identity-free",
+    "RIP-014_10_regeneration": "regeneration retains original version refs (row-level, no new tuple); input_contract field exposes versioned vs legacy in detail/list payloads"
+  },
+  "residual_risks": [
+    "browser AC n/a (backend/database only)",
+    "versioned plans persist match_result_id=NULL (legacy jd_match_results FK); provenance lives on match_assessment_id — covered by new integration test",
+    "alembic check pre-existing drift unrelated to this migration (baseline condition, not introduced here)"
+  ],
+  "changed_files": [
+    "infra/alembic/versions/u5f6a7b8c9d0e_add_plan_version_pinning.py",
+    "backend/infrastructure/db/models.py",
+    "backend/domain/job_search_plan/schemas.py",
+    "backend/domain/job_search_plan/policies.py",
+    "backend/application/plan_service.py",
+    "backend/application/plan_queries.py",
+    "backend/api/v1/plans.py",
+    "backend/tests/unit/test_plan_version_tuple.py",
+    "backend/tests/integration/test_plan_version_pinning.py"
+  ]
+}

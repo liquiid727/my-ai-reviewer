@@ -1020,6 +1020,27 @@ class JobSearchPlanModel(Base):
         ForeignKey("jd_match_results.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Version-pinned references (RIP-014): null for legacy plans.
+    job_target_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("job_targets.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    jd_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("job_description_versions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    resume_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("resume_versions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    match_assessment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("match_assessments.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="generating")
     target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -1053,10 +1074,23 @@ class JobSearchPlanModel(Base):
         CheckConstraint("weekly_hours IS NULL OR weekly_hours BETWEEN 1 AND 80", name="ck_plan_weekly_hours"),
         Index("ix_plans_user_updated", "user_id", "updated_at"),
         Index("ix_plans_user_status", "user_id", "status"),
+        Index("ix_plans_job_target", "job_target_id"),
+        Index("ix_plans_jd_version", "jd_version_id"),
+        Index("ix_plans_resume_version", "resume_version_id"),
+        Index("ix_plans_match_assessment", "match_assessment_id"),
         Index(
             "uq_active_plan_jd_resume",
             "jd_id",
             "resume_id",
+            unique=True,
+            postgresql_where=text("status IN ('generating', 'regenerating', 'active', 'failed')"),
+        ),
+        Index(
+            "uq_versioned_plan_tuple",
+            "job_target_id",
+            "jd_version_id",
+            "resume_version_id",
+            "match_assessment_id",
             unique=True,
             postgresql_where=text("status IN ('generating', 'regenerating', 'active', 'failed')"),
         ),

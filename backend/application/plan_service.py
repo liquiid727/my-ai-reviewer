@@ -17,11 +17,15 @@ from backend.application.llm_config_service import get_active_verified_config
 from backend.domain.jd.enums import JDStatus
 from backend.domain.job_search_plan.enums import PlanStatus
 from backend.domain.job_search_plan.policies import (
+    VERSIONED_PLAN_REF_KEYS,
     PlanDomainError,
+    PlanVersionTupleError,
+    build_catalog_from_versions,
     build_source_catalog,
     generation_today,
     normalize_generated_tasks,
     sanitized_input_snapshot,
+    validate_versioned_tuple,
 )
 from backend.domain.job_search_plan.schemas import (
     CatalogEntry,
@@ -33,9 +37,12 @@ from backend.infrastructure.db.models import (
     CandidateProfileModel,
     JDMatchResultModel,
     JobDescriptionModel,
+    JobDescriptionVersionModel,
     JobSearchPlanModel,
     JobSearchPlanTaskModel,
+    MatchAssessmentModel,
     ResumeModel,
+    ResumeVersionModel,
 )
 from backend.infrastructure.llm.gateway import LLMGateway
 from backend.infrastructure.planners.llm_plan_generator import LLMPlanGenerationError, LLMPlanGenerator
@@ -52,10 +59,20 @@ UNFINISHED_PLAN_STATUSES = (
 class PreparedPlanGeneration:
     plan_id: uuid.UUID
     run_id: uuid.UUID
-    match_result_id: uuid.UUID
+    match_result_id: uuid.UUID | None
     input_snapshot: dict[str, object]
     model_name: str
     tasks: list[dict[str, object]]
+
+
+@dataclass(frozen=True)
+class VersionedPlanRefs:
+    """Validated version-pinned tuple written with the plan's initial transaction."""
+
+    target_id: uuid.UUID
+    jd_version_id: uuid.UUID
+    resume_version_id: uuid.UUID
+    match_assessment_id: uuid.UUID
 
 
 async def get_fresh_match(
@@ -123,6 +140,7 @@ class PlanService:
         today = generation_today()
         if payload.target_date and (payload.target_date < today or payload.target_date > today + timedelta(days=365)):
             raise PlanDomainError("Target date must be within the next 365 days", 1001)
+        version_pinned = self._version_pinned_refs(payload)
         jd = (
             await session.execute(
                 select(JobDescriptionModel.title, JobDescriptionModel.company, JobDescriptionModel.status).where(
@@ -148,6 +166,7 @@ class PlanService:
             raise PlanDomainError("Resume does not have a candidate profile", 1008)
         if await get_active_verified_config(session) is None:
             raise PlanDomainError("LLM not configured or not verified", 428)
+        versioned = await self._validate_versioned_inputs(session, payload, version_pinned) if version_pinned else None
         existing = await self._find_unfinished(session, payload.jd_id, payload.resume_id)
         if existing is not None:
             raise PlanDomainError(
@@ -170,6 +189,10 @@ class PlanService:
             supplemental_background=(payload.supplemental_background or "").strip() or None,
             generation_run_id=uuid.uuid4(),
             revision=0,
+            job_target_id=versioned.target_id if versioned is not None else None,
+            jd_version_id=versioned.jd_version_id if versioned is not None else None,
+            resume_version_id=versioned.resume_version_id if versioned is not None else None,
+            match_assessment_id=versioned.match_assessment_id if versioned is not None else None,
         )
         session.add(plan)
         try:
@@ -180,8 +203,68 @@ class PlanService:
                 existing = await self._find_unfinished(session, payload.jd_id, payload.resume_id)
                 data = {"plan_id": str(existing.id)} if existing is not None else {}
                 raise PlanDomainError("An unfinished plan already exists", 1006, data) from exc
+            if self._is_versioned_plan_conflict(exc):
+                raise PlanDomainError("A version-pinned unfinished plan already exists", 1006) from exc
             raise PlanDomainError("Plan inputs changed; refresh and retry", 1003) from exc
         return plan
+
+    @staticmethod
+    def _version_pinned_refs(payload: PlanCreateRequest) -> dict[str, uuid.UUID] | None:
+        refs = {key: getattr(payload, key) for key in VERSIONED_PLAN_REF_KEYS if getattr(payload, key) is not None}
+        if not refs:
+            return None
+        missing = [key for key in VERSIONED_PLAN_REF_KEYS if getattr(payload, key) is None]
+        if missing:
+            raise PlanDomainError(
+                f"Version-pinned plan requires all of: {', '.join(VERSIONED_PLAN_REF_KEYS)}",
+                1001,
+            )
+        return refs
+
+    async def _validate_versioned_inputs(
+        self,
+        session: AsyncSession,
+        payload: PlanCreateRequest,
+        refs: dict[str, uuid.UUID],
+    ) -> VersionedPlanRefs:
+        """One coherent tuple: target identity, exact versions, completed assessment."""
+        jd_version = await session.get(JobDescriptionVersionModel, refs["jd_version_id"])
+        resume_version = await session.get(ResumeVersionModel, refs["resume_version_id"])
+        if jd_version is None:
+            raise PlanVersionTupleError("JD version does not exist", "scope")
+        if resume_version is None:
+            raise PlanVersionTupleError("Resume version does not exist", "scope")
+        if jd_version.job_description_id != payload.jd_id:
+            raise PlanVersionTupleError("JD version does not belong to the selected JD", "scope")
+        if resume_version.resume_id != payload.resume_id:
+            raise PlanVersionTupleError("Resume version does not belong to the selected resume", "scope")
+        from backend.application.job_target import JobTargetNotFoundError, JobTargetUseCases
+
+        try:
+            target = await JobTargetUseCases().get(session, refs["job_target_id"])
+        except JobTargetNotFoundError as exc:
+            raise PlanVersionTupleError("Job target does not exist", "scope") from exc
+        assessment = await session.get(MatchAssessmentModel, refs["match_assessment_id"])
+        validate_versioned_tuple(
+            target_id=target.id,
+            target_jd_id=target.job_description_id,
+            target_resume_id=payload.resume_id,
+            jd_version_owner=jd_version.job_description_id,
+            resume_version_owner=resume_version.resume_id,
+            assessment_status=assessment.status if assessment is not None else None,
+            assessment_target_id=(assessment.job_target_id if assessment is not None else None),
+            assessment_jd_version_id=(assessment.jd_version_id if assessment is not None else None),
+            assessment_resume_version_id=(assessment.resume_version_id if assessment is not None else None),
+            requested_match_assessment_id=refs["match_assessment_id"],
+            requested_jd_version_id=refs["jd_version_id"],
+            requested_resume_version_id=refs["resume_version_id"],
+        )
+        return VersionedPlanRefs(
+            target_id=refs["job_target_id"],
+            jd_version_id=refs["jd_version_id"],
+            resume_version_id=refs["resume_version_id"],
+            match_assessment_id=refs["match_assessment_id"],
+        )
 
     async def retry(
         self,
@@ -292,16 +375,23 @@ class PlanService:
         if jd is None or jd.status != JDStatus.READY.value:
             raise PlanDomainError("Job description must be ready", 1008)
         profile, match = await get_fresh_match(session, jd=jd, resume_id=plan.resume_id)
+        if plan.job_target_id is not None:
+            catalog = await self._catalog_from_versions(session, plan)
+            # Versioned provenance lives on match_assessment_id; this legacy
+            # column is a jd_match_results FK, so it must stay NULL here.
+            match_id = None
+        else:
+            catalog = build_source_catalog(
+                jd,
+                profile,
+                match,
+                target_date=plan.target_date,
+                weekly_hours=plan.weekly_hours,
+                supplemental_background=plan.supplemental_background,
+            )
+            match_id = match.id
         await session.commit()
         effective_target = plan.target_date or generation_today() + timedelta(days=28)
-        catalog = build_source_catalog(
-            jd,
-            profile,
-            match,
-            target_date=plan.target_date,
-            weekly_hours=plan.weekly_hours,
-            supplemental_background=plan.supplemental_background,
-        )
         try:
             output, model_name = await generate_plan_output(
                 session,
@@ -314,10 +404,10 @@ class PlanService:
         return PreparedPlanGeneration(
             plan_id=plan.id,
             run_id=run_id,
-            match_result_id=match.id,
+            match_result_id=match_id,
             input_snapshot=sanitized_input_snapshot(
                 catalog,
-                match_id=match.id,
+                match_id=match_id,
                 target_date=plan.target_date,
                 weekly_hours=plan.weekly_hours,
                 supplemental_background=plan.supplemental_background,
@@ -325,6 +415,29 @@ class PlanService:
             ),
             model_name=model_name,
             tasks=normalize_generated_tasks(output, catalog, target_date=plan.target_date),
+        )
+
+    async def _catalog_from_versions(
+        self,
+        session: AsyncSession,
+        plan: JobSearchPlanModel,
+    ) -> list[CatalogEntry]:
+        """Deterministic catalog from the plan's immutable snapshots (RIP-014 §6.2).
+
+        The tuple was validated at create time; the assessment and versions
+        are immutable, so regeneration retains the original versions.
+        """
+        jd_version = await session.get(JobDescriptionVersionModel, plan.jd_version_id)
+        resume_version = await session.get(ResumeVersionModel, plan.resume_version_id)
+        assessment = await session.get(MatchAssessmentModel, plan.match_assessment_id)
+        if jd_version is None or resume_version is None or assessment is None:
+            raise PlanDomainError("Plan input versions are no longer available", 1008)
+        return build_catalog_from_versions(
+            jd_version_id=str(jd_version.id),
+            jd_structured=jd_version.structured,
+            resume_version_id=str(resume_version.id),
+            resume_profile=resume_version.profile_snapshot,
+            resume_facts=resume_version.evidence_catalog,
         )
 
     async def persist_initial(self, session: AsyncSession, prepared: PreparedPlanGeneration) -> bool:
@@ -404,6 +517,12 @@ class PlanService:
         diagnostic = getattr(getattr(exc, "orig", None), "diag", None)
         constraint_name = getattr(diagnostic, "constraint_name", None)
         return constraint_name == "uq_active_plan_jd_resume" or "uq_active_plan_jd_resume" in str(exc)
+
+    @staticmethod
+    def _is_versioned_plan_conflict(exc: IntegrityError) -> bool:
+        diagnostic = getattr(getattr(exc, "orig", None), "diag", None)
+        constraint_name = getattr(diagnostic, "constraint_name", None)
+        return constraint_name == "uq_versioned_plan_tuple" or "uq_versioned_plan_tuple" in str(exc)
 
     @staticmethod
     def _default_title(*, title: str | None, company: str | None) -> str:

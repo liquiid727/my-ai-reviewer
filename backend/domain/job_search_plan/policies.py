@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from backend.domain.job_search_plan.enums import PlanTaskSource, PlanTaskStatus
 from backend.domain.job_search_plan.schemas import CatalogEntry, PlanGenerationOutput
+from backend.domain.match_assessment.source_catalog import build_catalog
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 
@@ -39,6 +40,19 @@ class PlanDomainError(ValueError):
         super().__init__(message)
         self.code = code
         self.data = dict(data or {})
+
+
+class PlanVersionTupleError(ValueError):
+    """RIP-014 §7.3: a version-pinned plan tuple is not coherent.
+
+    `kind` selects the response mapping:
+    - "scope"      -> PLAN_INPUT_SCOPE_MISMATCH 422
+    - "assessment" -> MATCH_ASSESSMENT_NOT_COMPLETE 409
+    """
+
+    def __init__(self, message: str, kind: str) -> None:
+        super().__init__(message)
+        self.kind = kind
 
 
 def generation_today() -> date:
@@ -213,3 +227,86 @@ def sanitized_input_snapshot(
             "supplemental_background": supplemental_background or None,
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# RIP-014 version-pinned plan tuple (pure rules; no I/O)
+# ---------------------------------------------------------------------------
+
+VERSIONED_PLAN_REF_KEYS = (
+    "job_target_id",
+    "jd_version_id",
+    "resume_version_id",
+    "match_assessment_id",
+)
+
+
+def validate_versioned_tuple(
+    *,
+    target_id: object,
+    target_jd_id: object,
+    target_resume_id: object,
+    jd_version_owner: object,
+    resume_version_owner: object,
+    assessment_status: str | None,
+    assessment_target_id: object,
+    assessment_jd_version_id: object,
+    assessment_resume_version_id: object,
+    requested_match_assessment_id: object,
+    requested_jd_version_id: object,
+    requested_resume_version_id: object,
+) -> None:
+    """One coherent tuple: target identity, exact versions, completed assessment.
+
+    Raises PlanVersionTupleError(kind="scope") for identity/version mismatches
+    and PlanVersionTupleError(kind="assessment") for an assessment that is not
+    completed or is pinned to different versions.
+    """
+    if target_jd_id != jd_version_owner:
+        raise PlanVersionTupleError("JD version does not belong to the job target", "scope")
+    if target_resume_id != resume_version_owner:
+        raise PlanVersionTupleError("Resume version does not belong to the job target", "scope")
+    if requested_match_assessment_id is None:
+        raise PlanVersionTupleError("A completed match assessment is required", "assessment")
+    if assessment_status != "completed":
+        raise PlanVersionTupleError("Match assessment is not complete", "assessment")
+    if assessment_target_id != target_id:
+        raise PlanVersionTupleError("Match assessment does not belong to the job target", "assessment")
+    if assessment_jd_version_id != requested_jd_version_id:
+        raise PlanVersionTupleError("Match assessment is pinned to a different JD version", "assessment")
+    if assessment_resume_version_id != requested_resume_version_id:
+        raise PlanVersionTupleError("Match assessment is pinned to a different resume version", "assessment")
+
+
+def build_catalog_from_versions(
+    *,
+    jd_version_id: str,
+    jd_structured: dict[str, Any],
+    resume_version_id: str,
+    resume_profile: dict[str, Any],
+    resume_facts: list[Any],
+) -> list[CatalogEntry]:
+    """Deterministic, identity-free plan catalog from immutable snapshots.
+
+    Mirrors the match engine's Source Catalog (RIP-013 §6.2) so the plan
+    generator receives the same masked evidence the assessment was built on.
+    """
+    catalog = build_catalog(
+        jd_version_id=jd_version_id,
+        jd_structured=jd_structured,
+        resume_version_id=resume_version_id,
+        resume_profile=resume_profile,
+        resume_facts=resume_facts,
+    )
+    entries = [
+        CatalogEntry(
+            id=item.id,
+            source="jd" if item.id.startswith("jd:") else "profile",  # type: ignore[arg-type]
+            label=item.claim,
+            excerpt=item.masked_excerpt or item.claim,
+        )
+        for item in catalog.items
+    ]
+    if len(entries) != len({entry.id for entry in entries}):
+        raise PlanDomainError("Source catalog contains duplicate IDs", 5006)
+    return entries
