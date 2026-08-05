@@ -11,11 +11,13 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from PIL import Image
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
 from backend.domain.jd.enums import JDProcessingStep, JDSourceType, JDStatus
+from backend.domain.jd.policies import content_hash, normalize_jd_text
+from backend.domain.jd.schemas import JDManualImportRequest
 from backend.infrastructure.db.models import FileModel, JobDescriptionModel
 from backend.infrastructure.storage.minio_client import delete_file, upload_file
 
@@ -112,6 +114,73 @@ def _validate_image(filename: str, content_type: str | None, data: bytes) -> str
 
 def _manual_sources(*fields: str) -> dict[str, str]:
     return {field: "manual" for field in fields}
+
+
+def _draft_item(key: str, value: str, *, category: str | None = None) -> dict[str, object]:
+    item: dict[str, object] = {
+        "key": key,
+        "value": value,
+        "evidence": None,
+        "evidence_status": "unavailable",
+        "confidence": 1.0,
+        "provenance": "manual",
+    }
+    if category is not None:
+        item["category"] = category
+    return item
+
+
+def _manual_review_draft(payload: JDManualImportRequest) -> dict[str, object]:
+    """Project manual input into the RIP-011 review draft without an LLM.
+
+    Provenance is `manual` for every field, confidence is 1.0, and no evidence
+    or source quote is fabricated. The scalar `title`/`company` fields stay
+    JSON scalars; lists use DraftItem shape so the review/publish lifecycle
+    consumes them directly.
+    """
+    return {
+        "title": payload.title.strip(),
+        "company": payload.company.strip() if payload.company else None,
+        "department": payload.department.strip() if payload.department else None,
+        "location": payload.location.strip() if payload.location else None,
+        "employment_type": payload.employment_type,
+        "responsibilities": [
+            _draft_item(f"manual-{index}", value) for index, value in enumerate(payload.responsibilities)
+        ],
+        "required_skills": [
+            {
+                **_draft_item(f"manual-{index}", skill.name),
+                "critical": skill.critical,
+            }
+            for index, skill in enumerate(payload.required_skills)
+        ],
+        "preferred_skills": [
+            {
+                **_draft_item(f"manual-{index}", skill.name),
+                "critical": skill.critical,
+            }
+            for index, skill in enumerate(payload.preferred_skills)
+        ],
+        "notes": payload.notes.strip() if payload.notes else None,
+        "parser_version": None,
+        "model_name": None,
+        "prompt_version": None,
+        "schema_version": "jd-review-v1",
+        "overall_confidence": 1.0,
+    }
+
+
+def _manual_text(payload: JDManualImportRequest) -> str:
+    lines = [
+        payload.title.strip(),
+        payload.company.strip() if payload.company else "",
+        payload.department.strip() if payload.department else "",
+        payload.location.strip() if payload.location else "",
+        *(skill.name for skill in payload.required_skills),
+        *(skill.name for skill in payload.preferred_skills),
+        *payload.responsibilities,
+    ]
+    return normalize_jd_text(" ".join(line for line in lines if line))
 
 
 class JDImportService:
@@ -262,6 +331,72 @@ class JDImportService:
                     logger.exception("Could not compensate failed JD image import", extra={"object_name": object_name})
             raise JDImportError("Unable to store JD image", code=5003) from exc
         return await self._dispatch_or_mark_failed(session, jd, allow_duplicate=allow_duplicate)
+
+    async def create_manual(
+        self,
+        session: AsyncSession,
+        *,
+        payload: JDManualImportRequest,
+        user_id: uuid.UUID | None = None,
+    ) -> JDImportResult:
+        """Create a manual JD synchronously and enter review with no LLM call."""
+        title = payload.title.strip()
+        if not title:
+            raise JDImportError("Manual JD requires a title")
+        raw_text = _manual_text(payload)
+        digest = content_hash(raw_text)
+        duplicate = None
+        if not payload.allow_duplicate:
+            duplicate = await self._find_manual_duplicate(session, digest, user_id)
+        sources = _manual_sources(
+            *(name for name, value in (("title", title), ("company", payload.company)) if value)
+        )
+        jd = JobDescriptionModel(
+            user_id=user_id,
+            source_type=JDSourceType.MANUAL.value,
+            raw_text=raw_text,
+            title=title,
+            company=payload.company.strip() if payload.company else None,
+            location=payload.location.strip() if payload.location else None,
+            extraction_source="manual",
+            field_sources=sources,
+            status=JDStatus.NEEDS_REVIEW.value,
+            processing_step=JDProcessingStep.REVIEW.value,
+            review_revision=1,
+            review_draft=_manual_review_draft(payload),
+            content_hash=digest,
+        )
+        if duplicate is not None:
+            jd.status = JDStatus.DUPLICATE_PENDING.value
+            jd.processing_step = JDProcessingStep.DUPLICATE_CHECK.value
+            jd.duplicate_of_id = duplicate
+        session.add(jd)
+        await session.commit()
+        await session.refresh(jd)
+        return JDImportResult(jd=jd)
+
+    @staticmethod
+    async def _find_manual_duplicate(
+        session: AsyncSession,
+        digest: str,
+        user_id: uuid.UUID | None,
+    ) -> uuid.UUID | None:
+        """Earliest JD in the user scope with the same canonical hash (RIP-012 §6.3).
+
+        The worker pipeline normally owns duplicate detection; manual creation is
+        synchronous, so the check happens inline before the review row is written.
+        """
+        user_scope = (
+            JobDescriptionModel.user_id.is_(None) if user_id is None else JobDescriptionModel.user_id == user_id
+        )
+        stmt = (
+            select(JobDescriptionModel.id)
+            .where(JobDescriptionModel.content_hash == digest, user_scope)
+            .order_by(JobDescriptionModel.created_at)
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
     async def import_url(
         self,

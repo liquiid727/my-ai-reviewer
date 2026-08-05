@@ -14,6 +14,7 @@ from backend.application.jd_service import commands as jd_commands
 from backend.application.jd_service import queries as jd_queries
 from backend.application.llm_config_service import has_verified_config
 from backend.domain.jd.schemas import (
+    JDManualImportRequest,
     JDPublishRequest,
     JDReextractRequest,
     JDReviewPatchRequest,
@@ -119,6 +120,18 @@ async def import_jd_image(
     except JDImportError as exc:
         return APIResponse(code=exc.code, message=str(exc))
     return _import_result_response(result)
+
+
+@router.post("/import/manual", response_model=APIResponse)
+async def import_jd_manual(
+    payload: JDManualImportRequest,
+    session: AsyncSession = Depends(get_db),
+) -> APIResponse:
+    try:
+        result = await JDImportService().create_manual(session, payload=payload)
+    except JDImportError as exc:
+        return APIResponse(code=exc.code, message=str(exc))
+    return APIResponse(data=_jd_payload(jd_queries.serialize_jd(result.jd)))
 
 
 @router.post("/import/url", response_model=APIResponse)

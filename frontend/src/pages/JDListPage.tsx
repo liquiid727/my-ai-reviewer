@@ -27,7 +27,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import type { JDDetail, JDListData, JDListItem, JDSourceType, JDStatus } from '@/types/jd'
 
-const sourceValues: Array<JDSourceType | 'all'> = ['all', 'text', 'file', 'url']
+const sourceValues: Array<JDSourceType | 'all'> = ['all', 'text', 'file', 'url', 'image', 'manual']
 const statusValues: Array<JDStatus | 'all'> = ['all', 'processing', 'duplicate_pending', 'needs_review', 'ready', 'failed', 'archived']
 
 function readableDate(value: string | null) {

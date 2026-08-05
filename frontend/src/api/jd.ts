@@ -2,6 +2,7 @@ import { apiRequest } from './client'
 import type {
   JDDetail,
   JDListData,
+  JDManualInput,
   JDPatchInput,
   JDResponse,
   JDReviewDraft,
@@ -63,6 +64,10 @@ export function importJDFile(file: File, allowDuplicate = false): Promise<JDResp
     method: 'POST',
     body: form,
   })
+}
+
+export function importJDManual(input: JDManualInput): Promise<JDResponse<JDDetail>> {
+  return apiRequest('/jd/import/manual', { method: 'POST', body: JSON.stringify(input) })
 }
 
 export function patchJobDescription(id: string, input: JDPatchInput): Promise<JDResponse<JDDetail>> {

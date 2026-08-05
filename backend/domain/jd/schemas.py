@@ -11,7 +11,7 @@ from backend.domain.jd.enums import JDProcessingStep, JDSourceType, JDStatus
 class RequiredSkill(BaseModel):
     """岗位必备技能。"""
 
-    name: str
+    name: str = Field(min_length=1, max_length=500)
     critical: bool = False  # 是否关键技能（缺失将显著影响结论）
 
 
@@ -106,6 +106,9 @@ class DraftItem(BaseModel):
     evidence_status: Literal["available", "unavailable"] = "unavailable"
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     provenance: Literal["source", "llm", "manual"] = "llm"
+    # Skills use `critical` (required vs preferred); other list kinds leave it
+    # at the default. Present on the JSONB shape for the review editor.
+    critical: bool = False
 
 
 class HardConditionItem(BaseModel):
@@ -199,6 +202,26 @@ class JDTextImportRequest(BaseModel):
 
 class JDURLImportRequest(BaseModel):
     url: HttpUrl
+    allow_duplicate: bool = False
+
+
+class JDManualImportRequest(BaseModel):
+    """Structured manual JD entry (RIP-012 §6.2).
+
+    `title` is the only mandatory business field; everything else is bounded
+    to RIP-011 lengths. `allow_duplicate` is a hint for the canonical duplicate
+    check, mirroring the other import endpoints.
+    """
+
+    title: str = Field(min_length=1, max_length=200)
+    company: str | None = Field(default=None, max_length=200)
+    location: str | None = Field(default=None, max_length=200)
+    department: str | None = Field(default=None, max_length=200)
+    employment_type: Literal["full_time", "part_time", "contract", "internship"] | None = None
+    responsibilities: list[JDResponsibility] = Field(default_factory=list, max_length=50)
+    required_skills: list[RequiredSkill] = Field(default_factory=list, max_length=100)
+    preferred_skills: list[RequiredSkill] = Field(default_factory=list, max_length=100)
+    notes: str | None = Field(default=None, max_length=1000)
     allow_duplicate: bool = False
 
 

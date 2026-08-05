@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Upload } from 'lucide-react'
+import { Loader2, Plus, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { importJDFile, importJDText, importJDUrl } from '@/api/jd'
+import { importJDFile, importJDManual, importJDText, importJDUrl } from '@/api/jd'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -15,9 +15,9 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import type { JDDetail } from '@/types/jd'
+import type { JDDetail, JDSkill } from '@/types/jd'
 
-type ImportMode = 'text' | 'file' | 'url'
+type ImportMode = 'text' | 'file' | 'url' | 'manual'
 
 interface JDImportDialogProps {
   open: boolean
@@ -34,11 +34,24 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
   const [company, setCompany] = useState('')
   const [url, setUrl] = useState('')
   const [file, setFile] = useState<File | null>(null)
+  const [manualTitle, setManualTitle] = useState('')
+  const [manualCompany, setManualCompany] = useState('')
+  const [manualLocation, setManualLocation] = useState('')
+  const [manualDepartment, setManualDepartment] = useState('')
+  const [manualResponsibilities, setManualResponsibilities] = useState('')
+  const [manualSkills, setManualSkills] = useState<string[]>([])
+  const [manualSkillInput, setManualSkillInput] = useState('')
+  const [manualNotes, setManualNotes] = useState('')
   const [allowDuplicate, setAllowDuplicate] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
   const valid = useMemo(() => {
     if (mode === 'text') return rawText.trim().length > 0 && rawText.length <= 100_000
+    if (mode === 'manual') {
+      return manualTitle.trim().length > 0
+        && manualTitle.length <= 200
+        && manualSkills.every((skill) => skill.length <= 500)
+    }
     if (mode === 'url') {
       try {
         const parsed = new URL(url)
@@ -48,7 +61,7 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
       }
     }
     return file !== null && file.size <= 10 * 1024 * 1024
-  }, [file, mode, rawText, url])
+  }, [file, manualSkills, manualTitle, mode, rawText, url])
 
   const reset = () => {
     setMode('text')
@@ -57,6 +70,14 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
     setCompany('')
     setUrl('')
     setFile(null)
+    setManualTitle('')
+    setManualCompany('')
+    setManualLocation('')
+    setManualDepartment('')
+    setManualResponsibilities('')
+    setManualSkills([])
+    setManualSkillInput('')
+    setManualNotes('')
     setAllowDuplicate(false)
   }
 
@@ -65,20 +86,45 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
     onOpenChange(next)
   }
 
+  const addSkill = () => {
+    const name = manualSkillInput.trim()
+    if (name && !manualSkills.includes(name)) setManualSkills([...manualSkills, name])
+    setManualSkillInput('')
+  }
+
   const submit = async () => {
     if (!valid || submitting) return
     setSubmitting(true)
     try {
-      const response = mode === 'text'
-        ? await importJDText({
+      let response
+      if (mode === 'text') {
+        response = await importJDText({
           raw_text: rawText.trim(),
           title: title.trim() || undefined,
           company: company.trim() || undefined,
           allow_duplicate: allowDuplicate,
         })
-        : mode === 'url'
-          ? await importJDUrl({ url: url.trim(), allow_duplicate: allowDuplicate })
-          : await importJDFile(file as File, allowDuplicate)
+      } else if (mode === 'url') {
+        response = await importJDUrl({ url: url.trim(), allow_duplicate: allowDuplicate })
+      } else if (mode === 'manual') {
+        const skills: JDSkill[] = manualSkills.map((name) => ({ name }))
+        response = await importJDManual({
+          title: manualTitle.trim(),
+          company: manualCompany.trim() || null,
+          location: manualLocation.trim() || null,
+          department: manualDepartment.trim() || null,
+          responsibilities: manualResponsibilities
+            .split('\n')
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .slice(0, 50),
+          required_skills: skills,
+          notes: manualNotes.trim() || null,
+          allow_duplicate: allowDuplicate,
+        })
+      } else {
+        response = await importJDFile(file as File, allowDuplicate)
+      }
       if (response.code === 428) {
         onLLMGate()
         return
@@ -105,10 +151,11 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
           <DialogDescription>{t('jd.importDescription')}</DialogDescription>
         </DialogHeader>
         <Tabs value={mode} onValueChange={(value) => setMode(value as ImportMode)}>
-          <TabsList className="grid h-auto w-full grid-cols-3">
+          <TabsList className="grid h-auto w-full grid-cols-4">
             <TabsTrigger value="text">{t('jd.importMode.text')}</TabsTrigger>
             <TabsTrigger value="file">{t('jd.importMode.file')}</TabsTrigger>
             <TabsTrigger value="url">{t('jd.importMode.url')}</TabsTrigger>
+            <TabsTrigger value="manual">{t('jd.importMode.manual')}</TabsTrigger>
           </TabsList>
           <TabsContent value="text" className="space-y-4 pt-3">
             <div className="space-y-2">
@@ -155,6 +202,103 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
                 onChange={(event) => setUrl(event.target.value)}
               />
               <p className="text-xs text-muted-foreground">{t('jd.urlHelp')}</p>
+            </div>
+          </TabsContent>
+          <TabsContent value="manual" className="space-y-4 pt-3">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="jd-manual-title">{t('jd.manualTitle')} *</Label>
+                <Input
+                  id="jd-manual-title"
+                  value={manualTitle}
+                  maxLength={200}
+                  placeholder={t('jd.manualTitlePlaceholder')}
+                  onChange={(event) => setManualTitle(event.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="jd-manual-company">{t('jd.manualCompany')}</Label>
+                <Input
+                  id="jd-manual-company"
+                  value={manualCompany}
+                  maxLength={200}
+                  onChange={(event) => setManualCompany(event.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="jd-manual-location">{t('jd.manualLocation')}</Label>
+                <Input
+                  id="jd-manual-location"
+                  value={manualLocation}
+                  maxLength={200}
+                  onChange={(event) => setManualLocation(event.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="jd-manual-department">{t('jd.manualDepartment')}</Label>
+                <Input
+                  id="jd-manual-department"
+                  value={manualDepartment}
+                  maxLength={200}
+                  onChange={(event) => setManualDepartment(event.target.value)}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>{t('jd.manualSkills')}</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={manualSkillInput}
+                  maxLength={500}
+                  placeholder={t('jd.manualSkillsPlaceholder')}
+                  onChange={(event) => setManualSkillInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      addSkill()
+                    }
+                  }}
+                />
+                <Button type="button" variant="neutral" onClick={addSkill}><Plus className="size-4" /></Button>
+              </div>
+              {manualSkills.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {manualSkills.map((skill) => (
+                    <span key={skill} className="flex items-center gap-1 rounded-base border-2 border-black bg-secondary-background px-2 py-0.5 text-xs">
+                      {skill}
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground"
+                        onClick={() => setManualSkills(manualSkills.filter((name) => name !== skill))}
+                        aria-label={t('common.remove')}
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="jd-manual-responsibilities">{t('jd.manualResponsibilities')}</Label>
+              <textarea
+                id="jd-manual-responsibilities"
+                className="min-h-24 w-full rounded-base border-2 border-black bg-secondary-background p-3 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-black"
+                value={manualResponsibilities}
+                placeholder={t('jd.manualResponsibilitiesPlaceholder')}
+                onChange={(event) => setManualResponsibilities(event.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="jd-manual-notes">{t('jd.manualNotes')}</Label>
+              <textarea
+                id="jd-manual-notes"
+                className="min-h-16 w-full rounded-base border-2 border-black bg-secondary-background p-3 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-black"
+                value={manualNotes}
+                maxLength={1000}
+                onChange={(event) => setManualNotes(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t('jd.manualReviewNote')}</p>
             </div>
           </TabsContent>
         </Tabs>

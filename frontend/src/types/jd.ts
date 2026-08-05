@@ -1,6 +1,6 @@
 import type { APIResponse } from './resume'
 
-export type JDSourceType = 'text' | 'file' | 'url'
+export type JDSourceType = 'text' | 'file' | 'url' | 'image' | 'manual'
 export type JDStatus = 'processing' | 'duplicate_pending' | 'needs_review' | 'ready' | 'failed' | 'archived'
 export type JDSeniority = 'junior' | 'mid' | 'senior' | 'expert'
 export type JDProvenance = 'source' | 'llm' | 'manual'
@@ -68,6 +68,19 @@ export interface JDReviewItem {
 
 export interface JDReviewHardCondition extends JDReviewItem {
   category: 'years' | 'education' | 'language' | 'certificate' | 'location' | 'other'
+}
+
+export interface JDManualInput {
+  title: string
+  company?: string | null
+  location?: string | null
+  department?: string | null
+  employment_type?: 'full_time' | 'part_time' | 'contract' | 'internship' | null
+  responsibilities?: string[]
+  required_skills?: JDSkill[]
+  preferred_skills?: JDSkill[]
+  notes?: string | null
+  allow_duplicate?: boolean
 }
 
 export interface JDListItem {
