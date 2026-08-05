@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Plus, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { importJDFile, importJDManual, importJDText, importJDUrl } from '@/api/jd'
+import { importJDFile, importJDImage, importJDManual, importJDText, importJDUrl } from '@/api/jd'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -17,7 +17,13 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import type { JDDetail, JDSkill } from '@/types/jd'
 
-type ImportMode = 'text' | 'file' | 'url' | 'manual'
+type ImportMode = 'text' | 'file' | 'image' | 'url' | 'manual'
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
 interface JDImportDialogProps {
   open: boolean
@@ -34,6 +40,7 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
   const [company, setCompany] = useState('')
   const [url, setUrl] = useState('')
   const [file, setFile] = useState<File | null>(null)
+  const [image, setImage] = useState<File | null>(null)
   const [manualTitle, setManualTitle] = useState('')
   const [manualCompany, setManualCompany] = useState('')
   const [manualLocation, setManualLocation] = useState('')
@@ -60,8 +67,8 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
         return false
       }
     }
-    return file !== null && file.size <= 10 * 1024 * 1024
-  }, [file, manualSkills, manualTitle, mode, rawText, url])
+    return (file !== null || image !== null) && (file ?? image)!.size <= 10 * 1024 * 1024
+  }, [file, image, manualSkills, manualTitle, mode, rawText, url])
 
   const reset = () => {
     setMode('text')
@@ -70,6 +77,7 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
     setCompany('')
     setUrl('')
     setFile(null)
+    setImage(null)
     setManualTitle('')
     setManualCompany('')
     setManualLocation('')
@@ -122,8 +130,10 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
           notes: manualNotes.trim() || null,
           allow_duplicate: allowDuplicate,
         })
-      } else {
+      } else if (mode === 'file') {
         response = await importJDFile(file as File, allowDuplicate)
+      } else {
+        response = await importJDImage(image as File, allowDuplicate)
       }
       if (response.code === 428) {
         onLLMGate()
@@ -151,9 +161,10 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
           <DialogDescription>{t('jd.importDescription')}</DialogDescription>
         </DialogHeader>
         <Tabs value={mode} onValueChange={(value) => setMode(value as ImportMode)}>
-          <TabsList className="grid h-auto w-full grid-cols-4">
+          <TabsList className="grid h-auto w-full grid-cols-5">
             <TabsTrigger value="text">{t('jd.importMode.text')}</TabsTrigger>
             <TabsTrigger value="file">{t('jd.importMode.file')}</TabsTrigger>
+            <TabsTrigger value="image">{t('jd.importMode.image')}</TabsTrigger>
             <TabsTrigger value="url">{t('jd.importMode.url')}</TabsTrigger>
             <TabsTrigger value="manual">{t('jd.importMode.manual')}</TabsTrigger>
           </TabsList>
@@ -188,7 +199,28 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
                 onChange={(event) => setFile(event.target.files?.[0] ?? null)}
               />
               <p className="text-xs text-muted-foreground">{t('jd.fileHelp')}</p>
-              {file && <p className="break-all text-sm">{file.name}</p>}
+              {file && (
+                <p className="break-all text-sm">
+                  {file.name} · {file.type || t('jd.unknownType')} · {formatFileSize(file.size)}
+                </p>
+              )}
+            </div>
+          </TabsContent>
+          <TabsContent value="image" className="space-y-4 pt-3">
+            <div className="space-y-2">
+              <Label htmlFor="jd-image">{t('jd.image')}</Label>
+              <Input
+                id="jd-image"
+                type="file"
+                accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+                onChange={(event) => setImage(event.target.files?.[0] ?? null)}
+              />
+              <p className="text-xs text-muted-foreground">{t('jd.imageHelp')}</p>
+              {image && (
+                <p className="break-all text-sm">
+                  {image.name} · {image.type || t('jd.unknownType')} · {formatFileSize(image.size)}
+                </p>
+              )}
             </div>
           </TabsContent>
           <TabsContent value="url" className="space-y-4 pt-3">

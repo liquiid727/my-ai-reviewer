@@ -66,6 +66,15 @@ export function importJDFile(file: File, allowDuplicate = false): Promise<JDResp
   })
 }
 
+export function importJDImage(file: File, allowDuplicate = false): Promise<JDResponse<JDDetail>> {
+  const form = new FormData()
+  form.append('file', file)
+  return apiRequest(`/jd/import/image${query({ allow_duplicate: allowDuplicate })}`, {
+    method: 'POST',
+    body: form,
+  })
+}
+
 export function importJDManual(input: JDManualInput): Promise<JDResponse<JDDetail>> {
   return apiRequest('/jd/import/manual', { method: 'POST', body: JSON.stringify(input) })
 }
