@@ -1,0 +1,46 @@
+{
+  "issue": "109",
+  "title": "Add Match Assessment schema and lifecycle",
+  "spec": "RIP-013 sections 6.1, 7.1, 7.2, 10",
+  "verdict": "accepted",
+  "date": "2026-08-05",
+  "gates": {
+    "unit": "PASS - 429 passed / 2 pre-existing failures (baseline 418 + 11 new lifecycle tests)",
+    "integration": "PASS - 120 passed (baseline 114 + 5 schema/constraint + 1 migration-chain test)",
+    "ruff": "PASS - 2 pre-existing errors (test_quality_scripts.py F841, test_reparse.py I001); 0 new",
+    "mypy": "PASS - 22 pre-existing errors (baseline); 0 new",
+    "arch_check": "PASS - 33 violations / 0 new (waived registry unchanged)",
+    "alembic_heads": "t4e5f6a7b8c9 (new head); upgrade/downgrade/upgrade verified on dev DB",
+    "alembic_check": "PASS for new table; pre-existing baseline diff documented (legacy created_at modify_nullable); DESC-order index representation diff (UnaryExpression vs postgresql_ops) is a SQLAlchemy reflection artifact - physical DDL verified via pg_indexes (job_target_id, created_at DESC, id DESC) and (jd_version_id, resume_version_id, policy_version, created_at DESC)",
+    "browser_check": "N/A - backend-only issue"
+  },
+  "acceptance": {
+    "match_assessments_with_target_version_policy_run_result_generator_failure_fields": "PASS - MatchAssessmentModel in backend/infrastructure/db/models.py: UUID PK; indexed FKs (job_target_id, jd_version_id, resume_version_id) ON DELETE RESTRICT; status/policy_version/run_id/attempt; safe failure fields error_code/error_details/retryable; result fields dimension_scores/rule_results/gaps/evidence_summary/caps_applied/recommendation (JSONB); score_before_caps/total_score numeric(5,2) with 0-100 checks; overall_confidence numeric(5,3) with 0-1 check; generator fields model_name/model_version/prompt_version/schema_version; created_at/updated_at/completed_at timestamps",
+    "valid_status_score_confidence_checks": "PASS - ck_match_assessments_status (queued/evaluating/completed/failed), ck_match_assessments_score_before_caps and ck_match_assessments_total_score (0-100), ck_match_assessments_overall_confidence (0-1); integration tests prove unknown status, out-of-range score, and out-of-range confidence are rejected by the database (IntegrityError)",
+    "index_all_fks_completed_reuse_lookup_target_history_active_watchdog_partial_active_uniqueness": "PASS - ix_match_assessments_target/jd_version/resume_version (all FKs); ix_match_assessments_target_created (job_target_id, created_at DESC, id DESC) for target history; ix_match_assessments_tuple_created (jd_version_id, resume_version_id, policy_version, created_at DESC) for completed reuse; uq_match_assessments_active_tuple partial unique on (jd_version_id, resume_version_id, policy_version) WHERE status IN ('queued','evaluating'); ix_match_assessments_active_watchdog partial (status, updated_at); physical DDL verified via pg_indexes; partial uniqueness exercised in integration test (second active row raises IntegrityError, allowed once terminal)",
+    "queued_evaluating_completed_failed_transitions_and_completed_immutability": "PASS - pure MatchLifecycle in backend/domain/match_assessment/lifecycle.py: start_evaluating (queued->evaluating, run ownership), complete (evaluating->completed, immutability guard first: a snapshot already carrying a result raises MatchCompletedImmutabilityError), fail (evaluating->failed with safe Failure diagnostic); invalid transitions raise MatchInvalidStateError; completed results never rewritten (integration test proves a completed row stays terminal with its score)",
+    "normal_reuse_force_new_row_failed_retry_stale_run_rules": "PASS - pick_create returns the existing completed assessment unless force=true (reuse flag + same run id); force creates a new row; failed is never reused by create; active duplicate always raises MatchActiveExistsError (even with force); retry allowed only from failed, returns a new run id on the same row with attempt+1 and cleared failure fields (MatchRetryNotAllowedError otherwise); stale-run workers are rejected by run-id ownership checks in start_evaluating/complete/fail and exit without a result write",
+    "reject_target_version_scope_mismatches_and_deletion_of_referenced_versions": "PASS - MatchLifecycle.validate_scope rejects a JD version whose owner JD differs from the target's JD identity (MatchScopeMismatchError); all three FKs use ON DELETE RESTRICT so referenced JD versions, resume versions, and targets cannot be deleted; integration test proves DELETE on a referenced job_description_versions/resume_versions row raises IntegrityError",
+    "migration_domain_index_tests_pass_from_current_head": "PASS - new Alembic revision t4e5f6a7b8c9 (down_revision s3d4e5f6a7b8) verified upgrade/downgrade/upgrade on the dev DB; migration-chain integration test asserts the table, 4 checks, 7 indexes (incl. partial unique + partial watchdog), 3 RESTRICT FKs, and 25 columns after a real upgrade to head; 11 pure lifecycle unit tests cover all transitions, immutability, reuse/force/retry/stale-run and scope rules"
+  },
+  "implementation_notes": [
+    "MatchAssessmentModel follows the established version/target model patterns: UUID PK, ForeignKey(ondelete='RESTRICT'), CheckConstraint, partial unique Index with postgresql_where; the DESC-order cursor indexes use postgresql_ops in both the ORM model and the migration for a single source of truth",
+    "alembic check reports the known pre-existing baseline diff (legacy tables' created_at modify_nullable) plus a representation diff on the two DESC indexes: reflection returns UnaryExpression columns while postgresql_ops keeps plain columns, so the comparison always differs - the physical DDL is correct and proven by pg_indexes output; documented in the evidence rather than chasing a SQLAlchemy reflection artifact",
+    "Complete/fail guards are ordered so the completed-immutability check fires before the status check - a completed snapshot with a score can never be transitioned even by a stale run",
+    "The lifecycle module is domain-pure (no SQLAlchemy/Celery/HTTP/LLM imports) and exports through backend/domain/match_assessment/__init__.py; the application worker/API wiring that uses these rules lands in #110",
+    "Failure diagnostics are safe by contract: error_code/error_details columns exist for the worker to persist typed codes (ASSESSMENT_*) and short public messages - never provider payloads"
+  ],
+  "residual_risks": [
+    "The queued/evaluating watchdog index exists but the watchdog sweep itself (stale evaluating rows recovery) is a worker-side concern for #110",
+    "Reuse/force/retry application wiring (completed-reuse lookup queries, active-row detection, dispatch-after-commit) lands with the assessment worker and command API in #110",
+    "Attempt/run_id ownership enforcement at the SQL layer (optimistic locking) is not yet added; the application worker will enforce it transactionally per RIP-013 7.1/7.2"
+  ],
+  "reviews": {
+    "verdict": "accepted",
+    "mode": "local-reviewed",
+    "note": "Version-pinned match_assessments aggregate implemented: UUID PK, RESTRICT FKs, status/score/confidence checks, safe failure fields, immutable completed result columns, DESC cursor indexes, partial active-tuple uniqueness and partial watchdog index; pure domain lifecycle (queued/evaluating/completed/failed transitions, completed immutability, reuse/force/retry/stale-run and scope rules) with 11 unit tests; migration t4e5f6a7b8c9 verified up/down/up and by a migration-chain integration test; 5 schema/constraint integration tests prove partial uniqueness, checks, FK RESTRICT, and immutability at the database layer; full gates green (unit 429/2 pre-existing, integration 120, ruff/mypy 0 new, arch 0 new)"
+  },
+  "commits": [
+    "feat(rip013): add match assessment schema and lifecycle (#109)"
+  ]
+}

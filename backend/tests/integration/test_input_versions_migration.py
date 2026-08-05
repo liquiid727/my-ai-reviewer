@@ -249,3 +249,78 @@ async def test_version_tables_and_columns_exist(
         ).fetchall()
     assert {t[0] for t in tables} == {"job_description_versions", "resume_versions"}
     assert len(cols) == 1
+
+
+@pytest.mark.asyncio
+async def test_match_assessments_created_by_migration(
+    seeded_legacy_db: dict[str, uuid.UUID], migration_engine: Any
+) -> None:
+    """RIP-013 #109: the migration chain creates match_assessments with its checks/indexes."""
+    async with migration_engine.connect() as conn:
+        table = (
+            await conn.execute(
+                text(
+                    "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
+                    "AND tablename = 'match_assessments'"
+                )
+            )
+        ).first()
+        checks = (
+            await conn.execute(
+                text(
+                    "SELECT conname FROM pg_constraint "
+                    "WHERE conrelid = 'match_assessments'::regclass "
+                    "AND contype = 'c' ORDER BY conname"
+                )
+            )
+        ).fetchall()
+        indexes = (
+            await conn.execute(
+                text(
+                    "SELECT indexname FROM pg_indexes "
+                    "WHERE tablename = 'match_assessments' ORDER BY indexname"
+                )
+            )
+        ).fetchall()
+        fks = (
+            await conn.execute(
+                text(
+                    "SELECT confdeltype FROM pg_constraint "
+                    "WHERE conrelid = 'match_assessments'::regclass AND contype = 'f'"
+                )
+            )
+        ).fetchall()
+        cols = (
+            await conn.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = 'match_assessments' "
+                    "AND column_name IN ('job_target_id', 'jd_version_id', 'resume_version_id', "
+                    "'policy_version', 'run_id', 'attempt', 'error_code', 'error_details', "
+                    "'retryable', 'dimension_scores', 'rule_results', 'gaps', 'evidence_summary', "
+                    "'caps_applied', 'recommendation', 'score_before_caps', 'total_score', "
+                    "'overall_confidence', 'model_name', 'model_version', 'prompt_version', "
+                    "'schema_version', 'created_at', 'updated_at', 'completed_at')"
+                )
+            )
+        ).fetchall()
+    assert table is not None
+    assert {c[0] for c in checks} == {
+        "ck_match_assessments_score_before_caps",
+        "ck_match_assessments_status",
+        "ck_match_assessments_total_score",
+        "ck_match_assessments_overall_confidence",
+    }
+    assert {i[0] for i in indexes} >= {
+        "ix_match_assessments_target",
+        "ix_match_assessments_jd_version",
+        "ix_match_assessments_resume_version",
+        "ix_match_assessments_target_created",
+        "ix_match_assessments_tuple_created",
+        "uq_match_assessments_active_tuple",
+        "ix_match_assessments_active_watchdog",
+    }
+    # every FK is ON DELETE RESTRICT (confdeltype is returned as bytes)
+    assert len(fks) == 3
+    assert {fk[0].decode() if isinstance(fk[0], bytes) else fk[0] for fk in fks} == {"r"}
+    assert len(cols) == 25

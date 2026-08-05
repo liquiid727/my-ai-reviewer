@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
@@ -12,6 +13,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     SmallInteger,
     String,
     Text,
@@ -846,6 +848,119 @@ class JobTargetModel(Base):
         ),
         # Composite ordering for target history cursor queries.
         Index("ix_job_targets_updated_id", "updated_at", "id"),
+    )
+
+
+class MatchAssessmentModel(Base):
+    """Version-pinned match-v1 assessment with immutable completion (RIP-013 §6.1, §10).
+
+    Completed rows are immutable: the application layer must never update a
+    completed assessment in place; retry creates a new run on the same
+    incomplete row, and re-evaluate after completion creates a new row.
+    """
+
+    __tablename__ = "match_assessments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_target_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("job_targets.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    jd_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("job_description_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    resume_version_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("resume_versions.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued")
+    policy_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Safe failure diagnostics: error code and details never carry provider
+    # payloads, prompts, completions, or unmasked content.
+    error_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    error_details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retryable: Mapped[bool] = mapped_column(default=False, nullable=False)
+    # Completed result (immutable once written).
+    dimension_scores: Mapped[list[Any]] = mapped_column(JSONB, nullable=True)
+    rule_results: Mapped[list[Any]] = mapped_column(JSONB, nullable=True)
+    gaps: Mapped[list[Any]] = mapped_column(JSONB, nullable=True)
+    evidence_summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=True)
+    caps_applied: Mapped[list[Any]] = mapped_column(JSONB, nullable=True)
+    recommendation: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    score_before_caps: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    total_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    overall_confidence: Mapped[Decimal | None] = mapped_column(Numeric(5, 3), nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    model_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    prompt_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    schema_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'evaluating', 'completed', 'failed')",
+            name="ck_match_assessments_status",
+        ),
+        CheckConstraint(
+            "score_before_caps IS NULL OR (score_before_caps >= 0 AND score_before_caps <= 100)",
+            name="ck_match_assessments_score_before_caps",
+        ),
+        CheckConstraint(
+            "total_score IS NULL OR (total_score >= 0 AND total_score <= 100)",
+            name="ck_match_assessments_total_score",
+        ),
+        CheckConstraint(
+            "overall_confidence IS NULL OR (overall_confidence >= 0 AND overall_confidence <= 1)",
+            name="ck_match_assessments_overall_confidence",
+        ),
+        Index("ix_match_assessments_target", "job_target_id"),
+        Index("ix_match_assessments_jd_version", "jd_version_id"),
+        Index("ix_match_assessments_resume_version", "resume_version_id"),
+        # Target history cursor queries (created_at DESC, id DESC).
+        Index(
+            "ix_match_assessments_target_created",
+            "job_target_id",
+            "created_at",
+            "id",
+            postgresql_ops={"created_at": "DESC", "id": "DESC"},
+        ),
+        # Completed-reuse lookup for a version/policy tuple.
+        Index(
+            "ix_match_assessments_tuple_created",
+            "jd_version_id",
+            "resume_version_id",
+            "policy_version",
+            "created_at",
+            postgresql_ops={"created_at": "DESC"},
+        ),
+        # One active (queued/evaluating) row per tuple at a time.
+        Index(
+            "uq_match_assessments_active_tuple",
+            "jd_version_id",
+            "resume_version_id",
+            "policy_version",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'evaluating')"),
+        ),
+        # Watchdog sweep over active rows.
+        Index(
+            "ix_match_assessments_active_watchdog",
+            "status",
+            "updated_at",
+            postgresql_where=text("status IN ('queued', 'evaluating')"),
+        ),
     )
 
 

@@ -7,6 +7,23 @@ results that the application layer persists.
 """
 
 from backend.domain.match_assessment.engine import evaluate
+from backend.domain.match_assessment.lifecycle import (
+    ACTIVE_STATUSES,
+    TERMINAL_STATUSES,
+    VALID_STATUSES,
+    Failure,
+    MatchActiveExistsError,
+    MatchAssessmentState,
+    MatchAssessmentTuple,
+    MatchCompletedImmutabilityError,
+    MatchInvalidStateError,
+    MatchLifecycle,
+    MatchLifecycleError,
+    MatchRetryNotAllowedError,
+    MatchScopeMismatchError,
+    MatchStaleRunError,
+    has_result,
+)
 from backend.domain.match_assessment.policy import (
     CORE_SKILLS_CAP,
     DIMENSION_WEIGHTS,
@@ -41,6 +58,7 @@ from backend.domain.match_assessment.schemas import (
 from backend.domain.match_assessment.source_catalog import build_catalog
 
 __all__ = [
+    "ACTIVE_STATUSES",
     "CORE_SKILLS_CAP",
     "CapInput",
     "CapKey",
@@ -48,10 +66,21 @@ __all__ = [
     "DimensionInput",
     "DimensionKey",
     "DimensionScore",
+    "Failure",
     "GapCategory",
     "GapInput",
     "HardConstraintKey",
+    "MatchActiveExistsError",
+    "MatchAssessmentState",
+    "MatchAssessmentTuple",
+    "MatchCompletedImmutabilityError",
+    "MatchInvalidStateError",
+    "MatchLifecycle",
+    "MatchLifecycleError",
     "MatchPolicyError",
+    "MatchRetryNotAllowedError",
+    "MatchScopeMismatchError",
+    "MatchStaleRunError",
     "MatchV1Input",
     "MatchV1Result",
     "POLICY_VERSION",
@@ -64,8 +93,11 @@ __all__ = [
     "SKILL_ALIASES",
     "SourceCatalog",
     "SourceCatalogItem",
+    "TERMINAL_STATUSES",
+    "VALID_STATUSES",
     "build_catalog",
     "evaluate",
+    "has_result",
     "is_severe_years",
     "normalize_skill",
     "recommendation_for",
