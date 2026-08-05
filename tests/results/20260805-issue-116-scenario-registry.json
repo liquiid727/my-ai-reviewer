@@ -1,0 +1,40 @@
+{
+  "issue": 116,
+  "slug": "add-versioned-interview-scenario-registry",
+  "spec": "AIP-013",
+  "date": "2026-08-05",
+  "status": "accepted",
+  "branch": "feat/issue-116-scenario-registry",
+  "commit": "cf62249",
+  "delivery_mode": "local-reviewed",
+  "gates": {
+    "unit_tests": "17 passed (scenario) + 298 full unit (2 pre-existing baseline failures unrelated)",
+    "api_tests": "6 passed",
+    "ruff": "PASS",
+    "mypy": "PASS",
+    "arch_check": "PASS (33 waived pre-existing, 0 new)",
+    "frontend_lint": "PASS",
+    "frontend_build": "PASS"
+  },
+  "review_verdict": "APPROVE",
+  "qa_decision": "GREEN",
+  "review_rounds": 1,
+  "residual_risks": [
+    "browser AC n/a (read-only API + no UI page)",
+    "scenario fixtures are code-backed v1; future versions chain via registry"
+  ],
+  "changed_files": [
+    "backend/domain/interview_scenario/enums.py",
+    "backend/domain/interview_scenario/schemas.py",
+    "backend/domain/interview_scenario/fixtures.py",
+    "backend/domain/interview_scenario/registry.py",
+    "backend/api/v1/interview_scenarios.py",
+    "backend/api/v1/router.py",
+    "backend/tests/unit/test_interview_scenarios.py",
+    "backend/tests/integration/test_interview_scenarios_api.py",
+    "frontend/src/api/interview-scenarios.ts",
+    "frontend/src/types/interview-scenarios.ts",
+    "frontend/src/i18n/locales/en.ts",
+    "frontend/src/i18n/locales/zh.ts"
+  ]
+}
