@@ -13,6 +13,15 @@ from backend.infrastructure.db.database import get_db
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 
+class LLMCapabilityPayload(BaseModel):
+    supports_text: bool = True
+    supports_structured_output: bool = False
+    supports_vision: bool = False
+    max_images: int | None = None
+    max_image_bytes: int | None = None
+    transport: str = "none"
+
+
 class LLMConfigCreate(BaseModel):
     """创建 LLM 配置的请求体。"""
 
@@ -20,6 +29,7 @@ class LLMConfigCreate(BaseModel):
     api_key: str  # API 密钥（明文传入，存储时加密）
     model_name: str  # 模型名称（如 gpt-4o）
     base_url: str | None = None  # 自定义 API 地址（可选）
+    capabilities: LLMCapabilityPayload | None = None
 
 
 class LLMConfigUpdate(BaseModel):
@@ -29,6 +39,7 @@ class LLMConfigUpdate(BaseModel):
     api_key: str | None = None
     model_name: str | None = None
     base_url: str | None = None
+    capabilities: LLMCapabilityPayload | None = None
 
 
 class LLMConfigTestRequest(BaseModel):
@@ -54,6 +65,7 @@ async def create_llm_config(
             body.api_key,
             body.model_name,
             body.base_url,
+            body.capabilities.model_dump(mode="json") if body.capabilities else None,
         )
     except RuntimeError as exc:
         # 常见于 ENCRYPTION_KEY 未配置
@@ -78,6 +90,8 @@ async def update_llm_config(
 ) -> APIResponse:
     """更新指定的 LLM 配置。"""
     kwargs = body.model_dump(exclude_unset=True)
+    if "capabilities" in kwargs and kwargs["capabilities"] is not None:
+        kwargs["capabilities"] = body.capabilities.model_dump(mode="json") if body.capabilities else None
     try:
         config = await llm_config_service.update_config(session, config_id, **kwargs)
     except RuntimeError as exc:

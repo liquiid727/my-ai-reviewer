@@ -5,8 +5,8 @@ from typing import Any, cast
 
 import pytest
 
-from backend.domain.resume.enums import ResumeStatus
 from backend.application.resume_service.pipeline import snapshot_and_reset_for_reparse
+from backend.domain.resume.enums import ResumeStatus
 
 
 class _FakeResume:

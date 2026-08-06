@@ -8,6 +8,12 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from backend.config import get_settings
+from backend.domain.llm.multimodal import (
+    MultimodalCapabilityError,
+    MultimodalMessage,
+    assert_can_dispatch_multimodal,
+    capabilities_from_dict,
+)
 from backend.domain.privacy import PrivacyGuard
 from backend.infrastructure.llm.providers.anthropic_provider import AnthropicProvider
 from backend.infrastructure.llm.providers.base import BaseLLMProvider, LLMResponse
@@ -26,8 +32,10 @@ class LLMGateway:
         provider: BaseLLMProvider,
         *,
         request_timeout_seconds: float | None = None,
+        capabilities: object | None = None,
     ) -> None:
         self._provider = provider
+        self._capabilities = capabilities_from_dict(capabilities or {})
         self._request_timeout_seconds = (
             request_timeout_seconds
             if request_timeout_seconds is not None
@@ -79,6 +87,47 @@ class LLMGateway:
         )
         return response
 
+    async def complete_multimodal(
+        self,
+        messages: list[MultimodalMessage],
+        response_format: dict[str, Any] | None = None,
+        *,
+        privacy_required: bool = False,
+    ) -> LLMResponse:
+        """Send provider-neutral multimodal messages after explicit capability checks."""
+        assert_can_dispatch_multimodal(self._capabilities, messages)
+        guard = PrivacyGuard()
+        if privacy_required:
+            guard.assert_masked([message.model_dump(mode="json") for message in messages])
+        started = time.monotonic()
+        try:
+            response = await asyncio.wait_for(
+                self._provider.complete_multimodal(messages, response_format=response_format),
+                timeout=self._request_timeout_seconds,
+            )
+        except MultimodalCapabilityError:
+            raise
+        except Exception:
+            emit_resume_event(
+                "resume.llm.failed",
+                resource_id=None,
+                error_code="RESUME_PROCESSING_FAILED",
+                retryable=True,
+                level=logging.WARNING,
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
+            raise
+        if privacy_required:
+            guard.assert_masked(response.content)
+        emit_resume_event(
+            "resume.llm.completed",
+            resource_id=None,
+            status="completed",
+            duration_ms=int((time.monotonic() - started) * 1000),
+            model=response.model,
+        )
+        return response
+
     @classmethod
     def from_config(cls, llm_config: LLMConfigModel) -> LLMGateway:
         """从数据库配置创建网关实例（API Key 会自动解密）。"""
@@ -95,7 +144,12 @@ class LLMGateway:
             base_url=llm_config.base_url,
             timeout_seconds=get_settings().LLM_REQUEST_TIMEOUT_SECONDS,
         )
-        return cls(provider=provider, request_timeout_seconds=get_settings().LLM_REQUEST_TIMEOUT_SECONDS)
+        capabilities = capabilities_from_dict(getattr(llm_config, "capabilities", None) or {}, provider=provider_name)
+        return cls(
+            provider=provider,
+            request_timeout_seconds=get_settings().LLM_REQUEST_TIMEOUT_SECONDS,
+            capabilities=capabilities,
+        )
 
     @classmethod
     def from_settings(cls) -> LLMGateway:
@@ -120,7 +174,11 @@ class LLMGateway:
             base_url=base_url,
             timeout_seconds=settings.LLM_REQUEST_TIMEOUT_SECONDS,
         )
-        return cls(provider=provider, request_timeout_seconds=settings.LLM_REQUEST_TIMEOUT_SECONDS)
+        return cls(
+            provider=provider,
+            request_timeout_seconds=settings.LLM_REQUEST_TIMEOUT_SECONDS,
+            capabilities=capabilities_from_dict({}, provider=provider_name),
+        )
 
 
 def _build_provider(

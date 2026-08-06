@@ -18,6 +18,7 @@ celery = Celery(
         "backend.tasks.resume_tasks",
         "backend.tasks.interview_tasks",
         "backend.tasks.jd_tasks",
+        "backend.tasks.jd_match_tasks",
         "backend.tasks.plan_tasks",
         "backend.tasks.match_tasks",
         "backend.tasks.resume_watchdog",

@@ -54,6 +54,10 @@ export function InterviewPage() {
   const [questionSeconds, setQuestionSeconds] = useState(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const startRequestRef = useRef<{
+    id: string
+    promise: ReturnType<typeof startInterview>
+  } | null>(null)
 
   const {
     currentQuestion,
@@ -82,8 +86,16 @@ export function InterviewPage() {
     setTotalSeconds(0)
     setQuestionSeconds(0)
 
-    startInterview(id)
+    const existingRequest = startRequestRef.current?.id === id ? startRequestRef.current.promise : null
+    const request = existingRequest ?? startInterview(id)
+    if (!existingRequest) {
+      startRequestRef.current = { id, promise: request }
+    }
+
+    let active = true
+    request
       .then((res) => {
+        if (!active) return
         if (res.code !== 0) {
           toast.error(res.message || t('interview.startFailed'))
           return
@@ -99,13 +111,18 @@ export function InterviewPage() {
         })
       })
       .catch((err: Error) => {
+        if (!active) return
         toast.error(err.message || t('interview.startFailed'))
       })
       .finally(() => {
-        setLoading(false)
+        if (active) setLoading(false)
+        if (startRequestRef.current?.promise === request) {
+          startRequestRef.current = null
+        }
       })
 
     return () => {
+      active = false
       reset()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

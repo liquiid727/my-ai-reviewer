@@ -19,12 +19,15 @@ import {
   abandonJDDraft,
   archiveJobDescription,
   deleteJobDescription,
+  createJDMatch,
+  getJDMatch,
   getJobDescription,
   getJDVersion,
+  listJDMatches,
   listJDVersions,
-  matchJobDescription,
   patchJobDescription,
   publishJDVersion,
+  recomputeJDMatch,
   reextractJobDescription,
   reparseJobDescription,
   retryJobDescription,
@@ -34,6 +37,7 @@ import { listEligibleResumes } from '@/api/plans'
 import { JDEditor } from '@/components/jd/JDEditor'
 import { JDReviewEditor } from '@/components/jd/JDReviewEditor'
 import { JDStatusBadge } from '@/components/jd/JDStatusBadge'
+import { MatchResultPanel } from '@/components/jd/MatchResultPanel'
 import { LLMGateDialog } from '@/components/LLMGateDialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -47,7 +51,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
-import type { JDDetail, JDPatchInput, JDReviewDraft, JDVersionDetail, JDVersionSummary } from '@/types/jd'
+import type { JDDetail, JDMatchResult, JDPatchInput, JDReviewDraft, JDVersionDetail, JDVersionSummary } from '@/types/jd'
 import type { EligibleResume } from '@/types/plans'
 
 function DetailSkeleton() {
@@ -141,6 +145,10 @@ export function JDDetailPage() {
   const [versionDetail, setVersionDetail] = useState<JDVersionDetail | null>(null)
   const [publishing, setPublishing] = useState(false)
   const [reparsing, setReparsing] = useState(false)
+  const [matchResult, setMatchResult] = useState<JDMatchResult | null>(null)
+  const [matchLoading, setMatchLoading] = useState(false)
+  const [recomputing, setRecomputing] = useState(false)
+  const matchPollingStartedAt = useRef<number | null>(null)
   const pollingStartedAt = useRef<number | null>(null)
 
   const load = useCallback(async (showLoading = true, clearConflict = true) => {
@@ -215,6 +223,60 @@ export function JDDetailPage() {
       if (response.code === 0) setEligibleResumes(response.data.items)
     }).catch(() => undefined)
   }, [jd?.status])
+
+  const loadMatch = useCallback(async (targetResumeId = resumeId, showLoading = true) => {
+    if (!jd || jd.status !== 'ready' || !targetResumeId) {
+      setMatchResult(null)
+      return
+    }
+    if (showLoading) setMatchLoading(true)
+    try {
+      const existing = await listJDMatches({ jdId: jd.id, resumeId: targetResumeId, mode: 'hybrid_v2', pageSize: 1 })
+      if (existing.code === 0 && existing.data.items.length > 0) {
+        const detail = await getJDMatch(existing.data.items[0].id)
+        if (detail.code === 0) setMatchResult(detail.data)
+      } else {
+        setMatchResult(null)
+      }
+    } catch {
+      setMatchResult(null)
+    } finally {
+      if (showLoading) setMatchLoading(false)
+    }
+  }, [jd, resumeId])
+
+  useEffect(() => { void loadMatch(resumeId) }, [loadMatch, resumeId])
+
+  useEffect(() => {
+    if (!matchResult || !['queued', 'running'].includes(matchResult.status)) {
+      matchPollingStartedAt.current = null
+      return undefined
+    }
+    matchPollingStartedAt.current ??= Date.now()
+    let stopped = false
+    let timer: number | undefined
+    const schedule = () => {
+      if (stopped || document.visibilityState !== 'visible') return
+      const elapsed = Date.now() - (matchPollingStartedAt.current ?? Date.now())
+      if (elapsed > 120_000) return
+      timer = window.setTimeout(async () => {
+        const response = await getJDMatch(matchResult.id)
+        if (!stopped && response.code === 0) setMatchResult(response.data)
+        schedule()
+      }, 2_000)
+    }
+    const onVisibilityChange = () => {
+      if (timer) window.clearTimeout(timer)
+      if (document.visibilityState === 'visible') schedule()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    schedule()
+    return () => {
+      stopped = true
+      if (timer) window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [matchResult])
 
   const save = async (input: JDPatchInput) => {
     if (!jd) return false
@@ -354,13 +416,31 @@ export function JDDetailPage() {
     if (!jd || !resumeId || matching) return
     setMatching(true)
     try {
-      const response = await matchJobDescription(jd.id, resumeId)
+      const response = await createJDMatch({ jdId: jd.id, resumeId })
       if (response.code !== 0) throw new Error(response.message || t('jd.matchFailed'))
+      const detail = await getJDMatch(response.data.id)
+      if (detail.code === 0) setMatchResult(detail.data)
+      await loadMatch(resumeId, false)
       toast.success(t('jd.matchCreated'))
     } catch (reason) {
       toast.error((reason as Error).message || t('jd.matchFailed'))
     } finally {
       setMatching(false)
+    }
+  }
+
+  const recomputeMatch = async () => {
+    if (!matchResult || recomputing) return
+    setRecomputing(true)
+    try {
+      const response = await recomputeJDMatch(matchResult.id)
+      if (response.code !== 0) throw new Error(response.message || t('jd.matchFailed'))
+      const detail = await getJDMatch(response.data.id)
+      if (detail.code === 0) setMatchResult(detail.data)
+    } catch (reason) {
+      toast.error((reason as Error).message || t('jd.matchFailed'))
+    } finally {
+      setRecomputing(false)
     }
   }
 
@@ -376,7 +456,7 @@ export function JDDetailPage() {
         <div className="min-w-0">
           <Button asChild variant="neutral" size="sm"><Link to="/jobs">{t('common.back')}</Link></Button>
           <div className="mt-4 flex min-w-0 flex-wrap items-center gap-2"><h1 className="break-words text-3xl font-black">{jd.title || t('jd.untitled')}</h1><JDStatusBadge status={jd.status} /></div>
-          <p className="mt-2 break-words text-muted-foreground">{[jd.company, jd.location, jd.seniority].filter(Boolean).join(' · ') || t('jd.noMetadata')}</p>
+          <p className="mt-2 break-words text-muted-foreground">{[jd.company, jd.location, jd.seniority ? t(`jd.seniority.${jd.seniority}`, { defaultValue: jd.seniority }) : null].filter(Boolean).join(' · ') || t('jd.noMetadata')}</p>
           {hasVersion && <p className="mt-2 text-sm font-heading text-muted-foreground">{t('jd.currentVersion')} · v{versions?.find((version) => version.id === jd.current_version_id)?.version_no ?? '?'}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -438,7 +518,7 @@ export function JDDetailPage() {
         )}
       </CardContent></Card>
 
-      {jd.status === 'ready' && hasVersion && <Card><CardHeader><CardTitle className="flex items-center gap-2"><Target className="size-5" />{t('jd.downstream')}</CardTitle></CardHeader><CardContent className="space-y-4"><div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]"><Select value={resumeId} onValueChange={setResumeId}><SelectTrigger><SelectValue placeholder={t('jd.selectResume')} /></SelectTrigger><SelectContent>{eligibleResumes.map((resume) => <SelectItem key={resume.id} value={resume.id}>{resume.display_name}</SelectItem>)}</SelectContent></Select><Button onClick={() => void match()} disabled={!resumeId || matching}>{matching && <Loader2 className="size-4 animate-spin" />}{t('jd.match')}</Button></div><div className="flex flex-wrap gap-2"><Button asChild variant="neutral"><Link to={`/plans/new?jd_id=${jd.id}`}><FileText className="size-4" />{t('plans.create')}</Link></Button></div></CardContent></Card>}
+      {jd.status === 'ready' && <Card><CardHeader><CardTitle className="flex items-center gap-2"><Target className="size-5" />{t('jd.downstream')}</CardTitle></CardHeader><CardContent className="space-y-4"><div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]"><Select value={resumeId} onValueChange={setResumeId}><SelectTrigger><SelectValue placeholder={t('jd.selectResume')} /></SelectTrigger><SelectContent>{eligibleResumes.map((resume) => <SelectItem key={resume.id} value={resume.id}>{resume.display_name}</SelectItem>)}</SelectContent></Select><Button onClick={() => void match()} disabled={!resumeId || matching}>{matching && <Loader2 className="size-4 animate-spin" />}{t('jd.match')}</Button></div><MatchResultPanel match={matchResult} loading={matchLoading} recomputing={recomputing} onRecompute={matchResult?.stale ? () => void recomputeMatch() : undefined} /><div className="flex flex-wrap gap-2"><Button asChild variant="neutral"><Link to={`/plans/new?jd_id=${jd.id}`}><FileText className="size-4" />{t('plans.create')}</Link></Button></div></CardContent></Card>}
       <LLMGateDialog open={llmGateOpen} onOpenChange={setLlmGateOpen} description={t('jd.llmGateDescription')} successMessage={t('jd.llmReady')} />
     </div>
   )

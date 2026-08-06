@@ -1,33 +1,41 @@
-"""Worker-local asyncio runtime for synchronous Celery task entry points."""
+"""Worker-local asyncio runtime for synchronous Celery task entry points.
+
+One event loop per worker thread and process. Celery's prefork pool can
+inherit module state from its parent process, and different task modules may
+otherwise create separate loops in the same worker; the PID guard discards an
+inherited loop after fork, and the shared helper keeps all task modules on the
+same loop afterwards.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import os
+import threading
 from collections.abc import Coroutine
 from typing import Any, TypeVar
 
 from backend.infrastructure.db.database import async_engine
 
 _T = TypeVar("_T")
-_loop: asyncio.AbstractEventLoop | None = None
-_loop_process_id: int | None = None
+_loop_local = threading.local()
 
 
 def _worker_loop() -> asyncio.AbstractEventLoop:
-    """Return the sole event loop owned by the current Celery child process."""
-    global _loop, _loop_process_id
-
+    """Return the sole event loop owned by the current worker thread/process."""
     process_id = os.getpid()
-    if _loop is None or _loop.is_closed() or _loop_process_id != process_id:
-        _loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(_loop)
-        _loop_process_id = process_id
-    return _loop
+    loop = getattr(_loop_local, "loop", None)
+    loop_process_id = getattr(_loop_local, "process_id", None)
+    if loop is None or loop.is_closed() or loop_process_id != process_id:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        _loop_local.loop = loop
+        _loop_local.process_id = process_id
+    return loop
 
 
 def run_async(coro: Coroutine[Any, Any, _T]) -> _T:
-    """Run async worker work on the single loop associated with this child."""
+    """Run async worker work on the single loop associated with this thread."""
     loop = _worker_loop()
     if loop.is_running():
         coro.close()
@@ -37,12 +45,11 @@ def run_async(coro: Coroutine[Any, Any, _T]) -> _T:
 
 def initialize_worker_process() -> None:
     """Discard parent-process connections before a prefork child accepts work."""
-    global _loop, _loop_process_id
-
-    if _loop is not None and not _loop.is_running() and not _loop.is_closed():
-        _loop.close()
-    _loop = None
-    _loop_process_id = None
+    loop = getattr(_loop_local, "loop", None)
+    if loop is not None and not loop.is_running() and not loop.is_closed():
+        loop.close()
+    _loop_local.loop = None
+    _loop_local.process_id = None
     # Do not close inherited file descriptors from the parent process. The child
     # receives a fresh pool and all future asyncpg connections bind to its loop.
     async_engine.sync_engine.dispose(close=False)
@@ -50,9 +57,7 @@ def initialize_worker_process() -> None:
 
 def shutdown_worker_process() -> None:
     """Close this child process's async connections and event loop."""
-    global _loop, _loop_process_id
-
-    loop = _loop
+    loop = getattr(_loop_local, "loop", None)
     try:
         if loop is None or loop.is_closed():
             async_engine.sync_engine.dispose(close=False)
@@ -61,5 +66,8 @@ def shutdown_worker_process() -> None:
         loop.run_until_complete(loop.shutdown_asyncgens())
         loop.close()
     finally:
-        _loop = None
-        _loop_process_id = None
+        _loop_local.loop = None
+        _loop_local.process_id = None
+
+
+__all__ = ["run_async", "initialize_worker_process", "shutdown_worker_process"]

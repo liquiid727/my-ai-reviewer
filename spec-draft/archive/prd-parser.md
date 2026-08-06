@@ -533,6 +533,17 @@ Recommendation
 
 Match Score
 
+当前实现基线（2026-08-05）：
+
+- 已有 `rules_v1`，仅按 Candidate Profile 的技能/能力标签与 JD required skills 做确定性匹配；关键技能和非关键技能分别占 70% / 30%。
+- LLM 已用于 JD 文本结构化抽取，但尚未参与 JD-aware 多维匹配评分。
+- 职责、相关经验、职级、项目证据、工程/架构和领域匹配尚未进入当前规则总分。
+- 图片 JD 上传、Vision 文字读取、硬条件 `pass/fail/unknown`、证据约束多维评分和版本化 freshness 属于 JD Intelligence v2 增量。
+
+增量 PRD：`spec-draft/jd-intelligence-v2-2026-08-05.md`
+
+技术规格：`RIP-010`（Vision 导入）、`RIP-011`（证据约束匹配）、`RIP-012`（结果消费与 freshness）。
+
 九、Interview Agent（下一阶段）
 
 基于：

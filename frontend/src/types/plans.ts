@@ -51,6 +51,20 @@ export interface PlanListData {
   total: number
 }
 
+export interface PlanMatchContext {
+  id: string
+  mode: string
+  input_fingerprint: string | null
+  fresh: boolean
+  stale_reasons: string[]
+  matcher_version?: string | null
+  hard_filter_policy_version?: string | null
+  prompt_version?: string | null
+  schema_version?: string | null
+  provider?: string | null
+  model?: string | null
+}
+
 export interface PlanDetail extends Omit<PlanSummary, 'next_due_task'> {
   target_date: string | null
   weekly_hours: number | null
@@ -58,6 +72,7 @@ export interface PlanDetail extends Omit<PlanSummary, 'next_due_task'> {
   generation_error: string | null
   generated_at: string | null
   is_generation_stale: boolean
+  match: PlanMatchContext | null
   jd: { id: string; title: string | null; company: string | null }
   resume: { id: string; display_name: string }
   tasks: PlanTask[]

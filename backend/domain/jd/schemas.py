@@ -225,6 +225,13 @@ class JDManualImportRequest(BaseModel):
     allow_duplicate: bool = False
 
 
+class JDImageImportRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=200)
+    company: str | None = Field(default=None, max_length=200)
+    allow_duplicate: bool = False
+    acknowledge_external_vision: bool = False
+
+
 class JDStructuredPatch(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     company: str | None = Field(default=None, max_length=200)

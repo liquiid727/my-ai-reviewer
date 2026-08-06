@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { CircleAlert, CircleCheck, Loader2, TriangleAlert } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import type { JDStatus } from '@/types/jd'
 
@@ -11,7 +12,19 @@ const styles: Record<JDStatus, string> = {
   archived: 'bg-zinc-300 text-zinc-800 border-zinc-500',
 }
 
+function StatusIcon({ status }: { status: JDStatus }) {
+  if (status === 'processing') return <Loader2 className="animate-spin" />
+  if (status === 'ready') return <CircleCheck />
+  if (status === 'failed') return <CircleAlert />
+  return <TriangleAlert />
+}
+
 export function JDStatusBadge({ status }: { status: JDStatus }) {
   const { t } = useTranslation()
-  return <Badge className={styles[status]}>{t(`jd.status.${status}`)}</Badge>
+  return (
+    <Badge className={styles[status]}>
+      <StatusIcon status={status} />
+      {t(`jd.status.${status}`)}
+    </Badge>
+  )
 }

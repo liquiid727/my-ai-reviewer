@@ -4,6 +4,7 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
+from backend.domain.llm.multimodal import MultimodalImageBlock, MultimodalMessage, MultimodalTextBlock
 from backend.infrastructure.llm.providers.base import BaseLLMProvider, LLMResponse
 
 
@@ -53,3 +54,29 @@ class OpenAIProvider(BaseLLMProvider):
                 "completion_tokens": usage.completion_tokens if usage else 0,
             },
         )
+
+    async def complete_multimodal(
+        self,
+        messages: list[MultimodalMessage],
+        response_format: dict[str, Any] | None = None,
+    ) -> LLMResponse:
+        converted = [_convert_openai_message(message) for message in messages]
+        return await self.complete(converted, response_format=response_format)
+
+
+def _convert_openai_message(message: MultimodalMessage) -> dict[str, Any]:
+    content: list[dict[str, Any]] = []
+    for block in message.content:
+        if isinstance(block, MultimodalTextBlock):
+            content.append({"type": "text", "text": block.text})
+        elif isinstance(block, MultimodalImageBlock):
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{block.media_type};base64,{block.data_base64}"},
+                }
+            )
+    if message.role == "system":
+        text = "\n".join(block.text for block in message.content if isinstance(block, MultimodalTextBlock))
+        return {"role": "system", "content": text}
+    return {"role": message.role, "content": content}

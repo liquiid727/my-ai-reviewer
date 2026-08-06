@@ -6,10 +6,10 @@ from typing import Any
 from sqlalchemy import update
 
 from backend.agents.followup_agent import FollowupGenerationAgent
+from backend.application.interview_service import get_interview_llm_gateway
 from backend.domain.interview.enums import InterviewStatus
 from backend.infrastructure.db.database import async_session_factory
 from backend.infrastructure.db.models import InterviewModel
-from backend.infrastructure.llm.gateway import LLMGateway
 from backend.tasks.interview_tasks import generate_report_task
 from backend.workflow.state import InterviewState
 
@@ -38,7 +38,8 @@ async def generate_followup(state: InterviewState) -> dict[str, Any]:
     question = state["questions"][idx]
     evaluation = state["_evaluation"]
 
-    gateway = LLMGateway.from_settings()
+    async with async_session_factory() as session:
+        gateway = await get_interview_llm_gateway(session)
     agent = FollowupGenerationAgent(gateway)
 
     last_answer = state["answers"][-1]

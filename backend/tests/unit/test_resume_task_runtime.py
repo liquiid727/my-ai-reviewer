@@ -7,9 +7,11 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.pool import NullPool
 
 from backend.domain.resume.enums import ResumeStatus
-from backend.tasks import resume_tasks
+from backend.infrastructure.db.celery_database import celery_async_engine
+from backend.tasks import async_runtime, resume_tasks, resume_watchdog
 
 
 def test_celery_async_runner_reuses_one_event_loop() -> None:
@@ -20,6 +22,32 @@ def test_celery_async_runner_reuses_one_event_loop() -> None:
     second = resume_tasks.run_async(loop_identity())
 
     assert first == second
+
+
+def test_celery_task_modules_share_one_event_loop() -> None:
+    async def loop_identity() -> int:
+        return id(asyncio.get_running_loop())
+
+    watchdog_loop = resume_watchdog.run_async(loop_identity())
+    resume_loop = resume_tasks.run_async(loop_identity())
+
+    assert watchdog_loop == resume_loop
+
+
+def test_celery_database_does_not_pool_asyncpg_connections() -> None:
+    assert isinstance(celery_async_engine.pool, NullPool)
+
+
+def test_celery_async_runner_replaces_loop_after_fork(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def loop_identity() -> int:
+        return id(asyncio.get_running_loop())
+
+    monkeypatch.setattr(async_runtime.os, "getpid", lambda: 1001)
+    parent_loop = async_runtime.run_async(loop_identity())
+    monkeypatch.setattr(async_runtime.os, "getpid", lambda: 1002)
+    child_loop = async_runtime.run_async(loop_identity())
+
+    assert parent_loop != child_loop
 
 
 def test_celery_stage_output_uses_wire_status_value(monkeypatch: pytest.MonkeyPatch) -> None:

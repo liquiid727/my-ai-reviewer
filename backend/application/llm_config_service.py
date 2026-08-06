@@ -7,6 +7,7 @@ from types import EllipsisType
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.domain.llm.multimodal import LLMCapabilities, capabilities_from_dict, infer_transport
 from backend.infrastructure.crypto.encryption import APIKeyEncryptor, get_encryptor
 from backend.infrastructure.db.models import LLMConfigModel
 from backend.infrastructure.llm.connection_probe import run_connection_test
@@ -18,13 +19,16 @@ async def create_config(
     api_key: str,
     model_name: str,
     base_url: str | None = None,
+    capabilities: dict[str, object] | None = None,
 ) -> LLMConfigModel:
     """创建新的 LLM 配置，API Key 加密后存储。"""
+    explicit_capabilities = capabilities_from_dict(capabilities or {}, provider=provider)
     config = LLMConfigModel(
         provider=provider,
         api_key_encrypted=get_encryptor().encrypt(api_key),
         model_name=model_name,
         base_url=base_url,
+        capabilities=explicit_capabilities.model_dump(mode="json"),
     )
     session.add(config)
     await session.commit()
@@ -48,6 +52,15 @@ async def has_verified_config(session: AsyncSession) -> bool:
     return result.scalar_one_or_none() is not None
 
 
+async def has_verified_vision_config(session: AsyncSession) -> bool:
+    """Return whether active verified config explicitly supports Vision."""
+    config = await get_active_verified_config(session)
+    if config is None:
+        return False
+    capabilities = capabilities_from_dict(getattr(config, "capabilities", None) or {}, provider=config.provider)
+    return capabilities.supports_vision and capabilities.verified_at is not None
+
+
 async def get_active_verified_config(session: AsyncSession) -> LLMConfigModel | None:
     """返回当前实际用于 AI 调用的已激活且已验证配置。"""
     stmt = (
@@ -67,6 +80,7 @@ async def update_config(
     api_key: str | None = None,
     model_name: str | None = None,
     base_url: str | None | EllipsisType = ...,
+    capabilities: dict[str, object] | None = None,
 ) -> LLMConfigModel | None:
     """更新指定的 LLM 配置，只修改传入的字段。
 
@@ -85,6 +99,10 @@ async def update_config(
         config.model_name = model_name
     if base_url is not ...:
         config.base_url = base_url
+        key_field_changed = True
+    if capabilities is not None:
+        config.capabilities = capabilities_from_dict(capabilities, provider=config.provider).model_dump(mode="json")
+        config.capabilities_verified_at = None
         key_field_changed = True
     if key_field_changed:
         config.verified = False
@@ -135,15 +153,45 @@ async def test_connection(
         return {"success": False, "error": "API key is required"}
 
     result = await run_connection_test(provider, api_key, model_name, base_url)
+    capabilities = _capabilities_from_test_result(provider, result)
+    result["capabilities"] = capabilities.model_dump(mode="json")
     if session is not None and config_id is not None:
         config = await session.get(LLMConfigModel, config_id)
         if config is not None:
             success = bool(result["success"])
             config.verified = success
             if success:
-                config.last_verified_at = datetime.now(UTC)
+                verified_at = datetime.now(UTC)
+                config.last_verified_at = verified_at
+                persisted = capabilities_from_dict(
+                    getattr(config, "capabilities", None) or {}, provider=config.provider
+                )
+                capabilities = persisted.model_copy(update={"verified_at": verified_at})
+                config.capabilities = capabilities.model_dump(mode="json")
+                config.capabilities_verified_at = verified_at
+                result["capabilities"] = config.capabilities
+            else:
+                config.capabilities_verified_at = None
             await session.commit()
     return result
+
+
+def _capabilities_from_test_result(provider: str, result: dict[str, object]) -> LLMCapabilities:
+    transport = infer_transport(provider)
+    if not bool(result.get("success")):
+        return LLMCapabilities.text_defaults(transport=transport)
+    declared = result.get("capabilities")
+    if isinstance(declared, dict):
+        return capabilities_from_dict(declared, provider=provider)
+    return LLMCapabilities(
+        supports_text=True,
+        supports_structured_output=True,
+        supports_vision=False,
+        max_images=None,
+        max_image_bytes=None,
+        transport=transport,
+        verified_at=datetime.now(UTC),
+    )
 
 
 def _friendly_connection_error(exc: BaseException) -> str:
@@ -182,6 +230,12 @@ def serialize_config(config: LLMConfigModel) -> dict[str, object]:
         "is_active": config.is_active,
         "verified": config.verified,
         "last_verified_at": (config.last_verified_at.isoformat() if config.last_verified_at else None),
+        "capabilities": capabilities_from_dict(
+            getattr(config, "capabilities", None) or {}, provider=config.provider
+        ).model_dump(mode="json"),
+        "capabilities_verified_at": (
+            config.capabilities_verified_at.isoformat() if config.capabilities_verified_at is not None else None
+        ),
         "created_at": config.created_at.isoformat(),
         "updated_at": config.updated_at.isoformat(),
     }

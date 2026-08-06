@@ -5,9 +5,9 @@ import uuid
 from typing import Any
 
 from backend.agents.evaluation_agent import AnswerEvaluationAgent
+from backend.application.interview_service import get_interview_llm_gateway
 from backend.infrastructure.db.database import async_session_factory
 from backend.infrastructure.db.models import QuestionAnswerModel
-from backend.infrastructure.llm.gateway import LLMGateway
 from backend.workflow.state import AnswerRecord, InterviewState
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,8 @@ async def evaluate_answer(state: InterviewState) -> dict[str, Any]:
 
     previous_answers = [a for a in state["answers"] if a["question_id"] == question["question_id"]]
 
-    gateway = LLMGateway.from_settings()
+    async with async_session_factory() as session:
+        gateway = await get_interview_llm_gateway(session)
     agent = AnswerEvaluationAgent(gateway)
 
     result = await agent.evaluate(

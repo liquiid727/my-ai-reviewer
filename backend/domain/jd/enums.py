@@ -22,7 +22,10 @@ class JDStatus(StrEnum):
 
 class JDProcessingStep(StrEnum):
     QUEUED = "queued"
+    SOURCE_VALIDATE = "source_validate"
     SOURCE_EXTRACT = "source_extract"
+    VISION_EXTRACT = "vision_extract"
+    TEXT_QUALITY_CHECK = "text_quality_check"
     DUPLICATE_CHECK = "duplicate_check"
     STRUCTURE_PARSE = "structure_parse"
     LLM_EXTRACT = "llm_extract"

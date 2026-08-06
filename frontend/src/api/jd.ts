@@ -2,6 +2,8 @@ import { apiRequest } from './client'
 import type {
   JDDetail,
   JDListData,
+  JDMatchListData,
+  JDMatchResult,
   JDManualInput,
   JDPatchInput,
   JDResponse,
@@ -79,6 +81,22 @@ export function importJDManual(input: JDManualInput): Promise<JDResponse<JDDetai
   return apiRequest('/jd/import/manual', { method: 'POST', body: JSON.stringify(input) })
 }
 
+export function importJDImages(input: {
+  images: File[]
+  title?: string
+  company?: string
+  allowDuplicate?: boolean
+  acknowledgeExternalVision: boolean
+}): Promise<JDResponse<JDDetail>> {
+  const form = new FormData()
+  input.images.forEach((image) => form.append('images', image))
+  if (input.title) form.append('title', input.title)
+  if (input.company) form.append('company', input.company)
+  form.append('allow_duplicate', String(Boolean(input.allowDuplicate)))
+  form.append('acknowledge_external_vision', String(input.acknowledgeExternalVision))
+  return apiRequest('/jd/import/images', { method: 'POST', body: form })
+}
+
 export function patchJobDescription(id: string, input: JDPatchInput): Promise<JDResponse<JDDetail>> {
   return apiRequest(`/jd/${id}`, { method: 'PATCH', body: JSON.stringify(input) })
 }
@@ -151,4 +169,48 @@ export function matchJobDescription(id: string, resumeId: string): Promise<JDRes
     method: 'POST',
     body: JSON.stringify({ jd_id: id, resume_id: resumeId }),
   })
+}
+
+export function createJDMatch(input: { jdId: string; resumeId: string; force?: boolean }): Promise<JDResponse<{
+  id: string
+  status: string
+  mode: string
+  input_fingerprint: string | null
+  reused: boolean
+}>> {
+  return apiRequest('/jd/matches', {
+    method: 'POST',
+    body: JSON.stringify({ jd_id: input.jdId, resume_id: input.resumeId, force: Boolean(input.force) }),
+  })
+}
+
+export function getJDMatch(id: string): Promise<JDResponse<JDMatchResult>> {
+  return apiRequest(`/jd/matches/${id}`)
+}
+
+export function listJDMatches(params: {
+  jdId: string
+  resumeId?: string
+  status?: string
+  mode?: string
+  page?: number
+  pageSize?: number
+}): Promise<JDResponse<JDMatchListData>> {
+  return apiRequest(`/jd/${params.jdId}/matches${query({
+    resume_id: params.resumeId,
+    status: params.status,
+    mode: params.mode,
+    page: params.page ?? 1,
+    page_size: params.pageSize ?? 20,
+  })}`)
+}
+
+export function recomputeJDMatch(id: string): Promise<JDResponse<{
+  id: string
+  status: string
+  mode: string
+  input_fingerprint: string | null
+  reused: boolean
+}>> {
+  return apiRequest(`/jd/matches/${id}/recompute`, { method: 'POST' })
 }

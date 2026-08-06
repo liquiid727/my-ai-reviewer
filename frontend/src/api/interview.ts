@@ -15,6 +15,8 @@ export interface CreateInterviewParams {
   /** 简历草稿发起：以草稿当前内容作为出题依据 */
   draftId?: string
   jdText?: string
+  jdId?: string
+  matchResultId?: string
   questionCount?: number
 }
 
@@ -27,6 +29,8 @@ export async function createInterview(
       resume_id: params.resumeId ?? null,
       draft_id: params.draftId ?? null,
       jd_text: params.jdText || null,
+      jd_id: params.jdId ?? null,
+      match_result_id: params.matchResultId ?? null,
       question_count: params.questionCount ?? 5,
     }),
   })

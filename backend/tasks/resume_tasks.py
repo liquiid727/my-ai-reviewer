@@ -32,7 +32,7 @@ from backend.application.resume_service.runs import (
 from backend.celery_app import celery
 from backend.config import get_settings
 from backend.domain.resume.enums import ResumeStatus, resume_status_value
-from backend.infrastructure.db.database import async_session_factory
+from backend.infrastructure.db.celery_database import celery_async_session_factory as async_session_factory
 from backend.infrastructure.db.models import ResumeModel, ResumeProcessingRunModel
 from backend.observability.context import bind_resume_context
 from backend.observability.events import emit_resume_event

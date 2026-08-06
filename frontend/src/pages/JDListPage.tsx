@@ -1,7 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { CircleAlert, FilePlus2, Loader2, MessageSquare, Search } from 'lucide-react'
+import {
+  AlignLeft,
+  Briefcase,
+  Building2,
+  Check,
+  CircleAlert,
+  Clock,
+  Eye,
+  FilePlus2,
+  FileText,
+  Gauge,
+  Image,
+  Link2,
+  Loader2,
+  MapPin,
+  MessageSquare,
+  PenLine,
+  Search,
+  Trash2,
+  TriangleAlert,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import {
   cancelJDDuplicate,
@@ -34,6 +54,9 @@ function readableDate(value: string | null) {
   return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : '—'
 }
 
+/** 来源类型对应的图标，与「文本 / 文件 / 链接 / 图片 / 手工」语义保持一致 */
+const sourceIcons = { text: AlignLeft, file: FileText, url: Link2, image: Image, manual: PenLine } as const
+
 function JDRow({ item, onConfirmDuplicate, onCancelDuplicate, onStartInterview }: {
   item: JDListItem
   onConfirmDuplicate: (item: JDListItem) => void
@@ -41,46 +64,97 @@ function JDRow({ item, onConfirmDuplicate, onCancelDuplicate, onStartInterview }
   onStartInterview: (item: JDListItem) => void
 }) {
   const { t } = useTranslation()
+  const SourceIcon = sourceIcons[item.source_type] ?? AlignLeft
+  const iconBg = item.status === 'ready'
+    ? 'bg-success'
+    : item.status === 'failed'
+      ? 'bg-destructive'
+      : 'bg-main'
   return (
-    <Card className="gap-4 py-4">
-      <CardHeader className="px-4 sm:px-6">
-        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0 space-y-1">
-            <CardTitle className="truncate text-base">{item.title || t('jd.untitled')}</CardTitle>
-            <p className="truncate text-sm text-muted-foreground">
-              {[item.company, item.location, item.seniority].filter(Boolean).join(' · ') || t('jd.noMetadata')}
-            </p>
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <Badge variant="neutral">{t(`jd.source.${item.source_type}`)}</Badge>
+    <Card className="transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none">
+      <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center">
+        {/* 岗位图标块：底色随状态传达语义 */}
+        <div className={`flex size-12 shrink-0 items-center justify-center rounded-base border-2 border-border shadow-shadow ${iconBg}`}>
+          <Briefcase className="size-6" />
+        </div>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          {/* 标题行：岗位名 + 来源徽章 + 状态徽章 */}
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="text-base">{item.title || t('jd.untitled')}</CardTitle>
+            <Badge variant="neutral">
+              <SourceIcon />
+              {t(`jd.source.${item.source_type}`)}
+            </Badge>
             <JDStatusBadge status={item.status} />
           </div>
-        </div>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3 px-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <div className="flex min-w-0 flex-1 items-center gap-2 text-sm text-muted-foreground">
-          {item.status === 'processing' && <Loader2 className="size-4 shrink-0 animate-spin" />}
-          <span className="truncate">{item.processing_error || t(`jd.step.${item.processing_step}`, { defaultValue: item.processing_step })}</span>
-          <span className="shrink-0">{readableDate(item.updated_at)}</span>
-        </div>
-        {item.status === 'duplicate_pending' ? (
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <Button size="sm" onClick={() => onConfirmDuplicate(item)}>{t('jd.keepDuplicate')}</Button>
-            <Button size="sm" variant="neutral" onClick={() => onCancelDuplicate(item)}>{t('jd.cancelDuplicate')}</Button>
-          </div>
-        ) : (
-          <div className="flex shrink-0 flex-wrap gap-2">
-            {item.status === 'ready' && (
-              <Button size="sm" onClick={() => onStartInterview(item)}>
-                <MessageSquare className="size-4" />
-                {t('jd.startInterview')}
-              </Button>
+          {/* 元信息行：公司 / 地点 / 资历 / 更新时间，各项带语义图标 */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+            {item.company && (
+              <span className="flex items-center gap-1.5">
+                <Building2 className="size-3.5 shrink-0" />
+                <span className="truncate">{item.company}</span>
+              </span>
             )}
-            <Button asChild size="sm" variant="neutral">
-              <Link to={`/jobs/${item.id}`}>{t('jd.open')}</Link>
-            </Button>
+            {item.location && (
+              <span className="flex items-center gap-1.5">
+                <MapPin className="size-3.5 shrink-0" />
+                <span className="truncate">{item.location}</span>
+              </span>
+            )}
+            {item.seniority && (
+              <span className="flex items-center gap-1.5">
+                <Gauge className="size-3.5 shrink-0" />
+                {t(`jd.seniority.${item.seniority}`, { defaultValue: item.seniority })}
+              </span>
+            )}
+            <span className="flex items-center gap-1.5">
+              <Clock className="size-3.5 shrink-0" />
+              {readableDate(item.updated_at)}
+            </span>
           </div>
-        )}
+          {/* 处理中 / 失败时的补充说明 */}
+          {item.status === 'processing' && (
+            <p className="flex items-center gap-1.5 text-sm font-bold">
+              <Loader2 className="size-3.5 shrink-0 animate-spin" />
+              <span className="truncate">{t(`jd.step.${item.processing_step}`, { defaultValue: item.processing_step })}</span>
+            </p>
+          )}
+          {item.status === 'failed' && (
+            <p className="flex items-center gap-1.5 text-sm font-bold text-red-700">
+              <TriangleAlert className="size-3.5 shrink-0" />
+              <span className="truncate">{item.processing_error || t('jd.unknownFailure')}</span>
+            </p>
+          )}
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {item.status === 'duplicate_pending' ? (
+            <>
+              <Button size="sm" onClick={() => onConfirmDuplicate(item)}>
+                <Check className="size-4" />
+                {t('jd.keepDuplicate')}
+              </Button>
+              <Button size="sm" variant="neutral" onClick={() => onCancelDuplicate(item)}>
+                <Trash2 className="size-4" />
+                {t('jd.cancelDuplicate')}
+              </Button>
+            </>
+          ) : (
+            <>
+              {item.status === 'ready' && (
+                <Button size="sm" onClick={() => onStartInterview(item)}>
+                  <MessageSquare className="size-4" />
+                  {t('jd.startInterview')}
+                </Button>
+              )}
+              <Button asChild size="sm" variant="neutral">
+                <Link to={`/jobs/${item.id}`}>
+                  <Eye className="size-4" />
+                  {t('jd.open')}
+                </Link>
+              </Button>
+            </>
+          )}
+        </div>
       </CardContent>
     </Card>
   )
@@ -225,7 +299,10 @@ export function JDListPage() {
       </div>
 
       <form className="grid gap-3 md:grid-cols-[minmax(0,1fr)_11rem_11rem_auto]" onSubmit={submitSearch}>
-        <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('jd.search')} />
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('jd.search')} className="pl-9" />
+        </div>
         <Select value={sourceType} onValueChange={(value) => { setPage(1); setSourceType(value as JDSourceType | 'all') }}>
           <SelectTrigger><SelectValue /></SelectTrigger>
           <SelectContent>{sourceValues.map((value) => <SelectItem key={value} value={value}>{t(`jd.filterSource.${value}`)}</SelectItem>)}</SelectContent>

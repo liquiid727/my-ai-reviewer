@@ -38,6 +38,9 @@ class _FakeConfig:
         self.api_key_encrypted = "encrypted-key"
         self.verified = False
         self.last_verified_at: datetime | None = None
+        self.provider = "openai"
+        self.capabilities: dict[str, Any] = {}
+        self.capabilities_verified_at: datetime | None = None
 
 
 class _FakeEncryptor:

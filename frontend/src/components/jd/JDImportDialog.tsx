@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Plus, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { importJDFile, importJDImage, importJDManual, importJDText, importJDUrl } from '@/api/jd'
+import { importJDFile, importJDImage, importJDImages, importJDManual, importJDText, importJDUrl } from '@/api/jd'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -40,7 +40,8 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
   const [company, setCompany] = useState('')
   const [url, setUrl] = useState('')
   const [file, setFile] = useState<File | null>(null)
-  const [image, setImage] = useState<File | null>(null)
+  const [images, setImages] = useState<File[]>([])
+  const [ackVision, setAckVision] = useState(false)
   const [manualTitle, setManualTitle] = useState('')
   const [manualCompany, setManualCompany] = useState('')
   const [manualLocation, setManualLocation] = useState('')
@@ -67,8 +68,12 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
         return false
       }
     }
-    return (file !== null || image !== null) && (file ?? image)!.size <= 10 * 1024 * 1024
-  }, [file, image, manualSkills, manualTitle, mode, rawText, url])
+    if (mode === 'image') {
+      const total = images.reduce((sum, image) => sum + image.size, 0)
+      return images.length >= 1 && images.length <= 8 && images.every((image) => image.size <= 10 * 1024 * 1024) && total <= 30 * 1024 * 1024 && ackVision
+    }
+    return file !== null && file.size <= 10 * 1024 * 1024
+  }, [ackVision, file, images, manualSkills, manualTitle, mode, rawText, url])
 
   const reset = () => {
     setMode('text')
@@ -77,7 +82,8 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
     setCompany('')
     setUrl('')
     setFile(null)
-    setImage(null)
+    setImages([])
+    setAckVision(false)
     setManualTitle('')
     setManualCompany('')
     setManualLocation('')
@@ -133,7 +139,18 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
       } else if (mode === 'file') {
         response = await importJDFile(file as File, allowDuplicate)
       } else {
-        response = await importJDImage(image as File, allowDuplicate)
+        // mode === 'image': 单图走单图端点，多图走批量视觉导入
+        if (images.length === 1) {
+          response = await importJDImage(images[0], allowDuplicate)
+        } else {
+          response = await importJDImages({
+            images,
+            title: title.trim() || undefined,
+            company: company.trim() || undefined,
+            allowDuplicate,
+            acknowledgeExternalVision: ackVision,
+          })
+        }
       }
       if (response.code === 428) {
         onLLMGate()
@@ -208,20 +225,38 @@ export function JDImportDialog({ open, onOpenChange, onCreated, onLLMGate }: JDI
           </TabsContent>
           <TabsContent value="image" className="space-y-4 pt-3">
             <div className="space-y-2">
-              <Label htmlFor="jd-image">{t('jd.image')}</Label>
+              <Label htmlFor="jd-images">{t('jd.image')}</Label>
               <Input
-                id="jd-image"
+                id="jd-images"
                 type="file"
+                multiple
                 accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
-                onChange={(event) => setImage(event.target.files?.[0] ?? null)}
+                onChange={(event) => setImages(Array.from(event.target.files ?? []))}
               />
               <p className="text-xs text-muted-foreground">{t('jd.imageHelp')}</p>
-              {image && (
-                <p className="break-all text-sm">
-                  {image.name} · {image.type || t('jd.unknownType')} · {formatFileSize(image.size)}
-                </p>
+              {images.length > 0 && (
+                <ol className="list-decimal space-y-1 pl-5 text-sm">
+                  {images.map((image, index) => <li key={`${image.name}-${index}`} className="break-all">{image.name}</li>)}
+                </ol>
               )}
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="jd-image-title">{t('jd.titleOptional')}</Label>
+              <Input id="jd-image-title" value={title} maxLength={200} onChange={(event) => setTitle(event.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="jd-image-company">{t('jd.companyOptional')}</Label>
+              <Input id="jd-image-company" value={company} maxLength={200} onChange={(event) => setCompany(event.target.value)} />
+            </div>
+            <label className="flex items-start gap-2 rounded-base border-2 border-black bg-secondary-background p-3 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1 size-4 accent-black"
+                checked={ackVision}
+                onChange={(event) => setAckVision(event.target.checked)}
+              />
+              <span>{t('jd.visionDisclosure')}</span>
+            </label>
           </TabsContent>
           <TabsContent value="url" className="space-y-4 pt-3">
             <div className="space-y-2">

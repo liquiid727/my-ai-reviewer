@@ -228,7 +228,6 @@ def test_hosted_workflows_exist_with_stable_names() -> None:
 def test_hosted_workflows_pin_python_312_and_lockfiles() -> None:
     quality = _load_workflow("quality")
     test_wf = _load_workflow("test")
-    build_wf = _load_workflow("build")
 
     for stem, data in ("quality", quality), ("test", test_wf):
         env = data.get("env") or {}

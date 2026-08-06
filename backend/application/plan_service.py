@@ -5,16 +5,18 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import noload
 
+from backend.application.jd_matching.service import HybridJDMatchingService
 from backend.application.jd_service.matching import JDMatchingService
 from backend.application.llm_config_service import get_active_verified_config
 from backend.domain.jd.enums import JDStatus
+from backend.domain.jd.matching_v2 import MatchStatus
 from backend.domain.job_search_plan.enums import PlanStatus
 from backend.domain.job_search_plan.policies import (
     VERSIONED_PLAN_REF_KEYS,
@@ -81,7 +83,7 @@ async def get_fresh_match(
     jd: JobDescriptionModel,
     resume_id: uuid.UUID,
 ) -> tuple[CandidateProfileModel, JDMatchResultModel]:
-    """Reuse a match only when it is at least as new as both upstream documents."""
+    """Prefer fingerprint-fresh hybrid_v2 results; fall back to rules_v1 only for compatibility."""
     profile = (
         await session.execute(
             select(CandidateProfileModel)
@@ -91,29 +93,55 @@ async def get_fresh_match(
     ).scalar_one_or_none()
     if profile is None:
         raise PlanDomainError("Resume does not have a candidate profile", 1008)
+    config = await get_active_verified_config(session)
+    provider = getattr(config, "provider", None) if config is not None else None
+    model_name = getattr(config, "model_name", None) if config is not None else None
+    from backend.application.jd_matching.freshness import current_match_fingerprint, is_fresh
+    from backend.domain.jd.matching_v2 import MatchMode
+
+    expected = current_match_fingerprint(jd=jd, profile=profile, provider=provider, model_name=model_name)
     latest = (
         await session.execute(
             select(JDMatchResultModel)
-            .where(JDMatchResultModel.jd_id == jd.id, JDMatchResultModel.resume_id == resume_id)
+            .where(
+                JDMatchResultModel.jd_id == jd.id,
+                JDMatchResultModel.resume_id == resume_id,
+                JDMatchResultModel.mode == MatchMode.HYBRID_V2.value,
+            )
             .order_by(JDMatchResultModel.created_at.desc())
             .limit(1)
             .options(noload(JDMatchResultModel.resume), noload(JDMatchResultModel.jd))
         )
     ).scalar_one_or_none()
-    upstream_dates = [value for value in (jd.updated_at, profile.updated_at) if value is not None]
-    stale = latest is None or any(latest.created_at < updated_at for updated_at in upstream_dates)
-    if stale:
-        latest = await JDMatchingService().match(session, resume_id, jd)
-        await session.flush()
-    assert latest is not None
-    return profile, latest
+    if latest is not None and is_fresh(latest, expected_fingerprint=expected, provider=provider, model_name=model_name):
+        return profile, latest
+    if config is not None:
+        run = await HybridJDMatchingService().create_match(
+            session,
+            jd_id=jd.id,
+            resume_id=resume_id,
+            force=latest is not None,
+            dispatch=False,
+        )
+        active = await session.get(JDMatchResultModel, run.id)
+        if active is not None and active.processing_run_id is not None:
+            try:
+                await HybridJDMatchingService().run_match(session, active.id, active.processing_run_id)
+            except Exception:
+                pass
+            await session.refresh(active)
+            if active.status == MatchStatus.READY.value:
+                return profile, active
+    legacy = await JDMatchingService().match(session, resume_id, jd)
+    await session.flush()
+    return profile, legacy
 
 
 async def generate_plan_output(
     session: AsyncSession,
     catalog: list[CatalogEntry],
     *,
-    target_date,
+    target_date: date,
     weekly_hours: int | None,
 ) -> tuple[PlanGenerationOutput, str]:
     """Use only the active verified database configuration for plan generation."""
@@ -131,6 +159,22 @@ async def generate_plan_output(
         weekly_hours=weekly_hours or 8,
     )
     return output, generator.model_info
+
+
+def _match_snapshot(match: JDMatchResultModel) -> dict[str, object]:
+    return {
+        "match_result_id": str(match.id),
+        "mode": getattr(match, "mode", "rules_v1"),
+        "input_fingerprint": getattr(match, "input_fingerprint", None),
+        "matcher_version": getattr(match, "matcher_version", None),
+        "hard_filter_policy_version": getattr(match, "hard_filter_policy_version", None),
+        "prompt_version": getattr(match, "prompt_version", None),
+        "schema_version": getattr(match, "schema_version", None),
+        "provider": getattr(match, "provider", None),
+        "model": getattr(match, "model_name", None),
+        "dimensions": (getattr(match, "dimension_scores", None) or [])[:7],
+        "evidence_summary": (getattr(match, "evidence", None) or [])[:20],
+    }
 
 
 class PlanService:
@@ -405,14 +449,17 @@ class PlanService:
             plan_id=plan.id,
             run_id=run_id,
             match_result_id=match_id,
-            input_snapshot=sanitized_input_snapshot(
-                catalog,
-                match_id=match_id,
-                target_date=plan.target_date,
-                weekly_hours=plan.weekly_hours,
-                supplemental_background=plan.supplemental_background,
-                model_name=model_name,
-            ),
+            input_snapshot={
+                **sanitized_input_snapshot(
+                    catalog,
+                    match_id=match_id,
+                    target_date=plan.target_date,
+                    weekly_hours=plan.weekly_hours,
+                    supplemental_background=plan.supplemental_background,
+                    model_name=model_name,
+                ),
+                "match": _match_snapshot(match),
+            },
             model_name=model_name,
             tasks=normalize_generated_tasks(output, catalog, target_date=plan.target_date),
         )
@@ -458,6 +505,10 @@ class PlanService:
         for task in prepared.tasks:
             session.add(JobSearchPlanTaskModel(plan_id=plan.id, **task))
         plan.match_result_id = prepared.match_result_id
+        match_snapshot = prepared.input_snapshot.get("match") if isinstance(prepared.input_snapshot, dict) else None
+        if isinstance(match_snapshot, dict):
+            plan.match_input_fingerprint = str(match_snapshot.get("input_fingerprint") or "") or None
+            plan.match_stale_reasons = []
         plan.input_snapshot = prepared.input_snapshot
         plan.llm_model = prepared.model_name
         plan.generated_at = datetime.now(UTC)

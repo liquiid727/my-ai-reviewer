@@ -125,6 +125,10 @@ class JobDescriptionData(BaseModel):
     source_type: str | None = None
     source_url: str | None = None
     source_file_id: str | None = None
+    source_assets: list[Any] | None = None
+    source_asset_count: int | None = None
+    vision: dict[str, Any] | None = None
+    processing_run_id: str | None = None
     location: str | None = None
     preferred_skills: list[Any] | dict[str, Any] | None = None
     status: str | None = None
@@ -133,6 +137,8 @@ class JobDescriptionData(BaseModel):
     duplicate_of_id: str | None = None
     field_sources: dict[str, Any] | None = None
     parser_version: str | None = None
+    structured_revision: int | None = None
+    hard_requirements: list[Any] | None = None
     updated_at: datetime | None = None
     created_at: datetime
 
@@ -151,11 +157,29 @@ class JDMatchResultData(BaseModel):
     id: str
     resume_id: str
     jd_id: str
-    match_score: float
+    match_score: float | None = None
     skill_match: list[Any] | dict[str, Any] | None = None
     missing_skills: list[Any] | dict[str, Any] | None = None
     risk: list[Any] | dict[str, Any] | None = None
     gap: list[Any] | dict[str, Any] | None = None
     recommendation: str
     detail: str | None = None
+    status: str | None = None
+    mode: str | None = None
+    input_fingerprint: str | None = None
+    hard_filters: list[Any] | None = None
+    dimension_scores: list[Any] | None = None
+    evidence: list[Any] | None = None
+    coverage: float | None = None
+    confidence: float | None = None
+    human_confirmation_required: bool | None = None
+    matcher_version: str | None = None
+    hard_filter_policy_version: str | None = None
+    prompt_version: str | None = None
+    schema_version: str | None = None
+    model: dict[str, Any] | None = None
+    stale: bool | None = None
+    stale_reasons: list[str] | None = None
+    failure_code: str | None = None
+    updated_at: datetime | None = None
     created_at: datetime

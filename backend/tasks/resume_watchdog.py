@@ -6,7 +6,7 @@ import logging
 
 from backend.application.resume_service.runs import reconcile_stale_runs
 from backend.celery_app import celery
-from backend.infrastructure.db.database import async_session_factory
+from backend.infrastructure.db.celery_database import celery_async_session_factory as async_session_factory
 from backend.tasks.async_runtime import run_async
 
 logger = logging.getLogger(__name__)

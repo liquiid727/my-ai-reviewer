@@ -36,6 +36,8 @@ class InterviewState(TypedDict):
     resume_id: str
     resume_data: dict[str, Any]
     jd_text: str
+    jd_context: dict[str, Any]
+    match_context: dict[str, Any]
     question_count: int
 
     questions: list[QuestionItem]

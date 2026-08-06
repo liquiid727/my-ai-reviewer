@@ -91,7 +91,7 @@ def test_image_validation_rejects_oversized_and_empty() -> None:
         _validate_image("jd.png", "image/png", b"\x89PNG\r\n\x1a\n" + b"\x00" * (10 * 1024 * 1024))
     with pytest.raises(JDImportError, match="must not be empty"):
         _validate_image("jd.png", "image/png", b"")
-    with pytest.raises(JDImportError, match="Only PNG and JPEG"):
+    with pytest.raises(JDImportError, match="Only PNG, JPG/JPEG, and WEBP"):
         _validate_image("jd.gif", "image/gif", b"GIF89a")
 
 

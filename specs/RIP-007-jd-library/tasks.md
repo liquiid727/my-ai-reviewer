@@ -1,12 +1,14 @@
 # RIP-007 Tasks
 
 **Feature**: JD 列表与智能识别
-**Status**: Planned
+**Status**: Implementation detected; acceptance reconciliation pending (#092)
 **PRD**: `tasks/prd-jd-library.md`
 **SPEC**: `specs/RIP-007-jd-library/spec.md`
 **Depends on**: RIP-003 JD Matching
 
 ## Issue List
+
+> 2026-08-05 drift note: source files, migration, API and UI exist for much of this list, but the checkboxes remain unchanged until issue #092 maps each item to tests and acceptance evidence.
 
 - [ ] [issue-039: JD library schema and domain contracts](../../tasks/issues/issue-039-rip007-jd-library-schema.md)
 - [ ] [issue-040: Text and file JD import service](../../tasks/issues/issue-040-rip007-jd-text-file-import.md)
@@ -25,4 +27,3 @@
 ├── 040 ─┐
 └── 041 ─┴→ 042 → 043 → 044 → 045 → 046 → 047
 ```
-

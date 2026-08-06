@@ -1,6 +1,6 @@
 import { apiRequest } from './client'
 import type { APIResponse } from '@/types/resume'
-import type { LLMConfig, LLMTestResult } from '@/types/settings'
+import type { LLMCapabilities, LLMConfig, LLMTestResult } from '@/types/settings'
 
 export async function listLLMConfigs(): Promise<APIResponse<LLMConfig[]>> {
   return apiRequest('/settings/llm')
@@ -11,6 +11,7 @@ export async function createLLMConfig(data: {
   api_key: string
   model_name: string
   base_url?: string | null
+  capabilities?: Partial<LLMCapabilities>
 }): Promise<APIResponse<LLMConfig>> {
   return apiRequest('/settings/llm', {
     method: 'POST',
@@ -25,6 +26,7 @@ export async function updateLLMConfig(
     api_key?: string
     model_name?: string
     base_url?: string | null
+    capabilities?: Partial<LLMCapabilities>
   },
 ): Promise<APIResponse<LLMConfig>> {
   return apiRequest(`/settings/llm/${id}`, {

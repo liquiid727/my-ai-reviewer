@@ -132,6 +132,7 @@ async def create_legacy_job_description(
         responsibilities=responsibilities,
         seniority=seniority,
         extraction_source=extraction_source,
+        structured_revision=1,
         source_type="text",
         status=JDStatus.READY.value,
         processing_step=JDProcessingStep.DONE.value,
@@ -173,6 +174,7 @@ async def patch_job_description(
             values[field] = value
         fields[field] = "manual"
     values["field_sources"] = fields
+    values["structured_revision"] = JobDescriptionModel.structured_revision + 1
 
     statement = (
         update(JobDescriptionModel)

@@ -7,23 +7,38 @@ from typing import Any
 from sqlalchemy import update
 
 from backend.agents.question_agent import QuestionGenerationAgent
+from backend.application.interview_service import get_interview_llm_gateway
 from backend.domain.interview.enums import InterviewStatus
 from backend.infrastructure.db.database import async_session_factory
 from backend.infrastructure.db.models import InterviewModel, InterviewQuestionModel
-from backend.infrastructure.llm.gateway import LLMGateway
 from backend.workflow.state import InterviewState, QuestionItem
 
 logger = logging.getLogger(__name__)
 
 
+def _contextual_jd_text(state: InterviewState) -> str:
+    jd_context = state.get("jd_context") or {}
+    match_context = state.get("match_context") or {}
+    parts = []
+    if jd_context:
+        parts.append(str(jd_context.get("raw_text") or jd_context.get("title") or ""))
+    if match_context:
+        parts.append(f"Match summary: {match_context.get('recommendation')} {match_context.get('match_score')}")
+        dimensions = match_context.get("dimension_scores") or []
+        if dimensions:
+            parts.append(f"Dimensions: {dimensions[:7]}")
+    return "\n".join(part for part in parts if part)
+
+
 async def generate_questions(state: InterviewState) -> dict[str, Any]:
     """LLM 生成题目，写入 DB，更新面试状态为 in_progress。"""
-    gateway = LLMGateway.from_settings()
+    async with async_session_factory() as session:
+        gateway = await get_interview_llm_gateway(session)
     agent = QuestionGenerationAgent(gateway)
 
     output = await agent.generate(
         resume_data=state["resume_data"],
-        jd_text=state["jd_text"],
+        jd_text=state["jd_text"] or _contextual_jd_text(state),
         count=state["question_count"],
     )
 
