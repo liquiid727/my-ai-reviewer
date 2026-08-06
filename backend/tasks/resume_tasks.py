@@ -6,13 +6,11 @@ run exits with ``stale`` and cannot overwrite a newer retry or reparse.
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import threading
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Coroutine
-from typing import Any, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from celery import chain
 from celery.exceptions import SoftTimeLimitExceeded
@@ -34,29 +32,17 @@ from backend.application.resume_service.runs import (
 from backend.celery_app import celery
 from backend.config import get_settings
 from backend.domain.resume.enums import ResumeStatus, resume_status_value
-from backend.infrastructure.db.database import async_session_factory
+from backend.infrastructure.db.celery_database import celery_async_session_factory as async_session_factory
 from backend.infrastructure.db.models import ResumeModel, ResumeProcessingRunModel
 from backend.observability.context import bind_resume_context
 from backend.observability.events import emit_resume_event
+from backend.tasks.async_runtime import run_async as _run_async
 
 logger = logging.getLogger(__name__)
 
-_T = TypeVar("_T")
-_loop_local = threading.local()
 _settings = get_settings()
 _LLM_MAX_RETRIES = 2
 _RETRY_DELAY_SECONDS = 30
-
-
-def _run_async(coro: Coroutine[Any, Any, _T]) -> _T:
-    """Reuse one event loop per worker thread for async SQLAlchemy work."""
-
-    loop = getattr(_loop_local, "loop", None)
-    if loop is None or loop.is_closed():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        _loop_local.loop = loop
-    return loop.run_until_complete(coro)
 
 
 def privacy_allows_llm(status: str | ResumeStatus) -> bool:

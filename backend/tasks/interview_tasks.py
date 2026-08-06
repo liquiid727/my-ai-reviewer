@@ -1,11 +1,11 @@
 """面试异步任务 —— Celery 报告生成任务。"""
 
-import asyncio
 import logging
 import uuid
 from typing import Any
 
 from backend.celery_app import celery
+from backend.tasks.async_runtime import run_async
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 @celery.task(name="generate_interview_report")  # type: ignore[untyped-decorator]
 def generate_report_task(interview_id: str) -> dict[str, Any]:
     """异步生成面试报告（Celery task 入口，内部调用 async 实现）。"""
-    return asyncio.run(_generate_report(interview_id))
+    return run_async(_generate_report(interview_id))
 
 
 async def _generate_report(interview_id: str) -> dict[str, Any]:
@@ -21,15 +21,15 @@ async def _generate_report(interview_id: str) -> dict[str, Any]:
     from sqlalchemy import select, update
 
     from backend.agents.report_agent import ReportGenerationAgent
+    from backend.application.interview_service import get_interview_llm_gateway
     from backend.domain.interview.enums import InterviewStatus
-    from backend.infrastructure.db.database import async_session_factory
+    from backend.infrastructure.db.celery_database import celery_async_session_factory as async_session_factory
     from backend.infrastructure.db.models import (
         InterviewModel,
         InterviewQuestionModel,
         InterviewReportModel,
         QuestionAnswerModel,
     )
-    from backend.infrastructure.llm.gateway import LLMGateway
 
     iid = uuid.UUID(interview_id)
 
@@ -48,6 +48,8 @@ async def _generate_report(interview_id: str) -> dict[str, Any]:
 
         interview_data: dict[str, Any] = {
             "jd_text": interview.jd_text or "",
+            "jd_context": interview.jd_context_snapshot or {},
+            "match_context": interview.match_context_snapshot or {},
             "questions": [],
         }
 
@@ -83,7 +85,8 @@ async def _generate_report(interview_id: str) -> dict[str, Any]:
             interview_data["questions"].append(q_data)
 
     try:
-        gateway = LLMGateway.from_settings()
+        async with async_session_factory() as session:
+            gateway = await get_interview_llm_gateway(session)
         agent = ReportGenerationAgent(gateway)
         report = await agent.generate(interview_data)
 
