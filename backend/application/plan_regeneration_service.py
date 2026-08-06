@@ -125,6 +125,10 @@ class PlanRegenerationService:
             values = {key: value for key, value in task.items() if key != "sort_order"}
             session.add(JobSearchPlanTaskModel(plan_id=plan.id, sort_order=index, **values))
         plan.match_result_id = prepared.match_result_id
+        match_snapshot = prepared.input_snapshot.get("match") if isinstance(prepared.input_snapshot, dict) else None
+        if isinstance(match_snapshot, dict):
+            plan.match_input_fingerprint = match_snapshot.get("input_fingerprint")  # type: ignore[assignment]
+            plan.match_stale_reasons = []
         plan.input_snapshot = prepared.input_snapshot
         plan.llm_model = prepared.model_name
         plan.generated_at = datetime.now(UTC)

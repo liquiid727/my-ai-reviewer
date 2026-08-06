@@ -7,10 +7,12 @@ from typing import Any, Literal
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.application.jd_matching.freshness import current_match_fingerprint, stale_reasons
 from backend.domain.job_search_plan.enums import PlanStatus, PlanTaskStatus
 from backend.infrastructure.db.models import (
     CandidateProfileModel,
     FileModel,
+    JDMatchResultModel,
     JobDescriptionModel,
     JobSearchPlanModel,
     JobSearchPlanTaskModel,
@@ -60,6 +62,41 @@ async def is_generation_stale(session: AsyncSession, plan: JobSearchPlanModel) -
     }
 
 
+async def _plan_match_payload(session: AsyncSession, plan: JobSearchPlanModel) -> dict[str, Any] | None:
+    if plan.match_result_id is None:
+        return None
+    match = await session.get(JDMatchResultModel, plan.match_result_id)
+    if match is None:
+        return None
+    profile = (
+        await session.execute(select(CandidateProfileModel).where(CandidateProfileModel.resume_id == plan.resume_id))
+    ).scalar_one_or_none()
+    jd = await session.get(JobDescriptionModel, plan.jd_id)
+    expected = None
+    reasons = ["result_failed_or_incomplete"]
+    if jd is not None and profile is not None:
+        expected = current_match_fingerprint(
+            jd=jd, profile=profile, provider=match.provider, model_name=match.model_name
+        )
+        reasons = stale_reasons(
+            match, expected_fingerprint=expected, provider=match.provider, model_name=match.model_name
+        )
+    return {
+        "id": str(match.id),
+        "mode": match.mode,
+        "input_fingerprint": match.input_fingerprint,
+        "fresh": not reasons,
+        "stale_reasons": reasons,
+        "matcher_version": match.matcher_version,
+        "hard_filter_policy_version": match.hard_filter_policy_version,
+        "prompt_version": match.prompt_version,
+        "schema_version": match.schema_version,
+        "provider": match.provider,
+        "model": match.model_name,
+        "expected_fingerprint": expected,
+    }
+
+
 async def build_detail_payload(session: AsyncSession, plan: JobSearchPlanModel) -> dict[str, Any]:
     tasks = (
         (
@@ -86,6 +123,7 @@ async def build_detail_payload(session: AsyncSession, plan: JobSearchPlanModel) 
             .where(ResumeModel.id == plan.resume_id)
         )
     ).first()
+    match_payload = await _plan_match_payload(session, plan)
     return {
         "id": str(plan.id),
         "title": plan.title,
@@ -98,6 +136,7 @@ async def build_detail_payload(session: AsyncSession, plan: JobSearchPlanModel) 
         "generated_at": plan.generated_at.isoformat() if plan.generated_at else None,
         "updated_at": plan.updated_at.isoformat() if plan.updated_at else None,
         "is_generation_stale": await is_generation_stale(session, plan),
+        "match": match_payload,
         "progress": {"done": done, "total": total, "percent": round(done / total * 100) if total else 0},
         "jd": {
             "id": str(plan.jd_id),

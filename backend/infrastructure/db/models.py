@@ -219,6 +219,19 @@ class InterviewModel(Base):
     # 草稿面试的内容快照（已脱敏），供出题/评估节点使用
     resume_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     jd_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    jd_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("job_descriptions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    match_result_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("jd_match_results.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    jd_context_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    match_context_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    context_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
     question_count: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     graph_thread_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -245,6 +258,8 @@ class InterviewModel(Base):
     __table_args__ = (
         Index("ix_interviews_resume", "resume_id"),
         Index("ix_interviews_status", "status"),
+        Index("ix_interviews_jd", "jd_id"),
+        Index("ix_interviews_match_result", "match_result_id"),
     )
 
 
@@ -351,6 +366,8 @@ class LLMConfigModel(Base):
         DateTime(timezone=True),
         nullable=True,
     )  # 最近一次测试通过的时间（verified 不设过期）
+    capabilities: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    capabilities_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -628,7 +645,7 @@ class ResumeExportModel(Base):
 
 
 class JobDescriptionModel(Base):
-    """职位描述表 —— 存储 JD 原文与解析出的必备技能清单。"""
+    """职位描述表 —— 存储 JD 原文、来源状态与结构化字段。"""
 
     __tablename__ = "job_descriptions"
 
@@ -636,7 +653,7 @@ class JobDescriptionModel(Base):
     title: Mapped[str | None] = mapped_column(String(200), nullable=True)  # 职位名称
     company: Mapped[str | None] = mapped_column(String(200), nullable=True)  # 公司名称
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    raw_text: Mapped[str] = mapped_column(Text, nullable=False, default="")  # JD 原文
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False, default="")  # JD 原文或 Vision 拼接转写
     source_type: Mapped[str] = mapped_column(String(20), nullable=False, default="text")
     source_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     source_file_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -663,6 +680,8 @@ class JobDescriptionModel(Base):
         default="manual",
     )  # 技能清单来源：manual | llm
     structured: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)  # 结构化 JD（可选，LLM 解析）
+    structured_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    hard_requirements: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="ready")
     processing_step: Mapped[str] = mapped_column(String(30), nullable=False, default="done")
     processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -675,6 +694,8 @@ class JobDescriptionModel(Base):
     content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     field_sources: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False, default=dict)
     parser_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    vision_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    source_asset_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -682,11 +703,18 @@ class JobDescriptionModel(Base):
         onupdate=func.now(),
     )
 
+    source_assets: Mapped[list["JDSourceAssetModel"]] = relationship(
+        back_populates="jd",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+        order_by="JDSourceAssetModel.order_index",
+    )
+
     __table_args__ = (
-        CheckConstraint("source_type IN ('text', 'file', 'url')", name="ck_jd_source_type"),
+        CheckConstraint("source_type IN ('text', 'file', 'url', 'image')", name="ck_jd_source_type"),
         CheckConstraint("status IN ('processing', 'duplicate_pending', 'ready', 'failed')", name="ck_jd_status"),
         CheckConstraint(
-            "processing_step IN ('queued', 'source_extract', 'duplicate_check', 'llm_extract', 'done')",
+            "processing_step IN ('queued', 'source_validate', 'source_extract', 'vision_extract', 'text_quality_check', 'duplicate_check', 'llm_extract', 'done')",
             name="ck_jd_processing_step",
         ),
         Index("ix_jd_user_updated", "user_id", "updated_at"),
@@ -696,8 +724,42 @@ class JobDescriptionModel(Base):
     )
 
 
+class JDSourceAssetModel(Base):
+    """Ordered image source asset for a Vision JD import."""
+
+    __tablename__ = "jd_source_assets"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    jd_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("job_descriptions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    file_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("files.id", ondelete="SET NULL"))
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    media_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    width: Mapped[int] = mapped_column(Integer, nullable=False)
+    height: Mapped[int] = mapped_column(Integer, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="stored")
+    transcript_blocks: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    processing_error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    jd: Mapped[JobDescriptionModel] = relationship(back_populates="source_assets", lazy="selectin")
+    file: Mapped["FileModel | None"] = relationship(lazy="selectin")
+
+    __table_args__ = (
+        UniqueConstraint("jd_id", "order_index", name="uq_jd_source_asset_order"),
+        CheckConstraint("status IN ('stored', 'transcribing', 'ready', 'failed', 'deleted')", name="ck_jd_asset_status"),
+        Index("ix_jd_assets_jd_order", "jd_id", "order_index"),
+    )
+
+
 class JDMatchResultModel(Base):
-    """JD 匹配结果表 —— 存储候选人与岗位的匹配结论。"""
+    """JD 匹配结果表 —— 存储 rules_v1 与 hybrid_v2 匹配结论。"""
 
     __tablename__ = "jd_match_results"
 
@@ -712,21 +774,63 @@ class JDMatchResultModel(Base):
         ForeignKey("job_descriptions.id", ondelete="CASCADE"),
         nullable=False,
     )
-    match_score: Mapped[float] = mapped_column(Float, nullable=False)  # 综合匹配分 (0~100)
-    skill_match: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)  # 逐项技能匹配
+    match_score: Mapped[float | None] = mapped_column(Float, nullable=True)  # 综合匹配分 (0~100)
+    skill_match: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)  # rules_v1 逐项技能匹配
     missing_skills: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)  # 缺失技能
     risk: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)  # 风险点
     gap: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)  # 差距分析
-    recommendation: Mapped[str] = mapped_column(String(20), nullable=False)  # 推荐结论
+    recommendation: Mapped[str] = mapped_column(String(30), nullable=False, default="manual_review")
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)  # 文字总结
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ready", server_default="ready")
+    mode: Mapped[str] = mapped_column(String(20), nullable=False, default="rules_v1", server_default="rules_v1")
+    processing_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    input_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    input_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    hard_filters: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    dimension_scores: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    evidence: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
+    coverage: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    matcher_version: Mapped[str] = mapped_column(String(80), nullable=False, default="rules-v1", server_default="rules-v1")
+    hard_filter_policy_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    prompt_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    schema_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    model_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    failure_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     resume: Mapped["ResumeModel"] = relationship(back_populates="jd_matches", lazy="selectin")
     jd: Mapped["JobDescriptionModel"] = relationship(lazy="selectin")
 
     __table_args__ = (
+        CheckConstraint("status IN ('queued', 'running', 'ready', 'failed', 'stale')", name="ck_jd_match_status"),
+        CheckConstraint("mode IN ('rules_v1', 'hybrid_v2')", name="ck_jd_match_mode"),
         Index("ix_jd_match_results_resume", "resume_id"),
         Index("ix_jd_match_results_jd", "jd_id"),
+        Index("ix_jd_match_results_fingerprint", "jd_id", "resume_id", "mode", "input_fingerprint"),
+        Index(
+            "uq_jd_match_ready_fingerprint",
+            "jd_id",
+            "resume_id",
+            "mode",
+            "input_fingerprint",
+            unique=True,
+            postgresql_where=text("status = 'ready' AND input_fingerprint IS NOT NULL"),
+        ),
+        Index(
+            "uq_jd_match_active_fingerprint",
+            "jd_id",
+            "resume_id",
+            "mode",
+            "input_fingerprint",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running') AND input_fingerprint IS NOT NULL"),
+        ),
     )
 
 
@@ -758,6 +862,8 @@ class JobSearchPlanModel(Base):
     weekly_hours: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     supplemental_background: Mapped[str | None] = mapped_column(Text, nullable=True)
     input_snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    match_input_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    match_stale_reasons: Mapped[list[Any]] = mapped_column(JSONB, nullable=False, default=list)
     llm_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     generation_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     generation_error: Mapped[str | None] = mapped_column(Text, nullable=True)

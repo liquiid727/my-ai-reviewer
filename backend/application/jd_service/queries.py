@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from backend.infrastructure.db.models import JDMatchResultModel, JobDescriptionModel, ResumeModel
 
@@ -36,6 +37,20 @@ def serialize_jd(jd: JobDescriptionModel, *, include_raw_text: bool = True) -> d
         "source_type": jd.source_type,
         "source_url": jd.source_url,
         "source_file_id": str(jd.source_file_id) if jd.source_file_id else None,
+        "source_assets": [
+            {
+                "id": str(asset.id),
+                "order": asset.order_index,
+                "media_type": asset.media_type,
+                "status": asset.status,
+                "width": asset.width,
+                "height": asset.height,
+            }
+            for asset in getattr(jd, "source_assets", [])
+        ],
+        "source_asset_count": jd.source_asset_count,
+        "vision": jd.vision_metadata,
+        "processing_run_id": str(jd.processing_run_id) if jd.processing_run_id else None,
         "location": jd.location,
         "preferred_skills": jd.preferred_skills,
         "status": jd.status,
@@ -44,6 +59,8 @@ def serialize_jd(jd: JobDescriptionModel, *, include_raw_text: bool = True) -> d
         "duplicate_of_id": str(jd.duplicate_of_id) if jd.duplicate_of_id else None,
         "field_sources": jd.field_sources,
         "parser_version": jd.parser_version,
+        "structured_revision": getattr(jd, "structured_revision", 1),
+        "hard_requirements": getattr(jd, "hard_requirements", []),
         "updated_at": jd.updated_at,
         "created_at": jd.created_at,
     }
@@ -61,6 +78,21 @@ def serialize_match(row: JDMatchResultModel) -> dict[str, Any]:
         "gap": row.gap,
         "recommendation": row.recommendation,
         "detail": row.detail,
+        "status": getattr(row, "status", None),
+        "mode": getattr(row, "mode", None),
+        "input_fingerprint": getattr(row, "input_fingerprint", None),
+        "hard_filters": getattr(row, "hard_filters", None),
+        "dimension_scores": getattr(row, "dimension_scores", None),
+        "evidence": getattr(row, "evidence", None),
+        "coverage": getattr(row, "coverage", None),
+        "confidence": getattr(row, "confidence", None),
+        "matcher_version": getattr(row, "matcher_version", None),
+        "hard_filter_policy_version": getattr(row, "hard_filter_policy_version", None),
+        "prompt_version": getattr(row, "prompt_version", None),
+        "schema_version": getattr(row, "schema_version", None),
+        "model": {"provider": getattr(row, "provider", None), "name": getattr(row, "model_name", None)},
+        "failure_code": getattr(row, "failure_code", None),
+        "updated_at": getattr(row, "updated_at", None),
         "created_at": row.created_at,
     }
 
@@ -86,7 +118,7 @@ async def list_job_descriptions(
     page: int,
     page_size: int,
     q: str | None,
-    source_type: Literal["text", "file", "url"] | None,
+    source_type: Literal["text", "file", "url", "image"] | None,
     status: Literal["processing", "duplicate_pending", "ready", "failed"] | None,
     direction: Literal["asc", "desc"],
 ) -> dict[str, Any]:
@@ -140,7 +172,12 @@ async def list_job_descriptions(
 
 
 async def get_jd_payload(session: AsyncSession, jd_id: uuid.UUID) -> dict[str, Any] | None:
-    jd = await get_jd(session, jd_id)
+    result = await session.execute(
+        select(JobDescriptionModel)
+        .where(JobDescriptionModel.id == jd_id)
+        .options(selectinload(JobDescriptionModel.source_assets))
+    )
+    jd = result.scalar_one_or_none()
     if jd is None:
         return None
     return serialize_jd(jd)

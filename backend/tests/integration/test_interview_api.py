@@ -1,4 +1,5 @@
 import uuid
+from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
@@ -257,6 +258,85 @@ class TestCreateInterview:
 
         resp = await async_client.post("/api/v1/interview/create", json={"question_count": 5})
         assert resp.status_code == 422
+
+
+class TestStartInterview:
+    @pytest.mark.asyncio
+    async def test_start_returns_first_question(
+        self,
+        async_client: AsyncClient,
+        sample_interview: InterviewModel,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class FakeGraph:
+            async def ainvoke(self, *_args: object, **_kwargs: object) -> None:
+                return None
+
+            async def aget_state(self, *_args: object, **_kwargs: object) -> SimpleNamespace:
+                return SimpleNamespace(
+                    tasks=[
+                        SimpleNamespace(
+                            interrupts=[
+                                SimpleNamespace(
+                                    value={
+                                        "type": "question",
+                                        "question": {
+                                            "question_id": str(uuid.uuid4()),
+                                            "question_text": "Describe a recent backend project.",
+                                            "stage": "project",
+                                            "difficulty": "medium",
+                                        },
+                                        "current_num": 1,
+                                        "total_count": 5,
+                                    }
+                                )
+                            ]
+                        )
+                    ]
+                )
+
+        async def fake_get_compiled_graph() -> FakeGraph:
+            return FakeGraph()
+
+        monkeypatch.setattr(
+            "backend.workflow.graphs.interview_graph.get_compiled_graph",
+            fake_get_compiled_graph,
+        )
+
+        resp = await async_client.post(f"/api/v1/interview/{sample_interview.id}/start")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["code"] == 0
+        assert data["data"]["current_num"] == 1
+        assert data["data"]["stage"] == "project"
+
+    @pytest.mark.asyncio
+    async def test_start_graph_initialization_failure_returns_business_error(
+        self,
+        async_client: AsyncClient,
+        sample_interview: InterviewModel,
+        db_session: AsyncSession,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def broken_get_compiled_graph() -> object:
+            raise RuntimeError("checkpoint setup failed")
+
+        monkeypatch.setattr(
+            "backend.workflow.graphs.interview_graph.get_compiled_graph",
+            broken_get_compiled_graph,
+        )
+
+        resp = await async_client.post(f"/api/v1/interview/{sample_interview.id}/start")
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "code": 1010,
+            "message": "Failed to start interview, please try again",
+            "data": None,
+        }
+        await db_session.refresh(sample_interview)
+        assert sample_interview.status == InterviewStatus.FAILED.value
 
 
 class TestGetInterviewStatus:

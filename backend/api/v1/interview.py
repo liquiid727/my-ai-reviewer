@@ -29,12 +29,18 @@ class CreateInterviewReq(BaseModel):
     resume_id: uuid.UUID | None = None
     draft_id: uuid.UUID | None = None
     jd_text: str | None = None
+    jd_id: uuid.UUID | None = None
+    match_result_id: uuid.UUID | None = None
     question_count: int = Field(default=5, ge=3, le=10)
 
     @model_validator(mode="after")
     def _check_exactly_one_source(self) -> "CreateInterviewReq":
         if (self.resume_id is None) == (self.draft_id is None):
             raise ValueError("Exactly one of resume_id or draft_id must be provided")
+        if self.match_result_id is not None and self.jd_id is None:
+            raise ValueError("match_result_id requires jd_id")
+        if self.jd_id is None and not (self.jd_text or "").strip():
+            raise ValueError("jd_text or jd_id must be provided")
         return self
 
 
@@ -177,6 +183,8 @@ async def create_interview(
             jd_text=req.jd_text,
             question_count=req.question_count,
             draft_id=req.draft_id,
+            jd_id=req.jd_id,
+            match_result_id=req.match_result_id,
         )
     except ValueError as e:
         error_code = str(e)
@@ -193,6 +201,12 @@ async def create_interview(
             )
         if error_code == "INVALID_REQUEST":
             return APIResponse(code=1014, message="Exactly one of resume_id or draft_id is required")
+        if error_code in {"JD_REQUIRED", "MATCH_REQUIRES_JD"}:
+            return APIResponse(code=1001, message="jd_text or jd_id is required; match_result_id requires jd_id")
+        if error_code in {"JD_NOT_FOUND", "MATCH_NOT_FOUND"}:
+            return APIResponse(code=1002, message="JD or match result not found")
+        if error_code in {"JD_NOT_READY", "MATCH_NOT_READY", "MATCH_RESOURCE_MISMATCH", "MATCH_STALE"}:
+            return APIResponse(code=1003, message="JD match context is not usable for interview")
         raise
 
     return APIResponse(
@@ -209,8 +223,6 @@ async def start_interview(
     db: AsyncSession = Depends(get_db),
 ) -> APIResponse:
     """开始面试：生成题目并返回第一题。"""
-    from backend.workflow.graphs.interview_graph import get_compiled_graph
-
     service = InterviewService(db)
     try:
         interview = await service.validate_for_start(interview_id)
@@ -222,7 +234,6 @@ async def start_interview(
             return APIResponse(code=1004, message="Interview is not in pending status")
         raise
 
-    graph = await get_compiled_graph()
     thread_id = interview.graph_thread_id or str(interview_id)
     config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
 
@@ -231,6 +242,8 @@ async def start_interview(
         "resume_id": str(interview.resume_id) if interview.resume_id else "",
         "resume_data": {},  # 由 analyze_resume 节点从快照/DB 加载后覆盖
         "jd_text": interview.jd_text or "",
+        "jd_context": interview.jd_context_snapshot or {},
+        "match_context": interview.match_context_snapshot or {},
         "question_count": interview.question_count,
         "questions": [],
         "current_question_index": 0,
@@ -243,14 +256,16 @@ async def start_interview(
     }
 
     try:
+        from backend.workflow.graphs.interview_graph import get_compiled_graph
+
+        graph = await get_compiled_graph()
         await graph.ainvoke(initial_state, config=config)
+        state = await graph.aget_state(config)
+        interrupt_value = _extract_interrupt_value(state)
     except Exception:
         logger.exception("Failed to start interview %s", interview_id)
         await service.mark_failed(interview_id, "Graph execution failed during start")
         return APIResponse(code=1010, message="Failed to start interview, please try again")
-
-    state = await graph.aget_state(config)
-    interrupt_value = _extract_interrupt_value(state)
 
     if not interrupt_value:
         logger.error("No interrupt produced after starting interview %s", interview_id)
