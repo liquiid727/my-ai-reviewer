@@ -24,3 +24,10 @@ class BaseLLMProvider(ABC):
         response_format: dict[str, Any] | None = None,
     ) -> LLMResponse:
         pass
+
+    async def complete_multimodal(
+        self,
+        messages: list[Any],
+        response_format: dict[str, Any] | None = None,
+    ) -> LLMResponse:
+        raise NotImplementedError("Provider does not support multimodal completion")

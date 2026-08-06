@@ -4,6 +4,7 @@ from typing import Any
 
 from anthropic import AsyncAnthropic
 
+from backend.domain.llm.multimodal import MultimodalImageBlock, MultimodalMessage, MultimodalTextBlock
 from backend.infrastructure.llm.providers.base import BaseLLMProvider, LLMResponse
 
 
@@ -67,3 +68,48 @@ class AnthropicProvider(BaseLLMProvider):
                 "completion_tokens": response.usage.output_tokens,
             },
         )
+
+    async def complete_multimodal(
+        self,
+        messages: list[MultimodalMessage],
+        response_format: dict[str, Any] | None = None,
+    ) -> LLMResponse:
+        system_text = ""
+        converted: list[dict[str, Any]] = []
+        for message in messages:
+            if message.role == "system":
+                system_text = "\n".join(
+                    block.text for block in message.content if isinstance(block, MultimodalTextBlock)
+                )
+                continue
+            converted.append({"role": message.role, "content": _convert_anthropic_content(message)})
+        if response_format is not None:
+            system_text += "\n\nRespond with valid JSON only."
+        kwargs: dict[str, Any] = {"model": self._model, "messages": converted, "max_tokens": 8192}
+        if system_text:
+            kwargs["system"] = system_text
+        response = await self._client.messages.create(**kwargs)
+        content = ""
+        for block in response.content:
+            if block.type == "text":
+                content += block.text
+        return LLMResponse(
+            content=content,
+            model=response.model,
+            usage={"prompt_tokens": response.usage.input_tokens, "completion_tokens": response.usage.output_tokens},
+        )
+
+
+def _convert_anthropic_content(message: MultimodalMessage) -> list[dict[str, Any]]:
+    converted: list[dict[str, Any]] = []
+    for block in message.content:
+        if isinstance(block, MultimodalTextBlock):
+            converted.append({"type": "text", "text": block.text})
+        elif isinstance(block, MultimodalImageBlock):
+            converted.append(
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": block.media_type, "data": block.data_base64},
+                }
+            )
+    return converted
