@@ -1,7 +1,7 @@
 # RIP-003 Tasks
 
 **Feature**: JD Matching
-**Status**: Mostly Done（残留：LLM JD 抽取器、前端页）
+**Status**: Implemented baseline (`rules_v1`); acceptance reconciliation pending issue #092
 **Depends on**: RIP-002
 
 ---
@@ -9,11 +9,11 @@
 ## Task 列表
 
 ### T1 — JD 抽取器
-- [ ] LLM 从 raw_text 抽取 required_skills / responsibilities / seniority（未做：当前 `POST /jd` 由调用方直接传入 required_skills / critical_skills）
+- [x] LLM 从 raw_text 抽取 required/preferred skills / responsibilities / seniority；legacy `POST /jd` 在未显式传技能时自动调用
 - [x] 结果写入 `job_descriptions`（required_skills JSONB）
 
 ### T2 — 匹配算法
-- [x] 实现于 `domain/jd/matching.py`（偏差：非 `infrastructure/matchers/`；规则归一化匹配，非 LLM）：profile.skills vs required → skill_match / missing_skills
+- [x] 实现于 `domain/jd/policies.py`（确定性 `rules_v1`，非 LLM/向量）：profile.skills + ability_tags vs required → skill_match / missing_skills
 - [x] 计算 risk / gap / recommendation / match_score（`_compute_match` + `JDMatchingService`）
 
 ### T3 — API 接口
@@ -28,7 +28,11 @@
 - [x] 单测：匹配 + API（`tests/unit/test_jd_matching.py`）
 
 ### T6 — 前端（可选）
-- [ ] JD 输入 + 匹配结果展示页（未做：前端无 JD 页面 / api client）
+- [x] JD Library 页面/API client 和匹配触发入口已存在
+- [ ] 多维匹配结果展示、stale/recompute 由 RIP-012 issue #103 交付
+
+### T7 — 漂移复核
+- [ ] issue #092 将代码存在状态映射到迁移、单元、集成和浏览器验收证据
 
 ---
 

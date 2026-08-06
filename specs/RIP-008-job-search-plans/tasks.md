@@ -1,12 +1,14 @@
 # RIP-008 Tasks
 
 **Feature**: AI 求职计划列表
-**Status**: Planned
+**Status**: Implementation detected; acceptance reconciliation pending (#092)
 **PRD**: `tasks/prd-job-search-plans.md`
 **SPEC**: `specs/RIP-008-job-search-plans/spec.md`
 **Depends on**: RIP-007 issue-044 for backend contracts; issue-046 for plan-entry UI
 
 ## Issue List
+
+> 2026-08-05 drift note: plan domain/API/worker/frontend code exists, but the checkboxes remain unchanged until issue #092 verifies each contract. RIP-012 issue #104 will replace timestamp-only match freshness with the versioned fingerprint contract.
 
 - [ ] [issue-048: Plan and task schema/domain contracts](../../tasks/issues/issue-048-rip008-plan-task-schema.md)
 - [ ] [issue-049: Eligible resume options, match freshness and Source Catalog](../../tasks/issues/issue-049-rip008-plan-source-catalog.md)

@@ -11,12 +11,37 @@ Each local issue should stay small enough for a single `/goal` run to finish end
 | RIP-003 | specs/RIP-003-jd-matching | shipped | RIP-002 |
 | RIP-005 | specs/RIP-005-resume-auto-pagination | in-progress | RIP-004 |
 | RIP-009 | specs/RIP-009-resume-privacy | open | RIP-001, RIP-002, RIP-004, RIP-006 |
+| RIP-010 | specs/RIP-010-jd-vision-import | proposed | RIP-007 |
+| RIP-011 | specs/RIP-011-evidence-bound-jd-matching | proposed | RIP-002, RIP-003, RIP-009, RIP-010 |
+| RIP-012 | specs/RIP-012-jd-matching-consumption | proposed | RIP-008, RIP-011 |
 | AIP-009 | specs/AIP-009-quality-governance-foundation | proposed | — |
 | AIP-010 | specs/AIP-010-ci-test-quality-gates | proposed | AIP-009 |
 | AIP-011 | specs/AIP-011-architecture-modularization | proposed | AIP-009, AIP-010 |
 | AIP-012 | specs/AIP-012-error-observability | proposed | AIP-009, AIP-010 |
 
 Current incremental issue: `#038` (TXT/Markdown encoding fallback) is implemented locally and waiting for review / release.
+
+## JD Intelligence v2 Issue Drafts
+
+These are local proposed issues generated from `spec-draft/jd-intelligence-v2-2026-08-05.md`. Issue #092 establishes the factual baseline; code presence in older RIPs is not treated as acceptance evidence.
+
+| Issue | Spec ID | Status | Depends on |
+| --- | --- | --- | --- |
+| #092 | RIP-010/RIP-011/RIP-012 | proposed | — |
+| #093 | RIP-010 | proposed | #092 |
+| #094 | RIP-010 | proposed | #092, #093 |
+| #095 | RIP-010 | proposed | #094 |
+| #096 | RIP-010 | proposed | #095 |
+| #097 | RIP-010 | proposed | #096 |
+| #098 | RIP-011 | proposed | #092, #097 |
+| #099 | RIP-011 | proposed | #098 |
+| #100 | RIP-011 | proposed | #093, #098, #099 |
+| #101 | RIP-011 | proposed | #100 |
+| #102 | RIP-011 | proposed | #101 |
+| #103 | RIP-012 | proposed | #102 |
+| #104 | RIP-012 | proposed | #101, RIP-008 |
+| #105 | RIP-012 | proposed | #101, RIP-009 |
+| #106 | RIP-012 | proposed | #097, #102, #103, #104, #105 |
 
 Status transitions map to the six-step loop:
 

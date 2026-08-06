@@ -109,6 +109,20 @@ MVP 方案：Docker 容器隔离
 
 ---
 
+## JD Intelligence v2 Increment
+
+Source: `spec-draft/jd-intelligence-v2-2026-08-05.md`
+
+| Feature ID | Name | Depends On | Status |
+| --- | --- | --- | --- |
+| RIP-010 | JD Vision Import | RIP-007 | Proposed |
+| RIP-011 | Evidence-bound JD Matching | RIP-002, RIP-003, RIP-009, RIP-010 | Proposed |
+| RIP-012 | JD Matching Consumption and Freshness | RIP-008, RIP-011 | Proposed |
+
+Delivery order is contract-first: reconcile the current `rules_v1`/JD Library/Plan baseline, deliver Vision ingestion, then versioned evidence-bound matching, and finally update UI and downstream consumers. Existing `/jd/import/*`, legacy `POST /jd`, `POST /jd/match`, Plan and Interview compatibility paths remain available throughout the increment.
+
+---
+
 ## Engineering Quality Governance Program
 
 Source: `reviews/project-architecture-quality-2026-08-04.md`

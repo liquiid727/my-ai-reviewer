@@ -1,8 +1,8 @@
 # RIP-003 — JD Matching
 
-**Version**: v1.1
-**Status**: Mostly Done（残留见 tasks.md：LLM JD 抽取器、前端页）
-**Estimated**: 5-7 天（已完成主体；残留 LLM 抽取器约 1-2 天）
+**Version**: v1.2 (as-built baseline correction)
+**Status**: Implemented baseline (`rules_v1`); acceptance reconciliation pending issue #092
+**Estimated**: Historical estimate 5-7 days
 **Track**: Resume Intelligence Platform（PRD §8，原标"下一阶段"）
 **Source**: `tasks/prd-parser.md` §8；增量：`tasks/prd-resume-toolchain-increments.md`（US-005~006 / FR-9~12）
 
@@ -10,19 +10,21 @@
 
 ## 目标
 
-新增 JD Matching 模块：输入 JD 文本 + 候选人 Profile，输出 **Skill Match / Missing Skills / Risk / Gap / Recommendation / Match Score**。PRD §8 标为"下一阶段"，当前无任何实现（`job_descriptions` 表已在 `design/database.md` 规划，但无匹配逻辑与结果表）。
+JD Matching 基线输入 ready JD（或兼容的 inline JD）与候选人 Profile，输出 **Skill Match / Missing Skills / Risk / Gap / Recommendation / Match Score**。当前交付是确定性的 `rules_v1`；Vision JD、多维 LLM 评分、硬条件筛选和版本化 freshness 由 RIP-010~RIP-012 定义。
 
 ## 现状
 
-- `design/database.md` 已有 `job_descriptions` 表，但无字段定义、无匹配结果表
-- Interview 流程已接受 `jd_text` 输入，但未做结构化匹配
-- `CandidateProfile`（RIP-002 落库后）提供技能 / 经验基线
+- `job_descriptions`、`jd_match_results`、匹配 API、JDExtractor 和 JD Library 前端代码均已存在。
+- `rules_v1` 只读取 Candidate Profile 的 `skills`、`ability_tags`（以及未参与评分的 identity），不读取职责、工作经历、项目、教育或 Resume Facts。
+- 关键技能和非关键技能分别按 70% / 30% 计算；缺少关键技能影响风险和 recommendation，但不是独立 hard filter。
+- 当前匹配不调用 LLM、embedding 或向量库；代码存在与完整验收状态由 issue #092 分开核对。
 
 ## 技术栈
 
-- LLM 从 JD 抽取 required_skills / responsibilities / seniority
-- 规则 + 向量混合匹配：profile.skills vs required_skills
-- 加权 Match Score
+- LLM 文本 JD 抽取：required/preferred skills、responsibilities、seniority 及部分 evidence
+- 确定性规则匹配：`profile.skills + ability_tags` vs `required_skills`
+- 加权 Match Score：critical 70% / non-critical 30%
+- 不包含向量检索或 LLM matching
 
 ## 数据模型（新增表）
 
@@ -32,14 +34,12 @@
 | id | UUID PK | |
 | resume_id | FK → resumes | |
 | jd_id | FK → job_descriptions（可空） | |
-| required_skills | JSONB | JD 抽取结果 |
 | skill_match | JSONB | 匹配明细 |
 | missing_skills | JSONB | 缺失技能 |
 | risk | JSONB | 风险点 |
 | gap | text | 差距总结 |
 | recommendation | text | 建议 |
 | match_score | float | 0-100 |
-| llm_model | str | |
 | created_at | ts | |
 
 `job_descriptions` 补充字段：`required_skills`(JSONB)、`responsibilities`(JSONB)、`seniority`(str)
@@ -54,7 +54,7 @@ Content-Type: application/json
 Body:
 {
   "resume_id": "uuid",
-  "jd_text": "招聘高级后端工程师，要求 Go + Kubernetes + 高并发经验"
+  "jd_id": "uuid"
 }
 
 Response:
@@ -70,19 +70,19 @@ Response:
 
 ## 验收标准
 
-- [ ] JD 结构化抽取（LLM：required_skills / responsibilities / seniority）——见下方增量设计
+- [x] JD 结构化抽取（LLM：required/preferred skills / responsibilities / seniority）
 - [x] 匹配算法：profile skills vs required → skill_match + missing_skills（`domain/jd/matching.py`，规则归一化）
 - [x] 输出 risk / gap / recommendation / match_score
 - [x] `POST /api/v1/jd/match` 接口
 - [x] `jd_match_results` 落库
-- [ ] 前端 JD 输入 + 匹配结果页（可选，另行排期）
+- [x] 前端 JD Library 与匹配触发入口（完整结果展示迁移到 RIP-012）
 - [x] 单测（`tests/unit/test_jd_matching.py`）
 
 ---
 
 # 增量设计（v1.1）：LLM JD 抽取器
 
-> 来源：`tasks/prd-resume-toolchain-increments.md` US-005~006 / FR-9~12。现状：`POST /jd` 要求调用方手工传入 `required_skills`，真实用户只会粘贴 JD 原文。
+> 来源：`tasks/prd-resume-toolchain-increments.md` US-005~006 / FR-9~12。该增量的实现已存在；本节保留历史设计，验收证据由 issue #092 核对。
 
 ## 设计决策
 
@@ -134,9 +134,9 @@ backend/
 
 ## 增量验收标准
 
-- [ ] `jd_extractor.py` 抽取 required_skills（含 critical + evidence）/ responsibilities / seniority
-- [ ] `POST /jd` 未传技能时自动抽取；显式传入时跳过（向后兼容）
-- [ ] 抽取失败 → 502 `JD_EXTRACTION_FAILED`，JD 不落库
-- [ ] 新增 Alembic 迁移：responsibilities / seniority / extraction_source
-- [ ] 响应标记 `extraction_source: "llm" | "manual"`
-- [ ] 单测覆盖上述全部路径；lint / mypy 通过
+- [x] `jd_extractor.py` 抽取 required_skills（含 critical + evidence）/ responsibilities / seniority
+- [x] `POST /jd` 未显式传技能时自动抽取；显式传入时跳过（向后兼容）
+- [x] 抽取失败 → 502 `JD_EXTRACTION_FAILED`，JD 不落库
+- [x] 数据模型/迁移包含 responsibilities / seniority / extraction_source
+- [x] 响应标记 `extraction_source: "llm" | "manual"`
+- [ ] issue #092 复核上述路径的当前测试、lint 和 typecheck 证据

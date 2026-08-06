@@ -69,6 +69,7 @@ Rules for new code:
 - Domain modules should remain usable without FastAPI, Celery, MinIO, or a provider SDK.
 - Infrastructure adapters hide SDK-specific details and expose typed results or domain errors.
 - Celery task functions are thin process boundaries. They should load state, call a use case, persist a terminal/intermediate status, and make retry behavior explicit.
+- Celery database tasks use the dedicated `celery_database.py` `NullPool` session factory and the shared `tasks.async_runtime.run_async` bridge. This keeps asyncpg connections from crossing event loops or prefork boundaries; the web API retains the pooled engine in `database.py`.
 - LangGraph nodes do one meaningful operation and return partial state updates; they must not silently replace the complete graph state.
 
 ## 4. Feature Modules
