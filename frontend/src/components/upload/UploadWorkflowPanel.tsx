@@ -1,5 +1,5 @@
 import type { RefObject } from 'react'
-import { CircleCheck, Copy, Loader2, ShieldCheck } from 'lucide-react'
+import { CircleAlert, CircleCheck, Copy, Loader2, ShieldCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -223,6 +223,7 @@ export function UploadWorkflowPanel({
       {status === 'failed' && (
         <div className="space-y-3" data-testid="upload-failed">
           <Alert variant="destructive">
+            <CircleAlert />
             <AlertTitle>{t('upload.processingFailed')}</AlertTitle>
             <AlertDescription>
               <p>
@@ -256,6 +257,7 @@ export function UploadWorkflowPanel({
       {pollTimedOut && status !== 'failed' && (
         <div className="space-y-3" data-testid="upload-timeout">
           <Alert variant="destructive">
+            <CircleAlert />
             <AlertTitle>{t('upload.processingTimedOut')}</AlertTitle>
             <AlertDescription>{t('upload.processingTimedOutDescription')}</AlertDescription>
           </Alert>
@@ -271,6 +273,7 @@ export function UploadWorkflowPanel({
       {pollError && status !== 'failed' && !pollTimedOut && (
         <div className="space-y-3" data-testid="upload-poll-error">
           <Alert variant="destructive">
+            <CircleAlert />
             <AlertTitle>{t('upload.statusQueryFailed')}</AlertTitle>
             <AlertDescription>{pollError}</AlertDescription>
           </Alert>
@@ -295,7 +298,7 @@ function RunIdBlock({ runId }: { runId: string }) {
   }
 
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-base border-2 border-border bg-secondary-background p-2">
+    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-base border-2 border-border bg-white p-2">
       <span className="text-xs font-bold">{t('upload.runId')}</span>
       <code className="break-all text-xs" data-testid="upload-run-id">
         {runId}

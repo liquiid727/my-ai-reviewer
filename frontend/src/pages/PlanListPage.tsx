@@ -1,13 +1,24 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { CircleAlert, ClipboardPlus, Search } from 'lucide-react'
+import {
+  Briefcase,
+  CalendarClock,
+  CircleAlert,
+  ClipboardList,
+  ClipboardPlus,
+  Clock,
+  Eye,
+  FileText,
+  Search,
+} from 'lucide-react'
 import { listPlans } from '@/api/plans'
 import { PlanStatusBadge } from '@/components/plans/PlanStatusBadge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Progress } from '@/components/ui/progress'
 import {
   Select,
   SelectContent,
@@ -26,21 +37,63 @@ function readableDate(value: string | null) {
 
 function PlanRow({ plan }: { plan: PlanSummary }) {
   const { t } = useTranslation()
+  const iconBg = plan.status === 'completed'
+    ? 'bg-success'
+    : plan.status === 'failed'
+      ? 'bg-destructive'
+      : 'bg-main'
   return (
-    <Card className="gap-4 py-4">
-      <CardHeader className="px-4 sm:px-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0"><CardTitle className="truncate text-base">{plan.title}</CardTitle><p className="mt-1 truncate text-sm text-muted-foreground">{[plan.jd.title, plan.jd.company].filter(Boolean).join(' · ') || t('plans.unknownJD')}</p></div>
-          <PlanStatusBadge status={plan.status} />
+    <Card className="transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none">
+      <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center">
+        {/* 计划图标块：底色随状态传达语义 */}
+        <div className={`flex size-12 shrink-0 items-center justify-center rounded-base border-2 border-border shadow-shadow ${iconBg}`}>
+          <ClipboardList className="size-6" />
         </div>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3 px-4 sm:flex-row sm:items-end sm:justify-between sm:px-6">
-        <div className="grid min-w-0 flex-1 gap-1 text-sm text-muted-foreground sm:grid-cols-3">
-          <span className="truncate">{plan.resume.display_name}</span>
-          <span>{t('plans.progressValue', { done: plan.progress.done, total: plan.progress.total, percent: plan.progress.percent })}</span>
-          <span className="truncate">{plan.next_due_task || t('plans.noNextDue')}</span>
+        <div className="min-w-0 flex-1 space-y-2">
+          {/* 标题行：计划名 + 状态徽章 */}
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle className="text-base">{plan.title}</CardTitle>
+            <PlanStatusBadge status={plan.status} />
+          </div>
+          {/* 元信息行：关联 JD / 简历 / 下一个待办 / 更新时间 */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <Briefcase className="size-3.5 shrink-0" />
+              <span className="truncate">{[plan.jd.title, plan.jd.company].filter(Boolean).join(' · ') || t('plans.unknownJD')}</span>
+            </span>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <FileText className="size-3.5 shrink-0" />
+              <span className="truncate">{plan.resume.display_name}</span>
+            </span>
+            <span className="flex min-w-0 items-center gap-1.5">
+              <CalendarClock className="size-3.5 shrink-0" />
+              <span className="truncate">{plan.next_due_task || t('plans.noNextDue')}</span>
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Clock className="size-3.5 shrink-0" />
+              {readableDate(plan.updated_at)}
+            </span>
+          </div>
+          {/* 进度条：百分比可视化，失败状态不展示误导性进度 */}
+          {plan.status !== 'failed' && (
+            <div className="flex items-center gap-3">
+              <Progress value={plan.progress.percent} className="h-3 flex-1" />
+              <span className="shrink-0 text-xs font-bold">{plan.progress.percent}%</span>
+            </div>
+          )}
+          {plan.status === 'failed' && (
+            <p className="flex items-center gap-1.5 text-sm font-bold text-red-700">
+              <CircleAlert className="size-3.5 shrink-0" />
+              {t('plans.unknownFailure')}
+            </p>
+          )}
         </div>
-        <div className="flex shrink-0 items-center gap-3"><span className="text-xs text-muted-foreground">{readableDate(plan.updated_at)}</span><Button asChild size="sm" variant="neutral"><Link to={`/plans/${plan.id}`}>{t('plans.open')}</Link></Button></div>
+        <Button asChild size="sm" variant="neutral" className="shrink-0">
+          <Link to={`/plans/${plan.id}`}>
+            <Eye className="size-4" />
+            {t('plans.open')}
+          </Link>
+        </Button>
       </CardContent>
     </Card>
   )
@@ -76,7 +129,10 @@ export function PlanListPage() {
     <div className="space-y-6 py-4 sm:py-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="text-3xl font-black">{t('plans.title')}</h1><p className="mt-1 text-sm text-muted-foreground">{t('plans.subtitle')}</p></div><Button asChild><Link to="/plans/new"><ClipboardPlus className="size-4" />{t('plans.create')}</Link></Button></div>
       <form className="grid gap-3 md:grid-cols-[minmax(0,1fr)_12rem_auto]" onSubmit={(event) => { event.preventDefault(); setPage(1); setQuery(search.trim()) }}>
-        <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('plans.search')} />
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('plans.search')} className="pl-9" />
+        </div>
         <Select value={status} onValueChange={(value) => { setPage(1); setStatus(value as PlanStatus | 'all') }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{statuses.map((value) => <SelectItem key={value} value={value}>{t(`plans.filterStatus.${value}`)}</SelectItem>)}</SelectContent></Select>
         <Button type="submit" variant="neutral"><Search className="size-4" />{t('plans.searchButton')}</Button>
       </form>
