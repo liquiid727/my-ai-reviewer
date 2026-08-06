@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import os
 import re
 import tempfile
 import uuid
 from pathlib import Path
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +24,8 @@ from backend.domain.jd.policies import (
     normalize_jd_text,
 )
 from backend.domain.jd.schemas import JDExtraction
-from backend.infrastructure.db.models import FileModel, JobDescriptionModel
+from backend.domain.llm.multimodal import MultimodalImageBlock, MultimodalMessage, MultimodalTextBlock
+from backend.infrastructure.db.models import FileModel, JDSourceAssetModel, JobDescriptionModel
 from backend.infrastructure.extractors.jd_extractor import JDExtractionError, JDExtractor
 from backend.infrastructure.llm.gateway import LLMGateway
 from backend.infrastructure.parsers import get_parser
@@ -30,13 +33,143 @@ from backend.infrastructure.storage.minio_client import download_file
 from backend.infrastructure.web.safe_fetcher import SafeWebFetcher, SafeWebFetchError
 
 
+class VisionTranscriptPage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    asset_id: uuid.UUID
+    order: int = Field(ge=0)
+    text: str = Field(min_length=1, max_length=100_000)
+    warnings: list[str] = Field(default_factory=list, max_length=20)
+
+
+class VisionTranscriptOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pages: list[VisionTranscriptPage] = Field(min_length=1, max_length=8)
+
+
 class JDProcessingService:
     """Stateful worker operations guarded by a processing run UUID."""
+
+    async def source_validate(self, session: AsyncSession, jd_id: uuid.UUID, run_id: uuid.UUID) -> str:
+        jd = await self._current_jd(session, jd_id, run_id)
+        if jd is None:
+            return "stale"
+        if jd.source_type != JDSourceType.IMAGE.value:
+            return "processing"
+        assets = await self._ordered_assets(session, jd_id)
+        if not assets:
+            raise JDProcessingError("Image source is missing", code=1002)
+        if not await self._write_current(
+            session,
+            jd_id,
+            run_id,
+            {
+                "status": JDStatus.PROCESSING.value,
+                "processing_step": JDProcessingStep.VISION_EXTRACT.value,
+                "processing_error": None,
+            },
+        ):
+            return "stale"
+        return "processing"
+
+    async def vision_extract(self, session: AsyncSession, jd_id: uuid.UUID, run_id: uuid.UUID) -> str:
+        jd = await self._current_jd(session, jd_id, run_id)
+        if jd is None:
+            return "stale"
+        if jd.source_type != JDSourceType.IMAGE.value:
+            return "processing"
+        assets = await self._ordered_assets(session, jd_id)
+        if not assets:
+            raise JDProcessingError("Image source is missing", code=1002)
+        if not await self._write_current(
+            session,
+            jd_id,
+            run_id,
+            {
+                "status": JDStatus.PROCESSING.value,
+                "processing_step": JDProcessingStep.VISION_EXTRACT.value,
+                "processing_error": None,
+            },
+        ):
+            return "stale"
+        config = await get_active_verified_config(session)
+        if config is None:
+            await session.rollback()
+            raise JDProcessingError("LLM not configured or not verified", code=428)
+        messages = await self._build_vision_messages(session, assets)
+        gateway = LLMGateway.from_config(config)
+        await session.rollback()
+        try:
+            response = await gateway.complete_multimodal(
+                messages,
+                response_format={"type": "json_object", "schema": VisionTranscriptOutput.model_json_schema()},
+            )
+            parsed = _parse_vision_response(response.content)
+        except (ValidationError, ValueError) as exc:
+            raise JDProcessingError("JD Vision transcription failed", code=5001) from exc
+        current = await self._current_jd(session, jd_id, run_id)
+        if current is None:
+            return "stale"
+        by_id = {asset.id: asset for asset in assets}
+        if {page.asset_id for page in parsed.pages} - set(by_id):
+            raise JDProcessingError("JD Vision transcription referenced an unknown image", code=5001)
+        ordered_pages = sorted(parsed.pages, key=lambda page: page.order)
+        raw_text = normalize_jd_text("\n\n".join(page.text for page in ordered_pages))
+        page_map = [page.model_dump(mode="json") for page in ordered_pages]
+        visible_chars = len(re.sub(r"\s", "", raw_text))
+        if visible_chars < 30 or len(raw_text) > 100_000:
+            raise JDProcessingError("JD Vision transcription did not contain enough readable text", code=5001)
+        for page in ordered_pages:
+            asset = by_id[page.asset_id]
+            asset.status = "ready"
+            asset.transcript_blocks = [page.model_dump(mode="json")]
+            asset.processing_error_code = None
+        if not await self._write_current(
+            session,
+            jd_id,
+            run_id,
+            {
+                "raw_text": raw_text,
+                "parser_version": "jd-vision-v1",
+                "vision_metadata": {
+                    "provider": config.provider,
+                    "model": response.model,
+                    "transcriber_version": "jd-vision-v1",
+                    "warnings": [warning for page in ordered_pages for warning in page.warnings],
+                    "pages": page_map,
+                },
+                "processing_step": JDProcessingStep.TEXT_QUALITY_CHECK.value,
+            },
+        ):
+            return "stale"
+        return "processing"
+
+    async def text_quality_check(self, session: AsyncSession, jd_id: uuid.UUID, run_id: uuid.UUID) -> str:
+        jd = await self._current_jd(session, jd_id, run_id)
+        if jd is None:
+            return "stale"
+        if jd.source_type != JDSourceType.IMAGE.value:
+            return "processing"
+        normalized = normalize_jd_text(jd.raw_text)
+        visible_chars = len(re.sub(r"\s", "", normalized))
+        if visible_chars < 30 or len(normalized) > 100_000:
+            raise JDProcessingError("Job description content is too short or too large to process")
+        if not await self._write_current(
+            session,
+            jd_id,
+            run_id,
+            {"raw_text": normalized, "processing_step": JDProcessingStep.DUPLICATE_CHECK.value},
+        ):
+            return "stale"
+        return "processing"
 
     async def source_extract(self, session: AsyncSession, jd_id: uuid.UUID, run_id: uuid.UUID) -> str:
         jd = await self._current_jd(session, jd_id, run_id)
         if jd is None:
             return "stale"
+        if jd.source_type == JDSourceType.IMAGE.value:
+            return "processing"
         if not await self._write_current(
             session,
             jd_id,
@@ -207,6 +340,7 @@ class JDProcessingService:
                 "status": JDStatus.READY.value,
                 "processing_step": JDProcessingStep.DONE.value,
                 "processing_error": None,
+                "structured_revision": JobDescriptionModel.structured_revision + 1,
             }
         )
         if not await self._write_current(session, jd_id, run_id, values):
@@ -263,6 +397,8 @@ class JDProcessingService:
         )
 
     async def _read_source(self, session: AsyncSession, jd: JobDescriptionModel) -> tuple[str, str]:
+        if jd.source_type == JDSourceType.IMAGE.value:
+            return jd.raw_text, "jd-vision-v1"
         if jd.source_type == JDSourceType.TEXT.value:
             return jd.raw_text, "direct-text-v1"
         if jd.source_type == JDSourceType.URL.value:
@@ -303,6 +439,42 @@ class JDProcessingService:
                 except FileNotFoundError:
                     pass
 
+    async def _ordered_assets(self, session: AsyncSession, jd_id: uuid.UUID) -> list[JDSourceAssetModel]:
+        result = await session.execute(
+            select(JDSourceAssetModel).where(JDSourceAssetModel.jd_id == jd_id).order_by(JDSourceAssetModel.order_index)
+        )
+        return list(result.scalars().all())
+
+    async def _build_vision_messages(
+        self,
+        session: AsyncSession,
+        assets: list[JDSourceAssetModel],
+    ) -> list[MultimodalMessage]:
+        blocks: list[MultimodalTextBlock | MultimodalImageBlock] = [
+            MultimodalTextBlock(
+                text=(
+                    "Transcribe the visible job description text from these screenshots in order. "
+                    "Return JSON with pages: asset_id, order, text, warnings. Do not infer missing content."
+                )
+            )
+        ]
+        settings = get_settings()
+        for asset in assets:
+            file_record = await session.get(FileModel, asset.file_id) if asset.file_id else None
+            if file_record is None:
+                raise JDProcessingError("Image source is unavailable", code=1002)
+            storage_path = file_record.storage_path
+            await session.rollback()
+            data = await asyncio.to_thread(download_file, settings.MINIO_BUCKET_RESUMES, storage_path)
+            blocks.append(
+                MultimodalImageBlock(
+                    media_type=asset.media_type,  # type: ignore[arg-type]
+                    data_base64=base64.b64encode(data).decode("ascii"),
+                    asset_id=str(asset.id),
+                )
+            )
+        return [MultimodalMessage(role="user", content=blocks)]
+
     @staticmethod
     async def _current_jd(
         session: AsyncSession,
@@ -339,4 +511,10 @@ class JDProcessingService:
         return jd.processing_run_id == run_id
 
 
-__all__ = ["JDProcessingError", "JDProcessingService"]
+def _parse_vision_response(content: str) -> VisionTranscriptOutput:
+    import json
+
+    return VisionTranscriptOutput.model_validate(json.loads(content))
+
+
+__all__ = ["JDProcessingError", "JDProcessingService", "VisionTranscriptOutput", "VisionTranscriptPage"]

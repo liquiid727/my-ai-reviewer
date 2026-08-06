@@ -4,27 +4,42 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import logging
 import uuid
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
+from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import get_settings
 from backend.domain.jd.enums import JDProcessingStep, JDSourceType, JDStatus
-from backend.infrastructure.db.models import FileModel, JobDescriptionModel
+from backend.infrastructure.db.models import FileModel, JDSourceAssetModel, JobDescriptionModel
 from backend.infrastructure.storage.minio_client import delete_file, upload_file
 
 logger = logging.getLogger(__name__)
 
 MAX_JD_FILE_SIZE = 10 * 1024 * 1024
+MAX_JD_IMAGE_SIZE = 10 * 1024 * 1024
+MAX_JD_IMAGE_TOTAL_SIZE = 30 * 1024 * 1024
+MAX_JD_IMAGE_COUNT = 8
+MAX_JD_IMAGE_PIXELS = 25_000_000
+MAX_JD_IMAGE_EDGE = 4_000
 JD_FILE_CONTENT_TYPES: dict[str, set[str]] = {
     ".pdf": {"application/pdf"},
     ".docx": {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
     ".txt": {"text/plain", "application/octet-stream"},
     ".md": {"text/markdown", "text/plain", "application/octet-stream"},
+}
+
+
+JD_IMAGE_CONTENT_TYPES: dict[str, str] = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
 }
 
 
@@ -34,6 +49,23 @@ class JDImportError(ValueError):
     def __init__(self, message: str, code: int = 1001) -> None:
         super().__init__(message)
         self.code = code
+
+
+@dataclass(frozen=True)
+class JDImageInput:
+    filename: str
+    content_type: str | None
+    data: bytes
+
+
+@dataclass(frozen=True)
+class SanitizedJDImage:
+    original_name: str
+    media_type: str
+    data: bytes
+    width: int
+    height: int
+    content_hash: str
 
 
 @dataclass(frozen=True)
@@ -58,6 +90,81 @@ def _validate_file(filename: str, content_type: str | None, data: bytes) -> str:
     if content_type and content_type.lower() not in JD_FILE_CONTENT_TYPES[extension]:
         raise JDImportError("File MIME type does not match its extension")
     return extension
+
+
+def _image_extension(filename: str) -> str:
+    extension = PurePosixPath(filename).suffix.lower()
+    if extension not in JD_IMAGE_CONTENT_TYPES:
+        raise JDImportError("Only PNG, JPG/JPEG, and WEBP images are supported")
+    return extension
+
+
+def _magic_media_type(data: bytes) -> str | None:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def validate_and_sanitize_images(images: list[JDImageInput]) -> list[SanitizedJDImage]:
+    if not images:
+        raise JDImportError("At least one image is required")
+    if len(images) > MAX_JD_IMAGE_COUNT:
+        raise JDImportError("At most 8 images are supported")
+    total = sum(len(image.data) for image in images)
+    if total > MAX_JD_IMAGE_TOTAL_SIZE:
+        raise JDImportError("Total image size is larger than 30MB")
+    sanitized: list[SanitizedJDImage] = []
+    for image in images:
+        extension = _image_extension(image.filename)
+        expected_media_type = JD_IMAGE_CONTENT_TYPES[extension]
+        declared = (image.content_type or expected_media_type).lower()
+        if declared != expected_media_type:
+            raise JDImportError("Image MIME type does not match its extension")
+        if not image.data:
+            raise JDImportError("Image must not be empty")
+        if len(image.data) > MAX_JD_IMAGE_SIZE:
+            raise JDImportError("Image is larger than 10MB")
+        magic = _magic_media_type(image.data)
+        if magic != expected_media_type:
+            raise JDImportError("Image bytes do not match the declared format")
+        try:
+            with Image.open(io.BytesIO(image.data)) as opened:
+                opened.verify()
+            with Image.open(io.BytesIO(image.data)) as opened:
+                normalized = ImageOps.exif_transpose(opened)
+                if normalized.width * normalized.height > MAX_JD_IMAGE_PIXELS:
+                    raise JDImportError("Image exceeds the 25MP limit")
+                if max(normalized.width, normalized.height) > MAX_JD_IMAGE_EDGE:
+                    raise JDImportError("Image maximum edge exceeds 4000px")
+                clean = Image.new(normalized.mode, normalized.size)
+                clean.putdata(list(normalized.getdata()))
+                if expected_media_type == "image/jpeg" and clean.mode not in {"RGB", "L"}:
+                    clean = clean.convert("RGB")
+                output = io.BytesIO()
+                format_name = "JPEG" if expected_media_type == "image/jpeg" else opened.format
+                if format_name is None:
+                    format_name = "PNG" if expected_media_type == "image/png" else "WEBP"
+                clean.save(output, format=format_name)
+                data = output.getvalue()
+                sanitized.append(
+                    SanitizedJDImage(
+                        original_name=image.filename,
+                        media_type=expected_media_type,
+                        data=data,
+                        width=normalized.width,
+                        height=normalized.height,
+                        content_hash=hashlib.sha256(data).hexdigest(),
+                    )
+                )
+        except JDImportError:
+            raise
+        except (UnidentifiedImageError, OSError, ValueError) as exc:
+            raise JDImportError("Image is corrupted or unsupported") from exc
+    return sanitized
 
 
 def _manual_sources(*fields: str) -> dict[str, str]:
@@ -176,6 +283,90 @@ class JDImportService:
         await session.commit()
         return await self._dispatch_or_mark_failed(session, jd, allow_duplicate=allow_duplicate)
 
+    async def import_images(
+        self,
+        session: AsyncSession,
+        *,
+        images: list[JDImageInput],
+        acknowledge_external_vision: bool,
+        title: str | None = None,
+        company: str | None = None,
+        allow_duplicate: bool = False,
+        user_id: uuid.UUID | None = None,
+    ) -> JDImportResult:
+        if not acknowledge_external_vision:
+            raise JDImportError("External Vision provider acknowledgement is required")
+        sanitized = validate_and_sanitize_images(images)
+        manual = _manual_sources(*(name for name, value in (("title", title), ("company", company)) if value))
+        jd = JobDescriptionModel(
+            user_id=user_id,
+            title=title,
+            company=company,
+            source_type=JDSourceType.IMAGE.value,
+            raw_text="",
+            field_sources=manual,
+            status=JDStatus.PROCESSING.value,
+            processing_step=JDProcessingStep.SOURCE_VALIDATE.value,
+            processing_run_id=uuid.uuid4(),
+            source_asset_count=len(sanitized),
+        )
+        session.add(jd)
+        await session.flush()
+        settings = get_settings()
+        owner_id = user_id or uuid.uuid4()
+        owner_key = str(user_id) if user_id else "anonymous"
+        uploaded_objects: list[str] = []
+        try:
+            for order_index, image in enumerate(sanitized):
+                extension = (
+                    ".jpg"
+                    if image.media_type == "image/jpeg"
+                    else ".png"
+                    if image.media_type == "image/png"
+                    else ".webp"
+                )
+                object_name = f"jd/{owner_key}/{jd.id}/image-{order_index:02d}-{uuid.uuid4()}{extension}"
+                await asyncio.to_thread(
+                    upload_file, settings.MINIO_BUCKET_RESUMES, object_name, image.data, image.media_type
+                )
+                uploaded_objects.append(object_name)
+                file_record = FileModel(
+                    original_name=image.original_name,
+                    storage_path=object_name,
+                    content_type=image.media_type,
+                    size_bytes=len(image.data),
+                    sha256_hash=image.content_hash,
+                    owner_type="job_description_image",
+                    owner_id=owner_id,
+                )
+                session.add(file_record)
+                await session.flush()
+                session.add(
+                    JDSourceAssetModel(
+                        jd_id=jd.id,
+                        file_id=file_record.id,
+                        order_index=order_index,
+                        media_type=image.media_type,
+                        byte_size=len(image.data),
+                        width=image.width,
+                        height=image.height,
+                        content_hash=image.content_hash,
+                        status="stored",
+                    )
+                )
+            await session.commit()
+        except Exception as exc:
+            await session.rollback()
+            for object_name in uploaded_objects:
+                try:
+                    await asyncio.to_thread(delete_file, settings.MINIO_BUCKET_RESUMES, object_name)
+                except Exception:
+                    logger.exception("Could not compensate failed JD image import", extra={"object_name": object_name})
+            if isinstance(exc, JDImportError):
+                raise
+            raise JDImportError("Unable to store JD image", code=5003) from exc
+        return await self._dispatch_or_mark_failed(session, jd, allow_duplicate=allow_duplicate)
+
     async def dispatch_existing(
         self,
         session: AsyncSession,
@@ -215,6 +406,7 @@ class JDImportService:
                 allow_duplicate,
                 start_step,
                 overwrite_manual,
+                jd.source_type,
             )
         except Exception:
             result = await session.execute(
